@@ -1,0 +1,27 @@
+services:
+  opencode:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: my-opencode:latest
+    container_name: opencode-cli
+    
+    # Keeps interactive TTY open for terminal UI / prompt input
+    stdin_open: true
+    tty: true
+
+    # Mount host workspace and persist OpenCode global configs/history
+    volumes:
+      - opencode-data:/home/node/.config/opencode
+
+    # Environment variables (loads from a .env file automatically)
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+
+    # Enables container to reach local LLM servers (e.g. Ollama) via host.docker.internal
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+volumes:
+  opencode-data:
