@@ -1,27 +1,39 @@
 services:
-  opencode:
+  # 1. Background Web Server Service
+  # opencode-server:
+  #   image: nopencode:latest
+  #   container_name: opencode-server
+  #   restart: unless-stopped
+  #   command: serve --port 4096 --hostname 0.0.0.0
+  #   ports:
+  #     - "4096:4096"
+  #   volumes:
+  #     - opencode-data:/home/node/.config/opencode
+  #   environment:
+  #     - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+  #     - OPENAI_API_KEY=${OPENAI_API_KEY}
+  #   extra_hosts:
+  #     - "host.docker.internal:host-gateway"
+
+  # 2. On-Demand Interactive CLI Service
+  opencode-cli:
+    image: nopencode:latest
+    container_name: opencode-cli
     build:
       context: .
       dockerfile: Dockerfile
-    image: my-opencode:latest
-    container_name: opencode-cli
-    
-    # Keeps interactive TTY open for terminal UI / prompt input
     stdin_open: true
     tty: true
-
-    # Mount host workspace and persist OpenCode global configs/history
+    # Default entrypoint ["opencode"] runs interactive CLI
+    # command: opencode
+    # command: attach http://opencode-server:4096
     volumes:
       - opencode-data:/home/node/.config/opencode
 
-    # Environment variables (loads from a .env file automatically)
     environment:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
-
-    # Enables container to reach local LLM servers (e.g. Ollama) via host.docker.internal
     extra_hosts:
       - "host.docker.internal:host-gateway"
-
 volumes:
   opencode-data:

@@ -1,3 +1,0 @@
-# opencode
-
-Initial commit
