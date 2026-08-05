@@ -1,8 +1,5 @@
-# 1. Use an official lightweight Node.js runtime as the base
 FROM node:20-slim
 
-# 2. Install essential system dependencies (git, curl, SSH, build tools),
-#    and the Python 3 toolchain
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     curl \
@@ -11,17 +8,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 \
     python3-pip \
     python3-venv \
+    tmux \
     && rm -rf /var/lib/apt/lists/*
 
-# 3. Install OpenCode globally via npm (or curl script)
+RUN curl -sLO https://github.com/tsl0922/ttyd/releases/download/1.7.7/ttyd.x86_64 \
+    && chmod +x ttyd.x86_64 \
+    && mv ttyd.x86_64 /usr/local/bin/ttyd
 RUN npm install -g opencode-ai
-
-# 4. Create and set a non-root working directory
+COPY start.sh /app/start.sh
+RUN chmod +x /app/start.sh && chown -R node:node /app
 WORKDIR /workspace
-
-# 5. Switch to a non-root user for security when mounting local host files
 USER node
-
-# 6. Launch the OpenCode web interface, bound to all interfaces so it's
-#    reachable from other machines on the network
 ENTRYPOINT ["opencode"]
