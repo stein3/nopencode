@@ -15,11 +15,12 @@ services:
       - "7681"
       - "sh"
       - "-c"
-      - "tmux new-session -A -s main 'tmux set-option -s escape-time 0; tmux set -g allow-passthrough on; opencode'"
+      - "tmux new-session -A -s main 'tmux set-option -s escape-time 0; tmux set -g allow-passthrough on; opencode; exec bash'"
     ports:
       - "7681:7681"
     volumes:
       - opencode-data:/home/node/.config/opencode
+      - opencode-share:/home/node/.local/share/opencode
       - ${HOST_WORKSPACE}:/workspace
     environment:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
@@ -30,3 +31,4 @@ services:
       - "host.docker.internal:host-gateway"
 volumes:
   opencode-data:
+  opencode-share:
