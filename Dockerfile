@@ -15,6 +15,7 @@ RUN curl -sLO https://github.com/tsl0922/ttyd/releases/download/1.7.7/ttyd.x86_6
     && chmod +x ttyd.x86_64 \
     && mv ttyd.x86_64 /usr/local/bin/ttyd
 RUN npm install -g opencode-ai
+COPY inject.py /app/inject.py
 COPY start.sh /app/start.sh
 RUN chmod +x /app/start.sh && chown -R node:node /app
 WORKDIR /workspace
