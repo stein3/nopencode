@@ -70,6 +70,7 @@ TOOLBAR = r"""<style>
 #oc-kb-bar .oc-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(48px,1fr));gap:4px;padding:0 6px 6px}
 #oc-kb-bar .oc-row.oc-fnrow{display:none}
 #oc-kb-bar.oc-fn .oc-row.oc-fnrow{display:grid}
+#oc-kb-bar.oc-fn .oc-row.oc-ctrlrow{display:none}
 #oc-kb-bar button{min-width:0;min-height:48px;padding:8px 2px;border:none;border-radius:8px;background:rgba(255,255,255,.12);color:#eee;font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;touch-action:manipulation}
 #oc-kb-bar button:active{background:rgba(255,255,255,.3)}
 #oc-kb-bar button.oc-mod-on{background:#ffd54f;color:#111}
@@ -97,7 +98,7 @@ TOOLBAR = r"""<style>
       {label: 'Alt', mod: 'alt'},
       {label: 'Fn', fn: true}
     ]},
-    {keys: [
+    {ctrlrow: true, keys: [
       {label: 'Ctrl+P', key: 'p', spec: {ctrl: true}},
       {label: 'Ctrl+C', key: 'c', spec: {ctrl: true}},
       {label: 'Ctrl+D', key: 'd', spec: {ctrl: true}},
@@ -105,6 +106,11 @@ TOOLBAR = r"""<style>
       {label: 'Ctrl+W', key: 'w', spec: {ctrl: true}},
       {label: 'Ctrl+U', key: 'u', spec: {ctrl: true}}
     ]},
+    {fnrow: true, keys: (function () {
+      var k = [];
+      for (var i = 1; i <= 12; i++) k.push({label: 'F' + i, key: 'F' + i});
+      return k;
+    })()},
     {keys: [
       {label: '\u2191', key: 'ArrowUp'},
       {label: '\u2193', key: 'ArrowDown'},
@@ -120,12 +126,7 @@ TOOLBAR = r"""<style>
       {label: 'Enter', key: 'Enter'},
       {label: '\u232b', key: 'Backspace'},
       {label: 'Del', key: 'Delete'}
-    ]},
-    {fnrow: true, keys: (function () {
-      var k = [];
-      for (var i = 1; i <= 12; i++) k.push({label: 'F' + i, key: 'F' + i});
-      return k;
-    })()}
+    ]}
   ];
 
   var ESCMAP = {
@@ -322,7 +323,9 @@ TOOLBAR = r"""<style>
   bar.appendChild(head);
   for (var ri = 0; ri < ROWS.length; ri++) {
     var row = document.createElement('div');
-    row.className = 'oc-row' + (ROWS[ri].fnrow ? ' oc-fnrow' : '');
+    row.className = 'oc-row'
+      + (ROWS[ri].fnrow ? ' oc-fnrow' : '')
+      + (ROWS[ri].ctrlrow ? ' oc-ctrlrow' : '');
     for (var ki = 0; ki < ROWS[ri].keys.length; ki++) {
       row.appendChild(makeButton(ROWS[ri].keys[ki]));
     }
