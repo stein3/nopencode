@@ -339,31 +339,48 @@ TOOLBAR = r"""<style>
   document.body.appendChild(tog);
 
   var open = false;
-  function toggle() {
-    open = !open;
-    bar.classList.toggle('oc-open', open);
-    tog.style.display = open ? 'none' : '';
-    placeBar();
-    if (open) focusTerm();
+  function fitTerm() {
+    try {
+      if (window.term && typeof window.term.fit === 'function') window.term.fit();
+    } catch (e) {}
   }
 
-  /* Keep the bar above the on-screen keyboard: fixed elements sit at the
-     bottom of the layout viewport, which the soft keyboard covers. Track the
-     visual viewport and lift the bar by the obscured amount. */
+  /* The bar is fixed at the viewport bottom. To keep it from covering the
+     terminal, shrink the terminal container so it ends right above the bar,
+     then re-fit xterm (ttyd forwards the new rows to the server). inset lifts
+     everything above the phone's soft keyboard. */
   var vv = window.visualViewport;
-  function placeBar() {
+  function applyBarLayout() {
+    var tc = document.getElementById('terminal-container');
     var inset = 0;
     if (vv) {
       inset = Math.max(0, window.innerHeight - (vv.offsetTop + vv.height));
     }
     bar.style.bottom = inset + 'px';
     tog.style.bottom = (inset + 10) + 'px';
+    if (tc) {
+      if (open) {
+        var bh = bar.offsetHeight;
+        tc.style.height = Math.max(0, window.innerHeight - bh - inset) + 'px';
+      } else {
+        tc.style.height = '';
+      }
+    }
+    setTimeout(fitTerm, 0);
+  }
+
+  function toggle() {
+    open = !open;
+    bar.classList.toggle('oc-open', open);
+    tog.style.display = open ? 'none' : '';
+    applyBarLayout();
+    if (open) focusTerm();
   }
   if (vv) {
-    vv.addEventListener('resize', placeBar);
-    vv.addEventListener('scroll', placeBar);
+    vv.addEventListener('resize', applyBarLayout);
+    vv.addEventListener('scroll', applyBarLayout);
   }
-  placeBar();
+  applyBarLayout();
 
   /* Keep focus in the terminal when tapping the bar. Only mousedown is
      prevented here; preventing touchstart would suppress the tap/click. */
