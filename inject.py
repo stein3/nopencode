@@ -91,10 +91,10 @@ TOOLBAR = r"""<style>
      keyboard; the modifier is applied to the next key. Tap again to release. */
   var ROWS = [
     {keys: [
+      {label: 'Esc', key: 'Escape'},
       {label: 'Ctrl', mod: 'ctrl'},
       {label: 'Shift', mod: 'shift'},
       {label: 'Alt', mod: 'alt'},
-      {label: 'Esc', key: 'Escape'},
       {label: 'Fn', fn: true}
     ]},
     {keys: [
@@ -103,9 +103,7 @@ TOOLBAR = r"""<style>
       {label: 'Ctrl+D', key: 'd', spec: {ctrl: true}},
       {label: 'Ctrl+K', key: 'k', spec: {ctrl: true}},
       {label: 'Ctrl+W', key: 'w', spec: {ctrl: true}},
-      {label: 'Ctrl+U', key: 'u', spec: {ctrl: true}},
-      {label: 'Ctrl+L', key: 'l', spec: {ctrl: true}},
-      {label: 'Ctrl+Z', key: 'z', spec: {ctrl: true}}
+      {label: 'Ctrl+U', key: 'u', spec: {ctrl: true}}
     ]},
     {keys: [
       {label: '\u2191', key: 'ArrowUp'},
