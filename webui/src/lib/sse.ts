@@ -69,6 +69,13 @@ export function startEvents() {
     if (!tabs.isopen(sid)) return
     if (type === 'session.idle') tabs.patch(sid, { busy: false })
     else if (type === 'session.error') tabs.patch(sid, { busy: false, error: String(p.error?.message ?? 'error') })
+
+    // true streaming: the engine pushes full part snapshots on every change
+    if (type === 'message.part.updated' && p.part?.id) {
+      tabs.upsertPart(sid, p.part.messageID, p.part)
+      return
+    }
+
     scheduleRefetch(sid)
   }
   es.onerror = () => {

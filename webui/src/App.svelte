@@ -4,6 +4,7 @@
   import TabsBar from './components/Tabs.svelte'
   import Transcript from './components/Transcript.svelte'
   import Composer from './components/Composer.svelte'
+  import Footer from './components/Footer.svelte'
   import { hist, oc } from './lib/api'
   import { tabs, permissions, sidebarOpen, selectedModel, paletteOpen, type Tab } from './lib/stores'
   import CommandPalette from './components/CommandPalette.svelte'
@@ -148,6 +149,7 @@
       <div class="tabpane" style:display={$active === t.id ? 'flex' : 'none'}>
         <Transcript tab={t} />
         <Composer bind:this={composer} tab={t} onSent={onSent} />
+        <Footer tab={t} />
       </div>
     {:else}
       <div class="notabs">Ctrl+T to start a chat · pick a session from the sidebar</div>
