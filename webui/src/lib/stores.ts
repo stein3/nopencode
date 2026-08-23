@@ -69,6 +69,45 @@ function makeTabs() {
         }),
       )
     },
+
+    // Apply one incremental delta from message.part.delta events.
+    appendDelta(sid: string, mid: string, pid: string, field: string, delta: string) {
+      update((all) =>
+        all.map((t) => {
+          if (t.id !== sid) return t
+          const m = t.messages.find((x) => x.id === mid)
+          if (!m) return t // unknown yet; snapshot/refetch will materialize it
+          const parts = (m.parts ?? []).map((p) => {
+            if (p.id !== pid) return p
+            if (field === 'text' || field === undefined)
+              return { ...p, text: (p.text ?? '') + delta }
+            if (field === 'metadata' && p.type === 'tool') return p // ignore for now
+            return p
+          })
+          return { ...t, messages: t.messages.map((x) => (x === m ? { ...m, parts } : x)) }
+        }),
+      )
+    },
+
+    // Correct role/metadata once message.updated delivers the authoritative info
+    setMeta(sid: string, info: any) {
+      if (!info?.id) return
+      update((all) =>
+        all.map((t) => {
+          if (t.id !== sid) return t
+          const exists = t.messages.some((x) => x.id === info.id)
+          if (!exists) return t
+          return {
+            ...t,
+            messages: t.messages.map((x) =>
+              x.id === info.id
+                ? { ...x, role: info.role ?? x.role, agent: info.agent ?? x.agent, time: info.time ?? x.time }
+                : x,
+            ),
+          }
+        }),
+      )
+    },
     setActive(id: string) {
       activeId = id
       setActiveStore(id)
