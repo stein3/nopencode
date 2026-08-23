@@ -1,6 +1,7 @@
 <script lang="ts">
+  import { onMount } from 'svelte'
   import { oc } from '../lib/api'
-  import { selectedModel } from '../lib/stores'
+  import { selectedModel, sessionTodos } from '../lib/stores'
   import type { Tab } from '../lib/stores'
 
   export let tab: Tab | null
@@ -8,7 +9,7 @@
   let cost = 0
   let usedTokens = 0
   let limit = 0
-  let todos: any[] = []
+  let fetchedTodos: any[] = []
   let lastKey = ''
 
   function fmtK(n: number): string {
@@ -19,7 +20,7 @@
 
   async function refresh() {
     if (!tab?.id || !tab.live) {
-      todos = []
+      fetchedTodos = []
       cost = 0
       usedTokens = 0
       return
@@ -31,7 +32,7 @@
         oc.todos(tab.id),
       ])
       cost = sess?.cost ?? 0
-      todos = Array.isArray(td) ? td : []
+      fetchedTodos = Array.isArray(td) ? td : []
       const withTok = [...(msgs ?? [])]
         .reverse()
         .find((m: any) => ((m.info ?? m)?.role ?? 'assistant') === 'assistant' && (m.info ?? m)?.tokens)
@@ -49,6 +50,13 @@
     lastKey = key
     refresh()
   }
+  // live updates from todo.updated events, fetch as initial/fallback source
+  $: todos = $sessionTodos[tab?.id ?? ''] ?? fetchedTodos
+  // safety net: slow poll in case events are missed (e.g. reconnect gaps)
+  onMount(() => {
+    const iv = setInterval(() => refresh(), 30000)
+    return () => clearInterval(iv)
+  })
   $: limit = getContextLimit($selectedModel)
 
   function getContextLimit(m: { providerID?: string; modelID?: string } | null): number {
