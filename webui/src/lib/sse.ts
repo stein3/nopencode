@@ -86,13 +86,21 @@ export function startEvents() {
     if (type === 'session.idle') tabs.patch(sid, { busy: false })
     else if (type === 'session.error') tabs.patch(sid, { busy: false, error: String(p.error?.message ?? 'error') })
 
-    // true streaming: the engine pushes full part snapshots on every change
+    // true streaming: snapshots replace, deltas append
     if (type === 'message.part.updated' && p.part?.id) {
-      tabs.upsertPart(sid, p.part.messageID, p.part)
+      tabs.upsertPart(sid, p.part.messageID ?? p.messageID, p.part)
       return
     }
-
-    scheduleRefetch(sid)
+    if (type === 'message.part.delta' && p.partID && typeof p.delta === 'string') {
+      tabs.appendDelta(sid, p.messageID, p.partID, p.field, p.delta)
+      // fall through: debounced refetch covers deltas that landed before
+      // their message materialized locally
+    } else if (type === 'message.updated' && p.info?.id) {
+      tabs.setMeta(sid, p.info)
+      scheduleRefetch(sid)
+    } else {
+      scheduleRefetch(sid)
+    }
   }
   es.onerror = () => {
     // EventSource auto-reconnects; re-pull permissions on reconnect

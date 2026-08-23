@@ -53,6 +53,9 @@
 </script>
 
 <div class="footer">
+  {#if tab.busy}
+    <span class="cylon" title="assistant working"><i></i></span>
+  {/if}
   <span class="seg" title="working directory">{dir || '~'}</span>
   {#if usedTokens}
     <span class="seg" title="estimated context usage">
@@ -82,6 +85,30 @@
     color: var(--fg-dim);
     user-select: none;
     min-height: 22px;
+  }
+  /* cylon scanner — back-and-forth sweep while the assistant works */
+  .cylon {
+    width: 34px;
+    height: 8px;
+    border-radius: 4px;
+    background: var(--bg-hover, #21262d);
+    overflow: hidden;
+    position: relative;
+    flex-shrink: 0;
+  }
+  .cylon i {
+    position: absolute;
+    top: 1px;
+    left: 0;
+    width: 10px;
+    height: 6px;
+    border-radius: 3px;
+    background: var(--accent, #58a6ff);
+    animation: cylon 1.1s ease-in-out infinite alternate;
+  }
+  @keyframes cylon {
+    from { left: 0; }
+    to { left: calc(100% - 10px); }
   }
   .seg {
     white-space: nowrap;
