@@ -15,7 +15,11 @@ services:
       - "7681"
       - "sh"
       - "-c"
-      - "tmux new-session -A -s main 'tmux set-option -s escape-time 0; tmux set -g allow-passthrough on; opencode; exec bash'"
+      # Attach to the shared engine so web + TUI see the same live sessions/events.
+      # Falls back to a standalone TUI if the engine isn't up yet (split-brain but usable).
+      - "tmux new-session -A -s main 'tmux set-option -s escape-time 0; tmux set -g allow-passthrough on; opencode attach http://opencode-engine:4096 || opencode; exec bash'"
+    depends_on:
+      - opencode-engine
     ports:
       - "7681:7681"
     volumes:
@@ -29,6 +33,52 @@ services:
       - LC_ALL=C.UTF-8
     extra_hosts:
       - "host.docker.internal:host-gateway"
+
+  # Headless opencode engine (REST + SSE). Powers the built-in web UI at :7682
+  # during Phase 1 evaluation and later the custom frontend.
+  # NO AUTH (trusted LAN by design) — do not port-forward this raw to the internet.
+  opencode-engine:
+    image: nopencode:latest
+    container_name: opencode-engine
+    restart: unless-stopped
+    command:
+      - "serve"
+      - "--hostname"
+      - "0.0.0.0"
+      - "--port"
+      - "4096"
+    ports:
+      - "7682:4096"
+    volumes:
+      - opencode-data:/home/node/.config/opencode
+      - opencode-share:/home/node/.local/share/opencode
+      - ${HOST_WORKSPACE}:/workspace
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - LANG=C.UTF-8
+      - LC_ALL=C.UTF-8
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  # Custom chat UI (Phase 2): serves webui/dist + sqlite history/search,
+  # proxies live-session traffic to the engine. Read-only DB access.
+  opencode-web:
+    image: nopencode:latest
+    container_name: opencode-web
+    restart: unless-stopped
+    entrypoint: ["python3"]
+    command: ["/app/chatserver.py"]
+    ports:
+      - "7683:7683"
+    volumes:
+      - opencode-share:/home/node/.local/share/opencode:ro
+    environment:
+      - PORT=7683
+      - OC_ENGINE=http://opencode-engine:4096
+    depends_on:
+      - opencode-engine
+
 volumes:
   opencode-data:
   opencode-share:
