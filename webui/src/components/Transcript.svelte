@@ -13,16 +13,29 @@
 
   function html(part: any): string {
     if (part.type !== 'text') return ''
-    const key = part.id ?? part.text
+    // length in key so streaming appends invalidate the cached render
+    const key = `${part.id ?? 'x'}:${(part.text ?? '').length}`
     const hit = renderCache.get(key)
     if (hit) return hit
     const raw = marked.parse(part.text ?? '') as string
     const safe = DOMPurify.sanitize(raw, { USE_PROFILES: { html: true } })
+    if (renderCache.size > 400) renderCache.clear()
     renderCache.set(key, safe)
     return safe
   }
 
-  $: msgs = tab.messages.filter((m) => m.parts?.some((p) => p.type === 'text' || p.type === 'tool'))
+  $: msgs = tab.messages.filter((m) =>
+    m.parts?.some((p) => p.type === 'text' || p.type === 'tool' || p.type === 'reasoning'),
+  )
+  $: lastMsg = msgs.at(-1)
+  $: lastHasVisible =
+    !!lastMsg?.parts?.some(
+      (p) => (p.type === 'text' && (p.text ?? '').trim()) || p.type === 'tool',
+    )
+  $: showThinking = tab.busy && (!lastMsg || lastMsg.role !== 'assistant' || !lastHasVisible)
+  $: lastThinkingOpen = !!lastMsg?.parts?.some(
+    (p) => p.type === 'reasoning' && !(p.text ?? '').trim(),
+  )
 
   $: lastLen = JSON.stringify(msgs.at(-1)?.parts?.length) + '-' + msgs.length
   let prevLen = ''
@@ -34,6 +47,12 @@
 
   function partsOf(m: any): any[] {
     return m?.parts ?? []
+  }
+
+  // reasoning parts stream in before the answer; show the latest as "Thinking"
+  function thinkingText(parts: any[]): string {
+    const r = parts.filter((p) => p.type === 'reasoning' && (p.text ?? '').trim())
+    return r.length ? r[r.length - 1].text : ''
   }
 
   function toolSummary(p: any): string {
@@ -67,6 +86,11 @@
         {#each partsOf(m) as p (p.id)}
           {#if p.type === 'text' && (p.text ?? '').trim()}
             {@html html(p)}
+          {:else if p.type === 'reasoning' && (p.text ?? '').trim()}
+            <details class="thinking" open={p.id === lastThinkingOpen || undefined}>
+              <summary>💭 Thinking</summary>
+              <div class="think-body">{p.text}</div>
+            </details>
           {:else if p.type === 'tool'}
             <details class="tool">
               <summary>{toolSummary(p)}</summary>
@@ -74,6 +98,9 @@
             </details>
           {/if}
         {/each}
+        {#if showThinking && m === lastMsg}
+          <div class="live-thinking">💭 Thinking<span class="dots"><i>.</i><i>.</i><i>.</i></span></div>
+        {/if}
       </div>
     </div>
   {/each}
@@ -177,5 +204,48 @@
     padding: 10px;
     border-top: 1px solid var(--border);
     font-size: 11.5px;
+  }
+  details.thinking {
+    margin: 6px 0;
+    border: 1px dashed var(--border);
+    border-radius: 6px;
+    background: var(--bg-panel);
+    font-size: 12px;
+  }
+  details.thinking summary {
+    cursor: pointer;
+    padding: 5px 10px;
+    color: var(--fg-dim);
+    user-select: none;
+  }
+  .think-body {
+    white-space: pre-wrap;
+    word-break: break-word;
+    color: var(--fg-dim);
+    padding: 8px 12px;
+    border-top: 1px dashed var(--border);
+    max-height: 260px;
+    overflow-y: auto;
+    line-height: 1.5;
+  }
+  .live-thinking {
+    color: var(--fg-dim);
+    font-size: 12.5px;
+    padding: 4px 2px;
+    font-style: italic;
+  }
+  .dots i {
+    animation: blink 1.2s infinite;
+    font-style: normal;
+  }
+  .dots i:nth-child(2) {
+    animation-delay: 0.2s;
+  }
+  .dots i:nth-child(3) {
+    animation-delay: 0.4s;
+  }
+  @keyframes blink {
+    0%, 60% { opacity: 0.15; }
+    30% { opacity: 1; }
   }
 </style>

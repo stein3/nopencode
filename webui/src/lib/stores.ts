@@ -49,6 +49,26 @@ function makeTabs() {
     patch(id: string, p: Partial<Tab>) {
       update((tabs) => tabs.map((t) => (t.id === id ? { ...t, ...p } : t)))
     },
+    // Insert-or-update one part in place — the engine sends full snapshots,
+    // so this gives us true streaming without a full refetch per token burst.
+    upsertPart(sid: string, mid: string, part: any) {
+      update((all) =>
+        all.map((t) => {
+          if (t.id !== sid) return t
+          const existing = t.messages.find((x) => x.id === mid)
+          const base =
+            existing ??
+            { id: mid, role: 'assistant', time: { created: Date.now() }, parts: [] }
+          const others = t.messages.filter((x) => x.id !== mid)
+          const parts = [...(base.parts ?? [])]
+          const i = parts.findIndex((p) => p.id === part.id)
+          if (i >= 0) parts[i] = { ...parts[i], ...part }
+          else parts.push(part)
+          const updated = { ...base, parts }
+          return { ...t, messages: [...others, updated] }
+        }),
+      )
+    },
     setActive(id: string) {
       activeId = id
       setActiveStore(id)
