@@ -1,4 +1,4 @@
-import { tabs } from './stores'
+import { tabs, sessionTodos } from './stores'
 import { oc } from './api'
 import { refreshPermissions } from './permissions'
 
@@ -74,6 +74,13 @@ export function startEvents() {
       p.properties?.sessionID
 
     if (/permission|question/i.test(type)) refreshPermissions()
+
+    // todo lists arrive whole — stash them for the info panel
+    if (type === 'todo.updated' && Array.isArray(p.todos)) {
+      sessionTodos.update((m) => ({ ...m, [sid]: p.todos }))
+      return
+    }
+
     if (!sid) return
     if (!tabs.isopen(sid)) return
     if (type === 'session.idle') tabs.patch(sid, { busy: false })

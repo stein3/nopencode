@@ -93,6 +93,7 @@ export const permissions = writable<PermRequest[]>([])
 export const sidebarOpen = writable(true)
 export const searchQuery = writable('')
 export const paletteOpen = writable(false)
+export const sessionTodos = writable<Record<string, any[]>>({})
 
 const INFO_KEY = 'opencode.infoOpen'
 export const infoOpen = writable(
