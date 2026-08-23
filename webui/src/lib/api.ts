@@ -41,10 +41,10 @@ export const oc = {
   messages: (id: string) => req<OcMessage[]>(`/oc/session/${id}/message`),
   createSession: (title?: string) =>
     req<OcSession>('/oc/session', { method: 'POST', body: JSON.stringify(title ? { title } : {}) }),
-  prompt: (sessionId: string, text: string) =>
+  prompt: (sessionId: string, text: string, model?: { providerID: string; modelID: string }) =>
     req<unknown>(`/oc/session/${sessionId}/message`, {
       method: 'POST',
-      body: JSON.stringify({ parts: [{ type: 'text', text }] }),
+      body: JSON.stringify({ parts: [{ type: 'text', text }], ...(model ? { model } : {}) }),
     }),
   abort: (sessionId: string) =>
     req<unknown>(`/oc/session/${sessionId}/abort`, { method: 'POST', body: '{}' }),
@@ -55,6 +55,23 @@ export const oc = {
       method: 'POST',
       body: JSON.stringify({ reply }),
     }),
+  providers: () =>
+    req<{ providers: any[] }>('/oc/config/providers').then((d) => d.providers ?? []),
+  commands: () => req<{ name: string; description?: string }[]>('/oc/command'),
+  todos: (sessionId: string) => req<any[]>(`/oc/session/${sessionId}/todo`).catch(() => []),
+  deleteMessage: (sessionId: string, messageID: string) =>
+    req<unknown>(`/oc/session/${sessionId}/message/${messageID}`, { method: 'DELETE' }),
+  revertTo: (sessionId: string, messageID: string) =>
+    req<unknown>(`/oc/session/${sessionId}/revert`, {
+      method: 'POST',
+      body: JSON.stringify({ messageID }),
+    }),
+  runCommand: (sessionId: string, command: string, args: string[] = []) =>
+    req<unknown>(`/oc/session/${sessionId}/command`, {
+      method: 'POST',
+      body: JSON.stringify({ command, arguments: args }),
+    }),
+  path: () => req<{ directory?: string }>('/oc/path').catch(() => ({})),
 }
 
 // ---- history (sqlite via chatserver.py) ----
