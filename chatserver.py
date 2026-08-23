@@ -117,7 +117,7 @@ class Store:
                         "model": model,
                         "created": num(d.get("time_created")),
                         "updated": num(d.get("time_updated")) or num(d.get("time_created")),
-                        "msgs": counts.get(sid, 0),
+                        "message_count": counts.get(sid, 0),
                     }
                 )
             sid_set = {s["id"] for s in sessions}
