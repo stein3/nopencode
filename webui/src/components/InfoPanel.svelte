@@ -102,7 +102,7 @@
     {#each todos as td, i (td.id ?? i)}
       <div class="todo">
         <span class="ic">{statusIcon[td.status] ?? '☐'}</span>
-        <span class="t" class:done={td.status === 'completed'}>{td.title ?? td.description}</span>
+        <span class="t" class:done={td.status === 'completed'}>{td.content ?? td.title ?? td.description ?? '(unnamed)'}</span>
       </div>
     {/each}
   {/if}
