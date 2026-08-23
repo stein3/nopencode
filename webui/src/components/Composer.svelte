@@ -1,6 +1,6 @@
 <script lang="ts">
   import { oc } from '../lib/api'
-  import { tabs } from '../lib/stores'
+  import { tabs, selectedModel, paletteOpen } from '../lib/stores'
   import type { Tab } from '../lib/stores'
 
   export let tab: Tab
@@ -18,11 +18,26 @@
   async function send() {
     const body = text.trim()
     if (!body || tab.busy || sending) return
+    if (body.startsWith('/')) {
+      // slash command, not a chat message
+      const name = body.slice(1).split(/\s+/)[0]
+      text = ''
+      autosize()
+      tabs.patch(tab.id, { busy: true })
+      try {
+        await oc.runCommand(tab.id, name)
+        onSent(tab.id)
+      } catch (e: any) {
+        tabs.patch(tab.id, { busy: false })
+        sendError = e.message ?? String(e)
+      }
+      return
+    }
     sending = true
     sendError = ''
     tabs.patch(tab.id, { busy: true }) // optimistic spinner immediately
     try {
-      await oc.prompt(tab.id, body)
+      await oc.prompt(tab.id, body, $selectedModel ?? undefined)
       text = ''
       autosize()
       onSent(tab.id)
@@ -34,19 +49,23 @@
     }
   }
 
+  function key(e: KeyboardEvent) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      send()
+    } else if (e.key === '/' && text === '') {
+      // leading slash opens the command palette like the TUI
+      e.preventDefault()
+      paletteOpen.set(true)
+    }
+  }
+
   async function abort() {
     try {
       await oc.abort(tab.id)
       tab.busy = false
     } catch {
       /* ignore */
-    }
-  }
-
-  function key(e: KeyboardEvent) {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault()
-      send()
     }
   }
 

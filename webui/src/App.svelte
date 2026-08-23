@@ -5,7 +5,9 @@
   import Transcript from './components/Transcript.svelte'
   import Composer from './components/Composer.svelte'
   import { hist, oc } from './lib/api'
-  import { tabs, permissions, sidebarOpen, type Tab } from './lib/stores'
+  import { tabs, permissions, sidebarOpen, selectedModel, paletteOpen, type Tab } from './lib/stores'
+  import CommandPalette from './components/CommandPalette.svelte'
+  import ModelPicker from './components/ModelPicker.svelte'
   import { startEvents, normalizeMessages } from './lib/sse'
   import { answerPermission, refreshPermissions } from './lib/permissions'
   import { initHotkeys } from './lib/hotkeys'
@@ -93,6 +95,7 @@
       closeTab: () => closeTab(tabs.getActive()),
       cycleTabs: (dir) => cycle(dir),
       jumpTab: (n) => jump(n),
+      openPalette: () => paletteOpen.set(true),
     })
   })
 
@@ -126,6 +129,7 @@
         ☰
       </button>
       <div class="spacer"></div>
+      <ModelPicker />
       {#if $permissions.length}
         <div class="perm">
           ⚠ {$permissions.length} permission{$permissions.length > 1 ? 's' : ''} pending
@@ -148,6 +152,7 @@
     {:else}
       <div class="notabs">Ctrl+T to start a chat · pick a session from the sidebar</div>
     {/each}
+    <CommandPalette sessionId={tabs.getActive() || null} onDone={() => composer?.focus()} />
   </main>
 </div>
 

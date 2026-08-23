@@ -5,6 +5,7 @@ export interface HotkeyHandlers {
   closeTab: () => void
   cycleTabs: (dir: 1 | -1) => void
   jumpTab: (n: number) => void
+  openPalette?: () => void
 }
 
 function typing(el: EventTarget | null): boolean {
@@ -20,6 +21,10 @@ export function initHotkeys(h: HotkeyHandlers) {
     if (mod && e.key.toLowerCase() === 'k') {
       e.preventDefault()
       h.focusSearch()
+    } else if (mod && !e.shiftKey && e.key.toLowerCase() === 'p') {
+      // must precede any browser default (print dialog)
+      e.preventDefault()
+      h.openPalette?.()
     } else if (mod && e.key.toLowerCase() === 't') {
       e.preventDefault()
       h.newChat()

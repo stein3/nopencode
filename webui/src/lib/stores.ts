@@ -72,3 +72,38 @@ export interface PermRequest {
 export const permissions = writable<PermRequest[]>([])
 export const sidebarOpen = writable(true)
 export const searchQuery = writable('')
+export const paletteOpen = writable(false)
+
+// ---- selected model (persisted) ----
+export interface ModelRef {
+  providerID: string
+  modelID: string
+}
+
+const MODEL_KEY = 'opencode.model'
+function loadModel(): ModelRef | null {
+  try {
+    const raw = localStorage.getItem(MODEL_KEY)
+    return raw ? JSON.parse(raw) : null
+  } catch {
+    return null
+  }
+}
+
+function makeModel() {
+  const { subscribe, set } = writable<ModelRef | null>(loadModel())
+  return {
+    subscribe,
+    save(m: ModelRef | null) {
+      set(m)
+      try {
+        if (m) localStorage.setItem(MODEL_KEY, JSON.stringify(m))
+        else localStorage.removeItem(MODEL_KEY)
+      } catch {
+        /* private mode */
+      }
+    },
+  }
+}
+
+export const selectedModel = makeModel()
