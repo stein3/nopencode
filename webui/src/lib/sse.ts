@@ -4,6 +4,15 @@ import { refreshPermissions } from './permissions'
 
 const timers = new Map<string, ReturnType<typeof setTimeout>>()
 
+export function refetchNow(sessionId: string) {
+  const prev = timers.get(sessionId)
+  if (prev) clearTimeout(prev)
+  timers.delete(sessionId)
+  oc.messages(sessionId)
+    .then((msgs) => tabs.patch(sessionId, { messages: normalizeMessages(msgs), dirty: false }))
+    .catch(() => {})
+}
+
 function scheduleRefetch(sessionId: string) {
   tabs.patch(sessionId, { dirty: true })
   const prev = timers.get(sessionId)

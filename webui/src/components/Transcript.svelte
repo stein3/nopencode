@@ -1,7 +1,9 @@
 <script lang="ts">
   import { marked } from 'marked'
   import DOMPurify from 'dompurify'
-  import type { Tab } from '../lib/stores'
+  import { tabs, type Tab } from '../lib/stores'
+  import { oc } from '../lib/api'
+  import { refetchNow } from '../lib/sse'
 
   export let tab: Tab
 
@@ -63,6 +65,25 @@
   function timeStr(t?: number): string {
     return t ? new Date(t < 1e12 ? t * 1000 : t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''
   }
+
+  async function delMessage(mid: string) {
+    if (!confirm('Delete this message?')) return
+    try {
+      await oc.deleteMessage(tab.id, mid)
+      refetchNow(tab.id)
+    } catch (e: any) {
+      alert(`delete failed: ${e.message ?? e}`)
+    }
+  }
+
+  async function revertTo(mid: string) {
+    try {
+      await oc.revertTo(tab.id, mid)
+      refetchNow(tab.id)
+    } catch (e: any) {
+      alert(`revert failed: ${e.message ?? e}`)
+    }
+  }
 </script>
 
 <div class="transcript" bind:this={scroller}>
@@ -81,6 +102,12 @@
       <div class="head" title={m.role}>
         <span class="role">{m.role === 'user' ? 'you' : m.agent || 'opencode'}</span>
         <span class="time">{timeStr(m.time?.created)}</span>
+        {#if m.role === 'user'}
+          <span class="acts">
+            <button class="act" title="Revert session to before this message" on:click={() => revertTo(m.id)}>↩</button>
+            <button class="act" title="Delete message" on:click={() => delMessage(m.id)}>🗑</button>
+          </span>
+        {/if}
       </div>
       <div class="body">
         {#each partsOf(m) as p (p.id)}
@@ -154,6 +181,27 @@
   }
   .time {
     opacity: 0.7;
+  }
+  .acts {
+    margin-left: auto;
+    display: none;
+    gap: 4px;
+  }
+  .msg:hover .acts {
+    display: inline-flex;
+  }
+  .act {
+    background: transparent;
+    border: none;
+    color: var(--fg-dim);
+    cursor: pointer;
+    font-size: 11px;
+    padding: 0 4px;
+    border-radius: 4px;
+  }
+  .act:hover {
+    background: var(--bg-hover);
+    color: var(--fg);
   }
   /* rendered markdown */
   .body {
