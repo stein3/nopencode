@@ -94,6 +94,25 @@ export const sidebarOpen = writable(true)
 export const searchQuery = writable('')
 export const paletteOpen = writable(false)
 
+const INFO_KEY = 'opencode.infoOpen'
+export const infoOpen = writable(
+  (() => {
+    try {
+      return localStorage.getItem(INFO_KEY) !== '0'
+    } catch {
+      return true
+    }
+  })(),
+)
+export function toggleInfo() {
+  infoOpen.update((v) => {
+    try {
+      localStorage.setItem(INFO_KEY, v ? '0' : '1')
+    } catch {}
+    return !v
+  })
+}
+
 // ---- selected model (persisted) ----
 export interface ModelRef {
   providerID: string

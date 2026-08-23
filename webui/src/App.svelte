@@ -6,9 +6,10 @@
   import Composer from './components/Composer.svelte'
   import Footer from './components/Footer.svelte'
   import { hist, oc } from './lib/api'
-  import { tabs, permissions, sidebarOpen, selectedModel, paletteOpen, type Tab } from './lib/stores'
+  import { tabs, permissions, sidebarOpen, selectedModel, paletteOpen, infoOpen, toggleInfo, type Tab } from './lib/stores'
   import CommandPalette from './components/CommandPalette.svelte'
   import ModelPicker from './components/ModelPicker.svelte'
+  import InfoPanel from './components/InfoPanel.svelte'
   import { startEvents, normalizeMessages } from './lib/sse'
   import { answerPermission, refreshPermissions } from './lib/permissions'
   import { initHotkeys } from './lib/hotkeys'
@@ -131,6 +132,7 @@
       </button>
       <div class="spacer"></div>
       <ModelPicker />
+      <button class="burger" title="Toggle info panel" on:click={toggleInfo}>▤</button>
       {#if $permissions.length}
         <div class="perm">
           ⚠ {$permissions.length} permission{$permissions.length > 1 ? 's' : ''} pending
@@ -156,6 +158,9 @@
     {/each}
     <CommandPalette sessionId={tabs.getActive() || null} onDone={() => composer?.focus()} />
   </main>
+  {#if $infoOpen}
+    <InfoPanel tab={$tabs.find((t) => t.id === $active) ?? null} />
+  {/if}
 </div>
 
 <style>
