@@ -8,7 +8,9 @@ async function req<T>(url: string, init?: RequestInit): Promise<T> {
     ...init,
   })
   if (!r.ok) throw new Error(`${init?.method ?? 'GET'} ${url} -> ${r.status}`)
-  return r.json()
+  // prompt_async answers 204 No Content
+  const t = await r.text()
+  return t ? JSON.parse(t) : (undefined as T)
 }
 
 async function reqText(url: string, init?: RequestInit): Promise<string> {
@@ -70,8 +72,12 @@ export const oc = {
         ...(model ? { model: { providerID: model.providerID, id: model.modelID } } : {}),
       }),
     }),
+  // prompt_async returns immediately (204) — the turn streams in over SSE.
+  // The blocking POST /message used here before held the connection for the
+  // whole run, which Cloudflare's ~100s edge timeout killed with a 524 on any
+  // long turn.
   prompt: (sessionId: string, text: string, model?: { providerID: string; modelID: string }) =>
-    req<unknown>(`/oc/session/${sessionId}/message`, {
+    req<unknown>(`/oc/session/${sessionId}/prompt_async`, {
       method: 'POST',
       body: JSON.stringify({ parts: [{ type: 'text', text }], ...(model ? { model } : {}) }),
     }),

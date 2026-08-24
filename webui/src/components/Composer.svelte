@@ -91,11 +91,10 @@
   // composer lets you line up the next message instead of dead-ending on the
   // stop button (which also used to trap sessions waiting on a question).
   //
-  // `sending` only covers prep + dispatch. oc.prompt is a BLOCKING call — the
-  // engine answers when the turn finishes — so awaiting it here used to pin
-  // `sending` true for the entire run, disabling queueing entirely (button and
-  // Enter). The in-flight prompt is detached below; its errors are handled by
-  // failedSend().
+  // `sending` only covers prep + dispatch. oc.prompt is fire-and-return
+  // (engine prompt_async → 204); the turn itself streams in over SSE, so
+  // nothing here waits on it. The flight is still detached and its errors
+  // handled by failedSend() in case the dispatch connection dies mid-send.
   async function submit(body: string) {
     if (!body || sending) return
     sending = true
@@ -146,12 +145,10 @@
     }
   }
 
-  // Late failure of a detached send (proxy timeout, OS sleep, network drop).
-  // The connection dying does NOT mean the engine missed the message — the
-  // prompt POST stays open until the whole turn finishes, so the text usually
-  // already landed. Only hand it back when the transcript shows no matching
-  // user message; blindly restoring made returning to a backgrounded tab
-  // "resend" the last message.
+  // Failure of a detached send (network drop before the 204, OS sleep). The
+  // connection dying does NOT mean the engine missed the message, so only hand
+  // it back when the transcript shows no matching user message; blindly
+  // restoring made returning to a backgrounded tab "resend" the last message.
   async function failedSend(sid: string, body: string, e: any) {
     toastErr(e)
     let landed = false
