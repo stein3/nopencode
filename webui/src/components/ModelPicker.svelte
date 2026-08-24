@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { oc } from '../lib/api'
-  import { selectedModel, modelPickerOpen, tabs } from '../lib/stores'
+  import { selectedModel, modelPickerOpen, tabs, preferredDefaultModel } from '../lib/stores'
 
   let providers: { id: string; name?: string; models: Record<string, any> }[] = []
   let open = false
@@ -9,9 +9,8 @@
   onMount(async () => {
     await load()
     if (!$selectedModel && providers.length) {
-      const p = providers[0]
-      const first = Object.keys(p.models ?? {})[0]
-      if (first) selectedModel.save({ providerID: p.id, modelID: first })
+      const def = preferredDefaultModel(providers)
+      if (def) selectedModel.save(def)
     }
   })
 
