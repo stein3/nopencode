@@ -53,6 +53,27 @@
       (p) => (p.type === 'text' && (p.text ?? '').trim()) || p.type === 'tool',
     )
   $: liveThinking = tab.busy && (!lastMsg || lastMsg.role !== 'assistant' || !lastHasVisible)
+
+  // User messages still awaiting their assistant turn. The engine runs
+  // queued prompts strictly in order, so every user message after the last
+  // assistant message is pending: its head is the one being processed (the
+  // thinking/streaming UI already says so), the rest are queued.
+  $: queuedIds = deriveQueued(msgs, tab.busy)
+  function deriveQueued(list: OcMessage[], busy?: boolean): Set<string> {
+    const out = new Set<string>()
+    if (!busy) return out
+    let lastAssistant = -1
+    list.forEach((m, i) => {
+      if (m.role === 'assistant') lastAssistant = i
+    })
+    let seenHead = false
+    for (let i = lastAssistant + 1; i < list.length; i++) {
+      if (list[i].role !== 'user') continue
+      if (!seenHead) seenHead = true
+      else out.add(list[i].id)
+    }
+    return out
+  }
   // The newest reasoning part of the running turn: auto-expanded while it
   // streams, pinned to its bottom, collapsed once the turn finishes. (The old
   // `p.id === <boolean>` comparison could never match, so live blocks never
@@ -530,6 +551,9 @@
         {#if $showTimestamps}
           <span class="time">{timeStr(m.time?.created)}</span>
         {/if}
+        {#if queuedIds.has(m.id)}
+          <span class="qbadge" title="waiting for the current reply to finish">queued</span>
+        {/if}
         {#if m.role === 'user'}
           <span class="acts">
             <button class="act" title="Revert session to before this message" on:click={() => revertTo(m.id)}>↩</button>
@@ -645,6 +669,18 @@
   button.older:hover {
     color: var(--fg);
     border-color: var(--accent);
+  }
+  .qbadge {
+    font-size: 9.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--fg-dim);
+    border: 1px dashed var(--border);
+    border-radius: 8px;
+    padding: 0 6px;
+    line-height: 1.5;
+    user-select: none;
+    white-space: nowrap;
   }
   .logo {
     font-size: 22px;
