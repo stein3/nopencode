@@ -34,18 +34,30 @@
     close()
     row.onPick?.()
   }
+
+  // keep mouse/keyboard handling off the non-interactive role="dialog" node
+  function panelHandlers(node: HTMLElement) {
+    const stopMousedown = (e: Event) => e.stopPropagation()
+    node.addEventListener('mousedown', stopMousedown)
+    node.addEventListener('keydown', key)
+    return {
+      destroy() {
+        node.removeEventListener('mousedown', stopMousedown)
+        node.removeEventListener('keydown', key)
+      },
+    }
+  }
 </script>
 
 {#if $dialog}
-  <div class="overlay" on:mousedown={close}>
+  <div class="overlay" role="presentation" on:mousedown={close}>
     <div
       class="panel"
       role="dialog"
       aria-label={$dialog.title}
       tabindex="-1"
       bind:this={panelEl}
-      on:mousedown|stopPropagation
-      on:keydown={key}
+      use:panelHandlers
     >
       <div class="title">{$dialog.title}</div>
       {#if $dialog.rows?.length}

@@ -89,10 +89,10 @@
 </script>
 
 {#if $paletteOpen}
-  <div class="overlay" on:mousedown={close}>
-    <div class="panel" on:mousedown|stopPropagation>
+  <div class="overlay" role="presentation" on:mousedown={close}>
+    <div class="panel" role="presentation" on:mousedown|stopPropagation>
       <!-- mousedown-preventDefault keeps click-focus from blurring the input -->
-      <div class="inputrow" on:mousedown|preventDefault={() => {}}>
+      <div class="inputrow" role="presentation" on:mousedown|preventDefault={() => {}}>
         <input
           bind:this={inputEl}
           bind:value={query}

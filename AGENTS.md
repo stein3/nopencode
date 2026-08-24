@@ -1,9 +1,6 @@
 # /workspace/opencode — ttyd/webui stack
 
-Facts about the opencode container stack in this directory. Multiple parallel workstreams live here — see the warning below.
-
-## ⚠️ Parallel workstreams
-
+Facts about the opencode container stack in this directory.
 
 ## Services & ports
 
