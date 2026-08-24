@@ -1,14 +1,24 @@
 import { writable } from 'svelte/store'
 import type { OcMessage } from './api'
 
+// Engine reverts don't delete messages — they mark a revert point on the
+// session and the next prompt physically prunes. Until then every client must
+// truncate its own view at this boundary.
+export interface RevertPoint {
+  messageID?: string
+  partID?: string
+}
+
 export interface Tab {
-  id: string // session id
+  id: string // session id — or a local `pending-*` id until first send
   title: string
   messages: OcMessage[]
   live: boolean // engine-backed vs pure history snapshot
   busy?: boolean
   dirty?: boolean // refetch pending
   error?: string
+  revert?: RevertPoint | null
+  pending?: boolean // not created on the engine yet
 }
 
 function makeTabs() {
@@ -48,6 +58,22 @@ function makeTabs() {
     },
     patch(id: string, p: Partial<Tab>) {
       update((tabs) => tabs.map((t) => (t.id === id ? { ...t, ...p } : t)))
+    },
+    // swap a placeholder tab for the real session, preserving position
+    rekey(oldId: string, next: Tab) {
+      openIds.delete(oldId)
+      openIds.add(next.id)
+      update((all) => all.map((t) => (t.id === oldId ? next : t)))
+      if (activeId === oldId) {
+        activeId = next.id
+        setActiveStore(next.id)
+      }
+    },
+    // synchronous read of one tab (for command handlers outside reactivity)
+    snapshot(id: string): Tab | undefined {
+      let found: Tab | undefined
+      subscribe((all) => (found = all.find((t) => t.id === id)))()
+      return found
     },
     // Insert-or-update one part in place — the engine sends full snapshots,
     // so this gives us true streaming without a full refetch per token burst.
@@ -133,6 +159,64 @@ export const sidebarOpen = writable(true)
 export const searchQuery = writable('')
 export const paletteOpen = writable(false)
 export const sessionTodos = writable<Record<string, any[]>>({})
+
+// ---- display preferences (persisted) ----
+export function makePref(key: string, initial = true) {
+  const KEY = 'opencode.' + key
+  const w = writable<boolean>(
+    (() => {
+      try {
+        const raw = localStorage.getItem(KEY)
+        return raw === null ? initial : raw === '1'
+      } catch {
+        return initial
+      }
+    })(),
+  )
+  let cur = false
+  w.subscribe((v) => (cur = v))
+  function set(v: boolean) {
+    w.set(v)
+    try {
+      localStorage.setItem(KEY, v ? '1' : '0')
+    } catch {}
+  }
+  return { subscribe: w.subscribe, set, toggle: () => set(!cur) }
+}
+
+export const showThinking = makePref('showThinking', false) // /thinking expands all blocks
+export const showTimestamps = makePref('showTimestamps', true)
+
+// ---- externally-triggered model picker ----
+export const modelPickerOpen = writable(false)
+
+// ---- transient toast ----
+export const toastMsg = writable('')
+let toastTimer: ReturnType<typeof setTimeout> | undefined
+export function toast(msg: string, ms = 2600) {
+  toastMsg.set(msg)
+  clearTimeout(toastTimer)
+  toastTimer = setTimeout(() => toastMsg.set(''), ms)
+}
+
+// ---- command registry reactivity ----
+// bumped when engine commands/skills finish loading so menus refresh
+export const cmdVersion = writable(0)
+
+// ---- generic dialog (list rows or plain text), driven by commands.ts ----
+export interface DialogRow {
+  label: string
+  desc?: string
+  hint?: string
+  onPick?: () => void
+}
+export interface DialogSpec {
+  title: string
+  rows?: DialogRow[]
+  pre?: string // monospace block (diff, status…)
+  note?: string
+}
+export const dialog = writable<DialogSpec | null>(null)
 
 const INFO_KEY = 'opencode.infoOpen'
 export const infoOpen = writable(
