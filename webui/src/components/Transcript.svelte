@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
+  import { onMount, afterUpdate } from 'svelte'
   import { tabs, showThinking, showTimestamps, type Tab } from '../lib/stores'
   import { oc, type OcMessage } from '../lib/api'
   import { refetchNow } from '../lib/sse'
@@ -49,9 +49,20 @@
       (p) => (p.type === 'text' && (p.text ?? '').trim()) || p.type === 'tool',
     )
   $: liveThinking = tab.busy && (!lastMsg || lastMsg.role !== 'assistant' || !lastHasVisible)
-  $: lastThinkingOpen = !!lastMsg?.parts?.some(
-    (p) => p.type === 'reasoning' && !(p.text ?? '').trim(),
-  )
+  // The newest reasoning part of the running turn: auto-expanded while it
+  // streams, pinned to its bottom, collapsed once the turn finishes. (The old
+  // `p.id === <boolean>` comparison could never match, so live blocks never
+  // opened on their own.)
+  $: liveReasoningId = tab.busy
+    ? (lastMsg?.parts ?? []).filter((p) => p.type === 'reasoning').at(-1)?.id
+    : undefined
+  let liveThinkEl: HTMLElement
+  let thinkStuck = true
+
+  function onThinkScroll() {
+    if (!liveThinkEl) return
+    thinkStuck = nearBottom(liveThinkEl, 24)
+  }
 
   // ---- stick-to-bottom ----------------------------------------------------
   // Follow new content (streaming text, thinking blocks, tool cards, images)
@@ -59,22 +70,65 @@
   // back, resume when they return. A ResizeObserver on the feed catches every
   // height change — delta appends don't change part counts, so a message-level
   // trigger alone would miss most of the stream.
+  //
+  // Inactive panes are display:none: their observer goes quiet (box stays
+  // 0×0), and on re-show the browser restores an old scrollTop onto the now-
+  // taller content, firing a synthetic scroll that would clear `stuck` before
+  // follow()'s rAF gets to run (rAF callbacks run after scroll-event dispatch).
+  // Guarded three ways: activation re-pins, scrolls from hidden state are
+  // ignored, and only real upward input (wheel / swipe / reading keys) unsticks.
+  export let active = false
   let stuck = true
+  let wasActive = true // don't fight openHistory anchor scrolling on mount
 
-  function onScroll() {
-    if (!scroller) return
-    stuck = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 120
+  function nearBottom(el: HTMLElement, slop = 120): boolean {
+    return el.scrollHeight - el.scrollTop - el.clientHeight < slop
   }
 
-  function follow() {
-    if (!stuck || !scroller) return
+  $: {
+    if (active && !wasActive) {
+      stuck = true
+      follow(true) // force past any restore-scroll that lands after us
+    }
+    wasActive = active
+  }
+
+  function onScroll() {
+    // offsetParent is null under display:none — restore/clamp noise, not user
+    if (!scroller || !scroller.offsetParent) return
+    if (nearBottom(scroller)) stuck = true
+  }
+
+  function onWheel(e: WheelEvent) {
+    if (e.deltaY < 0) stuck = false
+  }
+
+  let touchY = 0
+  function onTouchStart(e: TouchEvent) {
+    touchY = e.touches[0]?.clientY ?? 0
+  }
+  function onTouchMove(e: TouchEvent) {
+    const y = e.touches[0]?.clientY ?? 0
+    if (y > touchY + 6) stuck = false // downward drag = scrolling up = reading back
+    touchY = y
+  }
+
+  function onKey(e: KeyboardEvent) {
+    // reading keys unstick unless typed into a field (ArrowUp recalls history)
+    const t = e.target as HTMLElement | null
+    if (t?.closest?.('input, textarea, select') || t?.isContentEditable) return
+    if (e.key === 'ArrowUp' || e.key === 'PageUp' || e.key === 'Home') stuck = false
+  }
+
+  function follow(force = false) {
+    if ((!stuck && !force) || !scroller) return
     requestAnimationFrame(() => {
-      if (stuck && scroller) scroller.scrollTop = scroller.scrollHeight
+      if ((stuck || force) && scroller?.offsetParent) scroller.scrollTop = scroller.scrollHeight
     })
   }
 
   onMount(() => {
-    const ro = new ResizeObserver(follow)
+    const ro = new ResizeObserver(() => follow())
     if (feed) ro.observe(feed)
     follow()
     oc.skills()
@@ -83,6 +137,14 @@
       })
       .catch(() => {})
     return () => ro.disconnect()
+  })
+
+  // Pin the streaming think-body to its newest text. afterUpdate because a
+  // ResizeObserver can't do this: max-height caps the box size, so the box
+  // stops changing while content keeps growing. Reader scroll-up inside the
+  // block (thinkStuck=false) is respected until they return to its bottom.
+  afterUpdate(() => {
+    if (liveThinkEl && thinkStuck) liveThinkEl.scrollTop = liveThinkEl.scrollHeight
   })
 
   function partsOf(m: any): any[] {
@@ -343,7 +405,16 @@
   }
 </script>
 
-<div class="transcript" bind:this={scroller} on:scroll={onScroll}>
+<svelte:window on:keydown={onKey} />
+
+<div
+  class="transcript"
+  bind:this={scroller}
+  on:scroll={onScroll}
+  on:wheel={onWheel}
+  on:touchstart|passive={onTouchStart}
+  on:touchmove|passive={onTouchMove}
+>
   <div class="feed" bind:this={feed}>
     {#if !tab.messages.length}
       <div class="empty">
@@ -374,9 +445,13 @@
           {#if p.type === 'text' && (p.text ?? '').trim()}
             {@html html(p)}
           {:else if p.type === 'reasoning' && (p.text ?? '').trim()}
-            <details class="thinking" open={$showThinking || p.id === lastThinkingOpen || undefined}>
+            <details class="thinking" open={$showThinking || p.id === liveReasoningId || undefined}>
               <summary>💭 Thinking</summary>
-              <div class="think-body">{p.text}</div>
+              {#if p.id === liveReasoningId}
+                <div class="think-body" bind:this={liveThinkEl} on:scroll={onThinkScroll}>{p.text}</div>
+              {:else}
+                <div class="think-body">{p.text}</div>
+              {/if}
             </details>
           {:else if p.type === 'tool'}
             <div class="toolcard">

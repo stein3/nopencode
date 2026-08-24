@@ -26,6 +26,12 @@ Deployment topology & procedures: see private ops notes (not tracked here).
 - **Dockerfile**: no `build-essential`/pip/venv — image assumes prebuilt npm binaries and stdlib-only python3. Don't add compiling deps without restoring build tooling.
 - Deploy changes: `sudo docker compose up -d --build` (image rebuild required for Dockerfile/chatserver/webui/inject edits); inject.py additionally needs the cached `/app/index.html` removed (see ttyd-web-terminal skill).
 
+## Transcript scroll behavior (webui)
+
+- Tab panes stay mounted under `display:none` (App.svelte), which silences their ResizeObserver (box stays 0×0) and makes the browser restore stale scrollTop on re-show — that synthetic scroll fires *after* RO delivery but *before* rAF, so pure position-based stick-to-bottom loses the pin on every tab return. Fix (Transcript.svelte): `active` prop force-snaps to bottom on activation, `onScroll` ignores events while `offsetParent` is null, and only real upward input (wheel-up / downward swipe / ArrowUp·PageUp·Home outside inputs) clears `stuck`.
+- Streaming think-body pins itself in `afterUpdate()`: ResizeObserver can't work there — `max-height` caps the box size, so the observed box stops changing while content keeps growing.
+- Svelte gotcha: attribute expressions like `open={p.id === someBoolean}` (string vs boolean) are silently always-false — no type error at build time (the old `lastThinkingOpen` bug that kept live thinking blocks collapsed).
+
 ## Session diff data (webui DiffPane)
 
 - Engine `/session/{id}/diff` returns `[]` for real sessions (snapshot store has no commits) — derive per-session changes from the transcript DB instead.

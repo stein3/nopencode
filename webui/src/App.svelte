@@ -310,7 +310,7 @@
     <TabsBar onClose={closeTab} onNewChat={newChat} />
     {#each $tabs as t (t.id)}
       <div class="tabpane" style:display={$active === t.id ? 'flex' : 'none'}>
-        <Transcript tab={t} />
+        <Transcript tab={t} active={t.id === $active} />
         <Composer
           bind:this={composers[t.id]}
           tab={t}
