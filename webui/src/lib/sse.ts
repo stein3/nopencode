@@ -4,19 +4,89 @@ import { refreshPermissions } from './permissions'
 
 const timers = new Map<string, ReturnType<typeof setTimeout>>()
 
+// Transcript loads are windowed: the newest RECENT_PAGE messages render first
+// (that's all the footer/info panel need for tokens/cost), older history is
+// fetched once on upward scroll. Engine `?before=` paging 400s server-side, so
+// backfill does one full fetch instead of true pages.
+export const RECENT_PAGE = 80
+
+function byCreated(a: any, b: any) {
+  return (a.time?.created ?? 0) - (b.time?.created ?? 0) || String(a.id).localeCompare(String(b.id))
+}
+
 // One code path for "we now have the engine's view of this session's
-// messages": updates the tab AND the shared sidebar metrics.
-export function applyMessages(sessionId: string, msgs: any[]) {
-  tabs.patch(sessionId, { messages: normalizeMessages(msgs), dirty: false })
-  patchMetrics(sessionId, metricsFromMessages(msgs))
+// messages": updates the tab AND the shared sidebar metrics. `complete` means
+// the payload wasn't truncated by a limit — partial merges keep any
+// older-loaded prefix (union by id) so backfill work is never undone.
+export function applyMessages(sessionId: string, msgs: any[], complete = true) {
+  const cur = tabs.snapshot(sessionId)
+  if (!cur) return
+  const fetched = normalizeMessages(msgs)
+  let next = fetched
+  if (cur.partial && !complete && cur.messages.length) {
+    const ids = new Set(fetched.map((m) => m.id))
+    const older = cur.messages.filter((m) => !ids.has(m.id))
+    if (older.length) next = [...older, ...fetched].sort(byCreated)
+  }
+  // identical id-set + unchanged partial state → skip the swap: a new Tab
+  // object re-fires every consumer (Footer refetches, Transcript re-renders),
+  // which otherwise self-amplifies into a fetch loop
+  const partialNext = !complete || !!cur.partial
+  const sameIds =
+    next.length === cur.messages.length &&
+    next.every((m, i) => m.id === cur.messages[i].id)
+  if (sameIds && !!cur.partial === partialNext && !cur.dirty) {
+    patchMetrics(sessionId, metricsFromMessages(msgs, complete))
+    return
+  }
+  tabs.patch(sessionId, {
+    messages: next,
+    dirty: false,
+    // an incomplete payload means older history exists; once complete, any
+    // previous partial state is resolved
+    partial: partialNext,
+  })
+  patchMetrics(sessionId, metricsFromMessages(msgs, complete))
+}
+
+// Full catch-up for a windowed session (scroll-up, transcript export, search
+// jumps into old history). No-op when everything is already loaded.
+export async function backfill(sessionId: string): Promise<void> {
+  const t = tabs.snapshot(sessionId)
+  if (!t?.partial || t.loadingOlder) return
+  tabs.patch(sessionId, { loadingOlder: true })
+  try {
+    applyMessages(sessionId, await oc.messages(sessionId))
+  } finally {
+    tabs.patch(sessionId, { loadingOlder: false })
+  }
+}
+
+// One incremental older-history page for the transcript scroll-up path. Uses
+// the cumulative-limit trick (fetch newest N+k, merge keeps the overlap) since
+// the engine's `before` cursor 400s server-side. Rendering stays chunked, so
+// huge sessions never block in one giant update.
+const OLDER_CHUNK = 120
+
+export async function loadOlder(sessionId: string): Promise<void> {
+  const t = tabs.snapshot(sessionId)
+  if (!t?.partial || t.loadingOlder || !t.live) return
+  tabs.patch(sessionId, { loadingOlder: true })
+  try {
+    const want = t.messages.length + OLDER_CHUNK
+    const msgs = await oc.messages(sessionId, want)
+    applyMessages(sessionId, msgs, msgs.length < want)
+  } finally {
+    tabs.patch(sessionId, { loadingOlder: false })
+  }
 }
 
 export function refetchNow(sessionId: string) {
   const prev = timers.get(sessionId)
   if (prev) clearTimeout(prev)
   timers.delete(sessionId)
-  oc.messages(sessionId)
-    .then((msgs) => applyMessages(sessionId, msgs))
+  oc.messages(sessionId, RECENT_PAGE)
+    .then((msgs) => applyMessages(sessionId, msgs, msgs.length < RECENT_PAGE))
     .catch(() => {})
 }
 
@@ -29,7 +99,8 @@ function scheduleRefetch(sessionId: string) {
     setTimeout(async () => {
       timers.delete(sessionId)
       try {
-        applyMessages(sessionId, await oc.messages(sessionId))
+        const msgs = await oc.messages(sessionId, RECENT_PAGE)
+        applyMessages(sessionId, msgs, msgs.length < RECENT_PAGE)
       } catch {
         /* tab may be closed */
       }
@@ -82,6 +153,8 @@ export function startEvents() {
       p.message?.sessionID ??
       p.properties?.sessionID
 
+    // question.asked / .replied / .rejected (and .v2 variants) drive the
+    // pending-question picker; permissions keep their own refresh
     if (/permission|question/i.test(type)) refreshPermissions()
 
     // todo lists arrive whole — stash them for the info panel

@@ -3,6 +3,7 @@
 // mirror the TUI's built-in commands. Both the Ctrl+P palette and the
 // composer's inline "/" menu render from here.
 import { oc } from './api'
+import { RECENT_PAGE, backfill } from './sse'
 import {
   tabs,
   dialog,
@@ -214,6 +215,7 @@ registry.builtins = [
     run: async (ctx) => {
       const sid = needSession(ctx)
       if (!sid) return
+      await backfill(sid) // transcripts include history the window may not have loaded
       const ok = await copyText(transcriptMarkdown(sid))
       toast(ok ? 'transcript copied to clipboard' : 'clipboard unavailable')
     },
@@ -234,6 +236,7 @@ registry.builtins = [
     run: async (ctx) => {
       const sid = needSession(ctx)
       if (!sid) return
+      await backfill(sid)
       download(`${(tabs.snapshot(sid)?.title ?? 'session').replace(/[^\w-]+/g, '_')}.md`, transcriptMarkdown(sid))
     },
   },
@@ -459,7 +462,7 @@ registry.builtins = [
       if (!sid) return
       let msgs: any[] = []
       try {
-        msgs = await oc.messages(sid)
+        msgs = await oc.messages(sid, RECENT_PAGE)
       } catch (e: any) {
         return toast(`/undo failed: ${e.message ?? e}`)
       }

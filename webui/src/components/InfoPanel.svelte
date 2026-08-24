@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { oc } from '../lib/api'
+  import { RECENT_PAGE } from '../lib/sse'
   import { selectedModel, sessionTodos } from '../lib/stores'
   import type { Tab } from '../lib/stores'
 
@@ -36,7 +37,7 @@
     try {
       const [sess, msgs, td] = await Promise.all([
         oc.session(cur.id),
-        oc.messages(cur.id),
+        oc.messages(cur.id, RECENT_PAGE),
         oc.todos(cur.id),
       ])
       // discard a stale response if the panel switched sessions meanwhile
@@ -149,9 +150,8 @@
     font-weight: 600;
     font-size: 13px;
     display: block;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    overflow-wrap: anywhere;
+    white-space: normal;
   }
   .sec {
     margin: 16px 0 6px;

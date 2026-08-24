@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { oc } from '../lib/api'
+  import { RECENT_PAGE } from '../lib/sse'
   import { selectedModel, paletteOpen } from '../lib/stores'
   import type { Tab } from '../lib/stores'
 
@@ -21,7 +22,7 @@
     try {
       const [sess, msgs, path] = await Promise.all([
         oc.session(tab.id),
-        oc.messages(tab.id),
+        oc.messages(tab.id, RECENT_PAGE),
         dir ? Promise.resolve(null as any) : oc.path(),
       ])
       cost = sess?.cost ?? 0
@@ -39,7 +40,16 @@
     }
   }
 
-  $: if (!tab.pending && (tab.id || tab.busy === false)) refresh(), void tab.busy
+  // refetch only on meaningful transitions — tab objects are replaced on
+  // every store patch (streaming included); refetching on each would cascade
+  let lastKey = ''
+  $: {
+    const k = `${tab.id}:${tab.busy ? 1 : 0}`
+    if (!tab.pending && (tab.id || tab.busy === false) && k !== lastKey) {
+      lastKey = k
+      refresh()
+    }
+  }
 
   let limit = 0
   onMount(async () => {
