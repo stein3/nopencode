@@ -11,7 +11,6 @@
   import CommandDialog from './components/CommandDialog.svelte'
   import ModelPicker from './components/ModelPicker.svelte'
   import InfoPanel from './components/InfoPanel.svelte'
-  import DiffPane from './components/DiffPane.svelte'
   import { startEvents, normalizeMessages } from './lib/sse'
   import { answerPermission, refreshPermissions } from './lib/permissions'
   import { initHotkeys } from './lib/hotkeys'
@@ -334,10 +333,12 @@
   {/if}
   {#if diffOpen}
     <div class="diffwrap">
-      <DiffPane
-        sessionId={tabs.snapshot(tabs.getActive())?.pending ? '' : tabs.getActive()}
-        visible={diffOpen}
-      />
+      {#await import('./components/DiffPane.svelte') then DiffPane}
+        <DiffPane.default
+          sessionId={tabs.snapshot(tabs.getActive())?.pending ? '' : tabs.getActive()}
+          visible={diffOpen}
+        />
+      {/await}
     </div>
   {/if}
 </div>
