@@ -2,4 +2,5 @@ compose.homelab.yaml
 .env
 __pycache__/
 webui/node_modules/
+webui/dist/
 webui/.webtest/
