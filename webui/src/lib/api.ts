@@ -83,6 +83,16 @@ export const oc = {
       method: 'POST',
       body: JSON.stringify({ reply }),
     }),
+  // pending question-tool requests (root route, all sessions)
+  questions: () => req<any[]>('/oc/question'),
+  replyQuestion: (requestID: string, answers: string[][]) =>
+    req<unknown>(`/oc/question/${requestID}/reply`, {
+      method: 'POST',
+      // answers[i] = selected labels for questions[i] (array even for single)
+      body: JSON.stringify({ answers }),
+    }),
+  rejectQuestion: (requestID: string) =>
+    req<unknown>(`/oc/question/${requestID}/reject`, { method: 'POST', body: '{}' }),
   providers: () =>
     req<{ providers: any[] }>('/oc/config/providers').then((d) => d.providers ?? []),
   commands: () => req<{ name: string; description?: string }[]>('/oc/command'),

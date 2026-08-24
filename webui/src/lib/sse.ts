@@ -1,6 +1,7 @@
 import { tabs, sessionTodos, patchMetrics, metricsFromMessages, markSessionUnread } from './stores'
 import { oc } from './api'
 import { refreshPermissions } from './permissions'
+import { refreshQuestions } from './questions'
 
 const timers = new Map<string, ReturnType<typeof setTimeout>>()
 
@@ -132,6 +133,7 @@ export function normalizeMessages(msgs: any[]): any[] {
 
 export function startEvents() {
   refreshPermissions()
+  refreshQuestions()
   const es = new EventSource('/oc/event')
   es.onmessage = (ev) => {
     let data: any
@@ -155,7 +157,8 @@ export function startEvents() {
 
     // question.asked / .replied / .rejected (and .v2 variants) drive the
     // pending-question picker; permissions keep their own refresh
-    if (/permission|question/i.test(type)) refreshPermissions()
+    if (/permission/i.test(type)) refreshPermissions()
+    if (/question/i.test(type)) refreshQuestions()
 
     // todo lists arrive whole — stash them for the info panel
     if (type === 'todo.updated' && Array.isArray(p.todos)) {
