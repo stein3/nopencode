@@ -338,10 +338,13 @@
 
   // One-line summary per tool: read → file, glob → pattern, bash → command…
   // Falls back to the engine's own title, then any string argument.
-  function toolSummary(p: any): string {
+  function toolStatusGlyph(p: any): string {
+    const status = typeof (p.state ?? {}).status === 'string' ? p.state.status : ''
+    return status === 'error' ? '✗ ' : status === 'running' || status === 'pending' ? '⏳ ' : ''
+  }
+
+  function toolDetail(p: any): string {
     const st = p.state ?? {}
-    const status = typeof st.status === 'string' ? st.status : ''
-    const glyph = status === 'error' ? '✗ ' : status === 'running' || status === 'pending' ? '⏳ ' : ''
     const tool = String(p.tool ?? '').toLowerCase()
     let detail = ''
     if (/bash|shell|cmd/.test(tool)) {
@@ -383,7 +386,22 @@
       const v = Object.values(inp).find((x) => typeof x === 'string' && x.trim())
       if (v) detail = v as string
     }
-    return glyph + [p.tool ?? 'tool', clip(detail)].filter(Boolean).join(' · ')
+    return clip(detail)
+  }
+
+  // Per-tool-kind accent for the tool name in the summary line
+  function toolColorClass(p: any): string {
+    const tool = String(p.tool ?? '').toLowerCase()
+    if (/bash|shell|cmd/.test(tool)) return 'tc-bash'
+    if (/edit|write|patch|save|multiedit/.test(tool)) return 'tc-edit'
+    if (/read|view|cat|open|list|ls|tree/.test(tool)) return 'tc-read'
+    if (/glob|grep|find|search/.test(tool)) return 'tc-search'
+    if (/fetch|web|http/.test(tool)) return 'tc-web'
+    if (/task|agent|subagent/.test(tool)) return 'tc-agent'
+    if (QUESTION_RE.test(tool)) return 'tc-question'
+    if (/skill/.test(tool)) return 'tc-skill'
+    if (/todo/.test(tool)) return 'tc-todo'
+    return ''
   }
 
   function timeStr(t?: number): string {
@@ -465,7 +483,7 @@
             <div class="toolcard">
               <details class="tool">
                 <summary>
-                  <span class="sum-text">{toolSummary(p)}</span>
+                  <span class="sum-text">{toolStatusGlyph(p)}<span class="tname {toolColorClass(p)}">{p.tool ?? 'tool'}</span>{#if toolDetail(p)}<span class="tsep">·</span><span>{toolDetail(p)}</span>{/if}</span>
                   {#if isTruncated(p)}<span class="badge warn">truncated</span>{/if}
                   {#if toolDuration(p)}<span class="badge">{toolDuration(p)}</span>{/if}
                 </summary>
@@ -651,6 +669,41 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  .tname {
+    font-weight: 600;
+    color: var(--fg);
+  }
+  .tname.tc-bash {
+    color: #e8a848;
+  }
+  .tname.tc-edit {
+    color: #7cc47c;
+  }
+  .tname.tc-read {
+    color: #6aa9ea;
+  }
+  .tname.tc-search {
+    color: #b48cea;
+  }
+  .tname.tc-web {
+    color: #56c8d8;
+  }
+  .tname.tc-agent {
+    color: #ec7ba4;
+  }
+  .tname.tc-question {
+    color: #e3d26f;
+  }
+  .tname.tc-skill {
+    color: #66d0b0;
+  }
+  .tname.tc-todo {
+    color: #a8b0bc;
+  }
+  .tsep {
+    opacity: 0.5;
+    padding: 0 2px;
   }
   .badge {
     flex: none;
