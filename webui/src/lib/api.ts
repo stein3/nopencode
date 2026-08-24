@@ -11,11 +11,26 @@ async function req<T>(url: string, init?: RequestInit): Promise<T> {
   return r.json()
 }
 
+async function reqText(url: string, init?: RequestInit): Promise<string> {
+  const r = await fetch(url, { headers: { 'content-type': 'application/json' }, ...init })
+  if (!r.ok) throw new Error(`${init?.method ?? 'GET'} ${url} -> ${r.status}`)
+  return r.text()
+}
+
+export interface OcRevert {
+  messageID?: string
+  partID?: string
+}
+
 export interface OcSession {
   id: string
   title?: string
   time?: { created?: number; updated?: number }
   version?: string
+  revert?: OcRevert | null
+  cost?: number
+  agent?: string
+  model?: { providerID: string; id: string; variant?: string }
 }
 
 export interface OcMessage {
@@ -23,7 +38,10 @@ export interface OcMessage {
   role?: string
   agent?: string
   time?: { created?: number }
+  tokens?: Record<string, any>
   parts?: OcPart[]
+  // v1 engine wraps message data as { info, parts } — both shapes flow through
+  info?: Partial<OcMessage> & { sessionID?: string; tokens?: Record<string, any>; cost?: number }
 }
 
 export interface OcPart {
@@ -62,7 +80,7 @@ export const oc = {
   deleteMessage: (sessionId: string, messageID: string) =>
     req<unknown>(`/oc/session/${sessionId}/message/${messageID}`, { method: 'DELETE' }),
   revertTo: (sessionId: string, messageID: string) =>
-    req<unknown>(`/oc/session/${sessionId}/revert`, {
+    req<OcSession>(`/oc/session/${sessionId}/revert`, {
       method: 'POST',
       body: JSON.stringify({ messageID }),
     }),
@@ -71,7 +89,43 @@ export const oc = {
       method: 'POST',
       body: JSON.stringify({ command, arguments: args }),
     }),
-  path: () => req<{ directory?: string }>('/oc/path').catch(() => ({})),
+  path: () => req<{ directory?: string }>('/oc/path').catch(() => ({ directory: undefined })),
+  agents: () => req<{ name: string; mode?: string; description?: string }[]>('/oc/agent'),
+  setAgent: (sessionId: string, agent: string) =>
+    req<unknown>(`/oc/api/session/${sessionId}/agent`, {
+      method: 'POST',
+      body: JSON.stringify({ agent }),
+    }),
+  // switch the model the CURRENT session uses (engine schema: ModelRef.id)
+  setSessionModel: (sessionId: string, m: { providerID: string; modelID: string }) =>
+    req<unknown>(`/oc/api/session/${sessionId}/model`, {
+      method: 'POST',
+      body: JSON.stringify({ model: { providerID: m.providerID, id: m.modelID } }),
+    }),
+  summarize: (sessionId: string, model: { providerID: string; modelID: string }) =>
+    req<unknown>(`/oc/session/${sessionId}/summarize`, { method: 'POST', body: JSON.stringify(model) }),
+  forkSession: (sessionId: string) =>
+    req<OcSession>(`/oc/session/${sessionId}/fork`, { method: 'POST', body: '{}' }),
+  shareSession: (sessionId: string) =>
+    req<OcSession & { share?: { url?: string } }>(`/oc/session/${sessionId}/share`, {
+      method: 'POST',
+      body: '{}',
+    }),
+  unshareSession: (sessionId: string) =>
+    req<unknown>(`/oc/session/${sessionId}/share`, { method: 'DELETE' }),
+  renameSession: (sessionId: string, title: string) =>
+    req<OcSession>(`/oc/session/${sessionId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ title }),
+    }),
+  mcps: () => req<Record<string, any>>('/oc/mcp').catch(() => ({})),
+  mcpToggle: (name: string, connect: boolean) =>
+    req<unknown>(`/oc/mcp/${encodeURIComponent(name)}/${connect ? 'connect' : 'disconnect'}`, {
+      method: 'POST',
+      body: '{}',
+    }),
+  diffRaw: () => reqText('/oc/vcs/diff/raw').catch(() => ''),
+  skills: () => req<{ name: string; description?: string; location?: string }[]>('/oc/skill'),
 }
 
 // ---- history (sqlite via chatserver.py) ----
