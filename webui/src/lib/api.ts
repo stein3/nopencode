@@ -57,8 +57,16 @@ export const oc = {
   sessions: () => req<OcSession[]>('/oc/session'),
   session: (id: string) => req<OcSession>(`/oc/session/${id}`),
   messages: (id: string) => req<OcMessage[]>(`/oc/session/${id}/message`),
-  createSession: (title?: string) =>
-    req<OcSession>('/oc/session', { method: 'POST', body: JSON.stringify(title ? { title } : {}) }),
+  createSession: (title?: string, model?: { providerID: string; modelID: string }) =>
+    req<OcSession>('/oc/session', {
+      method: 'POST',
+      body: JSON.stringify({
+        ...(title ? { title } : {}),
+        // engine ModelRef uses `id` — a session created without one inherits
+        // the config default, ignoring the picker
+        ...(model ? { model: { providerID: model.providerID, id: model.modelID } } : {}),
+      }),
+    }),
   prompt: (sessionId: string, text: string, model?: { providerID: string; modelID: string }) =>
     req<unknown>(`/oc/session/${sessionId}/message`, {
       method: 'POST',

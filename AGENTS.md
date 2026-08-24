@@ -29,6 +29,7 @@ Deployment topology & procedures: see private ops notes (not tracked here).
 - Tab panes stay mounted under `display:none` (App.svelte), which silences their ResizeObserver (box stays 0×0) and makes the browser restore stale scrollTop on re-show — that synthetic scroll fires *after* RO delivery but *before* rAF, so pure position-based stick-to-bottom loses the pin on every tab return. Fix (Transcript.svelte): `active` prop force-snaps to bottom on activation, `onScroll` ignores events while `offsetParent` is null, and only real upward input (wheel-up / downward swipe / ArrowUp·PageUp·Home outside inputs) clears `stuck`.
 - Streaming think-body pins itself in `afterUpdate()`: ResizeObserver can't work there — `max-height` caps the box size, so the observed box stops changing while content keeps growing.
 - Svelte gotcha: attribute expressions like `open={p.id === someBoolean}` (string vs boolean) are silently always-false — no type error at build time (the old `lastThinkingOpen` bug that kept live thinking blocks collapsed).
+- Svelte gotcha #2 (the frozen `{label()}` bug in ModelPicker): a function called in the template only re-runs when the function binding itself is dirtied — reactive vars/stores read *inside* the body are invisible to the compiler, so the collapsed model label never updated (stuck on "model…" or a raw fallback id). Fix pattern: `$: curLabel = fn($store, localVar)` and render `{curLabel}`.
 
 ## Session diff data (webui DiffPane)
 
@@ -49,3 +50,24 @@ Deployment topology & procedures: see private ops notes (not tracked here).
 - `permission` is the kind (`bash`, `edit`, `read`, `glob`, `grep`, `webfetch`, `doom_loop`, …). `metadata.input` holds the tool call input for bash (→ show `input.command`); glob/grep → `{pattern,path}`; webfetch → `{url}`; mcp reads → `{server}`. Edit asks carry the file path in `patterns[0]`.
 - Human-readable detail builder lives in `webui/src/lib/permissions.ts` (`permDetail`); display in App.svelte header bar shows kind + detail with full text in `title`.
 - Schema source of truth: engine `/doc` OpenAPI (`components.schemas.PermissionRequest`). Inspect a running engine's schema via `opencode serve --port <p>` + `curl /doc`; don't guess from TUI strings.
+
+## Session status lights (webui sidebar)
+
+- Each sidebar session row has a 7px dot with three states (source order in Sidebar.svelte matters — later rules win): `.perm` red solid (pending permission), `.busy` yellow pulsing, `.unread` accent green slow-pulse (finished while unviewed). Idle = transparent.
+- Busy comes from a 5s poll of engine `/oc/session/status` in Sidebar.svelte (`busyMap`); permission from the shared `permissions` store.
+- Done/unread lives in `sessionUnread` store (stores.ts). Two producers: sse.ts marks on `session.idle`/`session.error` when `tabs.getActive() !== sid` (open tabs only — SSE drops non-open sessions); Sidebar's busy-poll diffs consecutive polls to catch busy→idle for sessions with no open tab. Consumer: App.svelte `$: if ($active) clearSessionUnread($active)` clears on any tab activation (clicks, hotkeys, new chats).
+- Unread state is in-memory only — lost on reload by design (no localStorage persistence).
+
+## Model selection (engine API shape, verified v1.18.18)
+
+- Engine exposes TWO route trees: legacy `/session/*` (what the webui uses) and a v2 `/api/session/*` tree. `POST /api/session/{id}/model` (switch session model, body `{model:{providerID,id}}`, ModelRef uses `id` NOT `modelID`) exists ONLY in the v2 tree — there is no `/session/{id}/model`. Returns 415 without `content-type: application/json`.
+- `POST /session` (create) accepts `model:{providerID,id}` — sessions can be born with a model; otherwise they inherit the config default and the first turn ignores the picker.
+- `POST /session/{id}/message` body accepts `model:{providerID,modelID}` (note: `modelID` here, unlike ModelRef). Explicit model wins, gets stamped on the user message AND updates session.model — even with `noReply:true`.
+- Webui invariant (after the "model didn't stick" bug, 2026-08): `selectedModel` store is written ONLY by user actions (topbar ModelPicker, empty-state ModelSelect). Never echo `session.model` from SSE `session.updated` or `openLive` back into it — those stream constantly during an in-flight turn carrying the OLD model and silently reverted fresh picks. Prompts always send the picker value explicitly (Composer.submit), and pending tabs realize via `createSession(title, model)`.
+- Empty-state dropdown lives in `webui/src/components/ModelSelect.svelte` (native select + optgroups, mobile-friendly), rendered by Transcript.svelte only for live tabs with no messages.
+
+## Webui browser verification (headless, no deploy)
+
+- Local loop for UI tests: point chatserver at the engine: `OC_ENGINE=127.0.0.1:4096 PORT=8123 HOST=127.0.0.1 python3 /workspace/opencode/chatserver.py &`, then drive `http://127.0.0.1:8123` with the headless-browser skill (setup dir `/workspace/opencode/.webtest`, example script `verify.mjs` there).
+- Gotchas: `waitUntil:'networkidle'` never fires (SSE `/oc/event` stays open) — use `domcontentloaded` + UI waits; playwright glob `**/oc/session/*/message` also matches the GET polling — filter `route.request().method() === 'POST'` and `route.fallback()` the rest; multiple tab panes stay mounted so scope composers with `#composer-input:visible`.
+- Delete probe sessions afterwards: `DELETE /session/{id}` on :4096 (auto-titled `New session - <ISO>` ones created during testing).

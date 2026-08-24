@@ -25,10 +25,14 @@
     load().then(() => (open = true))
   }
 
-  function label(): string {
-    const m = $selectedModel
+  // must be a reactive statement, NOT a function called in the template —
+  // `{label()}` never re-runs because the compiler can't see the stores/vars
+  // read inside the function body (label stayed frozen on "model…"/raw id)
+  $: curLabel = labelFor($selectedModel, providers)
+
+  function labelFor(m: { providerID: string; modelID: string } | null, provs: typeof providers): string {
     if (!m) return 'model…'
-    const prov = providers.find((p) => p.id === m.providerID)
+    const prov = provs.find((p) => p.id === m.providerID)
     const name = prov?.models?.[m.modelID]?.name ?? m.modelID
     return name.length > 26 ? name.slice(0, 24) + '…' : name
   }
@@ -44,7 +48,7 @@
 
 <div class="wrap">
   <button class="cur" title="Select model" on:click={() => (open = !open)}>
-    {label()} ▾
+    {curLabel} ▾
   </button>
   {#if open}
     <div class="menu">

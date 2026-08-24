@@ -4,6 +4,7 @@
   import { oc, type OcMessage } from '../lib/api'
   import { refetchNow } from '../lib/sse'
   import { md } from '../lib/markdown'
+  import ModelSelect from './ModelSelect.svelte'
 
   export let tab: Tab
 
@@ -447,6 +448,7 @@
         <div class="logo">opencode</div>
         {#if tab.live}
           Type below to start the conversation.
+          <div class="modelrow"><ModelSelect /></div>
         {:else}
           No message data for this session.
         {/if}
@@ -560,6 +562,10 @@
     letter-spacing: 0.3em;
     margin-bottom: 8px;
     color: var(--accent);
+  }
+  .modelrow {
+    display: flex;
+    justify-content: center;
   }
   .msg {
     max-width: 860px;

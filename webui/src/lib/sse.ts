@@ -1,4 +1,4 @@
-import { tabs, sessionTodos, selectedModel, patchMetrics, metricsFromMessages } from './stores'
+import { tabs, sessionTodos, patchMetrics, metricsFromMessages, markSessionUnread } from './stores'
 import { oc } from './api'
 import { refreshPermissions } from './permissions'
 
@@ -92,8 +92,14 @@ export function startEvents() {
 
     if (!sid) return
     if (!tabs.isopen(sid)) return
-    if (type === 'session.idle') tabs.patch(sid, { busy: false })
-    else if (type === 'session.error') tabs.patch(sid, { busy: false, error: String(p.error?.message ?? 'error') })
+    if (type === 'session.idle') {
+      tabs.patch(sid, { busy: false })
+      // finished while another tab is being viewed → flag done/unread
+      if (tabs.getActive() !== sid) markSessionUnread(sid)
+    } else if (type === 'session.error') {
+      tabs.patch(sid, { busy: false, error: String(p.error?.message ?? 'error') })
+      if (tabs.getActive() !== sid) markSessionUnread(sid)
+    }
 
     // true streaming: snapshots replace, deltas append
     if (type === 'message.part.updated' && p.part?.id) {
@@ -124,11 +130,10 @@ export function startEvents() {
       // follow renames / auto-titles (e.g. "New Session" → real title)
       if (p.info.title && tabs.snapshot(sid)?.title !== p.info.title)
         tabs.patch(sid, { title: p.info.title })
-      // keep the picker honest if the session's model changes underneath us
-      // (e.g. switched from the TUI) — only for the tab being looked at
-      const m = p.info.model
-      if (tabs.getActive() === sid && m?.providerID && m?.id)
-        selectedModel.save({ providerID: m.providerID, modelID: m.id })
+      // NOTE: deliberately no selectedModel.save here — these events stream
+      // all through an in-flight turn carrying its OLD model, so echoing them
+      // into the picker silently reverted a fresh user pick before the next
+      // send. The picker is now purely user-driven; prompts always carry it.
       scheduleRefetch(sid)
     } else {
       scheduleRefetch(sid)
