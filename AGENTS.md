@@ -41,3 +41,10 @@ Deployment topology & procedures: see private ops notes (not tracked here).
 - `applyPatchReverse()` uses tagged rows + nearest-hit continuity (seed from EOF) + longest-add-run fallback. Known-answer tests live in `/tmp/ocweb-test/`(ephemeral); regression guard shapes: real git multi-hunk patch → exact pre-image, pure-add hunk → rows deleted not blanked.
 - Whole-file reconstruction drifts on huge chaotic op histories (later ops rewrite earlier additions) — inherent without snapshots; hunks view is unaffected (renders patches directly).
 - DiffPane layout: monaco auto-flips side-by-side→inline below `renderSideBySideInlineBreakpoint` (900px default, opt-in flag set explicitly in DiffPane). Hunks models must swap pairs too: `parsePatch()` pads the opposite side with blank rows for side-by-side alignment — those blanks leak into inline view as stray empty lines, so inline uses `parsePatchInline()`. A ResizeObserver in DiffPane tracks the flip.
+
+## Permission requests (engine API shape, verified v1.18.18)
+
+- `GET /permission` items and the SSE `permission.asked` payload are `{id, sessionID, permission, patterns[], metadata{}, always[], tool?{messageID,callID}}` — there is NO `title`, `pattern`, `path`, or `type` field. The webui originally mapped those nonexistent fields, so pending permissions rendered as bare request-id prefixes.
+- `permission` is the kind (`bash`, `edit`, `read`, `glob`, `grep`, `webfetch`, `doom_loop`, …). `metadata.input` holds the tool call input for bash (→ show `input.command`); glob/grep → `{pattern,path}`; webfetch → `{url}`; mcp reads → `{server}`. Edit asks carry the file path in `patterns[0]`.
+- Human-readable detail builder lives in `webui/src/lib/permissions.ts` (`permDetail`); display in App.svelte header bar shows kind + detail with full text in `title`.
+- Schema source of truth: engine `/doc` OpenAPI (`components.schemas.PermissionRequest`). Inspect a running engine's schema via `opencode serve --port <p>` + `curl /doc`; don't guess from TUI strings.
