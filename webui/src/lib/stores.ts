@@ -179,6 +179,11 @@ export function metricsFromMessages(msgs: any[]): SessionMetrics {
 export interface PermRequest {
   id: string
   sessionID?: string
+  /** engine field "permission": bash | edit | read | webfetch | ... */
+  permission?: string
+  patterns?: string[]
+  metadata?: Record<string, any>
+  tool?: { messageID?: string; callID?: string }
   type?: string
   title?: string
   raw: any

@@ -298,7 +298,9 @@
         <div class="perm">
           ⚠ {$permissions.length} permission{$permissions.length > 1 ? 's' : ''} pending
           {#each $permissions as p (p.id)}
-            <span class="ptitle">{p.title ?? p.type ?? p.id.slice(0, 10)}</span>
+            <span class="ptitle" title={p.title || p.permission || p.id}>
+              <b>{p.permission ?? 'permission'}</b>{#if p.title}<span class="pdetail">{p.title}</span>{/if}
+            </span>
             <button class="ok" on:click={() => answerPermission(p, 'once')}>once</button>
             <button class="always" on:click={() => answerPermission(p, 'always')}>always</button>
             <button class="deny" on:click={() => answerPermission(p, 'reject')}>deny</button>
@@ -415,10 +417,18 @@
     border: 1px solid var(--warn);
     border-radius: 4px;
     padding: 1px 6px;
-    max-width: 260px;
+    max-width: 420px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  .ptitle b {
+    font-weight: 600;
+    color: var(--warn);
+  }
+  .pdetail {
+    margin-left: 6px;
+    opacity: 0.85;
   }
   .perm button {
     border: none;
