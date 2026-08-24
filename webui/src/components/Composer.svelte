@@ -23,6 +23,15 @@
     ta?.focus()
   }
 
+  // Revert-refill: drop a reverted message's text back into the box so it can
+  // be edited and resent. Never clobbers a draft the user already started.
+  export function prefill(t: string) {
+    if (!t || text.trim()) return
+    text = t
+    autosize()
+    focus()
+  }
+
   // ---- inline slash menu -------------------------------------------------
   // active while the box is exactly "/name" (any space closes the menu)
   $: slashQuery = /^\/([a-z0-9_-]*)$/.exec(text)
