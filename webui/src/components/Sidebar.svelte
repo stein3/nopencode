@@ -73,7 +73,7 @@
   onMount(() => {
     refreshBusy()
     const iv = setInterval(load, 60000)
-    const ivBusy = setInterval(refreshBusy, 5000)
+    const ivBusy = setInterval(refreshBusy, 10000)
     const onVis = () => {
       if (document.visibilityState === 'visible') {
         load()
@@ -346,22 +346,12 @@
   }
   .dot.unread {
     background: var(--accent);
-    animation: pulse 1.6s infinite alternate;
-    /* composite-only animation: keeps the pulse off the main thread so it
-       can't contend with transcript rendering after a click */
-    will-change: opacity;
   }
   .dot.busy {
     background: var(--warn);
-    animation: pulse 1s infinite alternate;
-    will-change: opacity;
   }
   .dot.perm {
     background: var(--err);
-  }
-  @keyframes pulse {
-    from { opacity: 0.4; }
-    to { opacity: 1; }
   }
   .meta,
   .sub {

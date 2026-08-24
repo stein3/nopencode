@@ -52,16 +52,29 @@ export function applyMessages(sessionId: string, msgs: any[], complete = true) {
 
 // Full catch-up for a windowed session (scroll-up, transcript export, search
 // jumps into old history). No-op when everything is already loaded.
-export async function backfill(sessionId: string): Promise<void> {
+// `cap` bounds the fetch to the newest N messages — anchor jumps use this to
+// avoid materializing multi-MB transcripts; the caller checks whether the
+// anchor actually landed and retries uncapped when it sits deeper than the
+// window.
+export async function backfill(sessionId: string, cap?: number): Promise<void> {
   const t = tabs.snapshot(sessionId)
   if (!t?.partial || t.loadingOlder) return
   tabs.patch(sessionId, { loadingOlder: true })
   try {
-    applyMessages(sessionId, await oc.messages(sessionId))
+    if (cap === undefined) {
+      applyMessages(sessionId, await oc.messages(sessionId))
+    } else {
+      const msgs = await oc.messages(sessionId, cap)
+      applyMessages(sessionId, msgs, msgs.length < cap)
+    }
   } finally {
     tabs.patch(sessionId, { loadingOlder: false })
   }
 }
+
+// Anchor-jump backfills only need the hit to be present; anything older is
+// reachable via scroll-up paging. Deep anchors fall back to a full fetch.
+export const JUMP_CAP = 600
 
 // One incremental older-history page for the transcript scroll-up path. Uses
 // the cumulative-limit trick (fetch newest N+k, merge keeps the overlap) since
