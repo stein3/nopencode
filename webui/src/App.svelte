@@ -313,6 +313,20 @@
     {#each $tabs as t (t.id)}
       <div class="tabpane" style:display={$active === t.id ? 'flex' : 'none'}>
         <Transcript tab={t} active={t.id === $active} />
+        {#if $permissions.some((p) => p.sessionID === t.id)}
+          <div class="perm-inline">
+            {#each $permissions.filter((p) => p.sessionID === t.id) as p (p.id)}
+              <div class="perm-row">
+                <span class="ptitle" title={p.title || p.permission || p.id}>
+                  <b>{p.permission ?? 'permission'}</b>{#if p.title}<span class="pdetail">{p.title}</span>{/if}
+                </span>
+                <button class="ok" on:click={() => answerPermission(p, 'once')}>once</button>
+                <button class="always" on:click={() => answerPermission(p, 'always')}>always</button>
+                <button class="deny" on:click={() => answerPermission(p, 'reject')}>deny</button>
+              </div>
+            {/each}
+          </div>
+        {/if}
         <Composer
           bind:this={composers[t.id]}
           tab={t}
@@ -449,6 +463,39 @@
   .refresh {
     background: transparent;
     color: var(--fg-dim);
+  }
+  .perm-inline {
+    flex: none;
+    margin: 0 auto;
+    width: 100%;
+    max-width: 860px;
+    padding: 0 16px 6px;
+  }
+  .perm-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    padding: 7px 10px;
+    border: 1px solid var(--warn);
+    border-left-width: 3px;
+    border-radius: 6px;
+    background: rgba(255, 170, 0, 0.07);
+    font-size: 12.5px;
+  }
+  .perm-row .ptitle {
+    max-width: none;
+    flex: 1;
+    min-width: 0;
+    font-size: inherit;
+    padding: 1px 4px;
+    border-color: transparent;
+    background: transparent;
+    white-space: normal;
+  }
+  .perm-row button {
+    font-size: 11.5px;
+    padding: 3px 12px;
   }
   .tabpane {
     flex: 1;
