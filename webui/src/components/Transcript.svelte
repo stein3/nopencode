@@ -1,15 +1,14 @@
 <script lang="ts">
-  import { marked } from 'marked'
-  import DOMPurify from 'dompurify'
-  import { tabs, type Tab } from '../lib/stores'
-  import { oc } from '../lib/api'
+  import { onMount } from 'svelte'
+  import { tabs, showThinking, showTimestamps, type Tab } from '../lib/stores'
+  import { oc, type OcMessage } from '../lib/api'
   import { refetchNow } from '../lib/sse'
+  import { md } from '../lib/markdown'
 
   export let tab: Tab
 
   let scroller: HTMLElement
-
-  marked.setOptions({ gfm: true, breaks: true })
+  let feed: HTMLElement
 
   const renderCache = new Map<string, string>()
 
@@ -19,14 +18,26 @@
     const key = `${part.id ?? 'x'}:${(part.text ?? '').length}`
     const hit = renderCache.get(key)
     if (hit) return hit
-    const raw = marked.parse(part.text ?? '') as string
-    const safe = DOMPurify.sanitize(raw, { USE_PROFILES: { html: true } })
+    const safe = md(part.text ?? '')
     if (renderCache.size > 400) renderCache.clear()
     renderCache.set(key, safe)
     return safe
   }
 
-  $: msgs = tab.messages.filter((m) =>
+  // The engine only marks a revert point; messages are pruned on the next
+  // prompt. Mirror the official clients and cut the view at the boundary now.
+  function applyRevert(msgs: OcMessage[], r: Tab['revert']): OcMessage[] {
+    if (!r?.messageID) return msgs
+    const i = msgs.findIndex((m) => m.id === r.messageID)
+    if (i < 0) return msgs
+    if (!r.partID) return msgs.slice(0, i)
+    const m = msgs[i]
+    const parts = m.parts ?? []
+    const pi = parts.findIndex((p) => p.id === r.partID)
+    return [...msgs.slice(0, i), { ...m, parts: pi < 0 ? parts : parts.slice(0, pi) }]
+  }
+
+  $: msgs = applyRevert(tab.messages, tab.revert).filter((m) =>
     m.parts?.some((p) => p.type === 'text' || p.type === 'tool' || p.type === 'reasoning'),
   )
   $: lastMsg = msgs.at(-1)
@@ -34,18 +45,37 @@
     !!lastMsg?.parts?.some(
       (p) => (p.type === 'text' && (p.text ?? '').trim()) || p.type === 'tool',
     )
-  $: showThinking = tab.busy && (!lastMsg || lastMsg.role !== 'assistant' || !lastHasVisible)
+  $: liveThinking = tab.busy && (!lastMsg || lastMsg.role !== 'assistant' || !lastHasVisible)
   $: lastThinkingOpen = !!lastMsg?.parts?.some(
     (p) => p.type === 'reasoning' && !(p.text ?? '').trim(),
   )
 
-  $: lastLen = JSON.stringify(msgs.at(-1)?.parts?.length) + '-' + msgs.length
-  let prevLen = ''
-  $: if (lastLen !== prevLen && scroller) {
-    prevLen = lastLen
-    const nearBottom = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 160
-    if (nearBottom) requestAnimationFrame(() => scroller.scrollTo({ top: scroller.scrollHeight }))
+  // ---- stick-to-bottom ----------------------------------------------------
+  // Follow new content (streaming text, thinking blocks, tool cards, images)
+  // while the reader is at the bottom; stop as soon as they scroll up to read
+  // back, resume when they return. A ResizeObserver on the feed catches every
+  // height change — delta appends don't change part counts, so a message-level
+  // trigger alone would miss most of the stream.
+  let stuck = true
+
+  function onScroll() {
+    if (!scroller) return
+    stuck = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 120
   }
+
+  function follow() {
+    if (!stuck || !scroller) return
+    requestAnimationFrame(() => {
+      if (stuck && scroller) scroller.scrollTop = scroller.scrollHeight
+    })
+  }
+
+  onMount(() => {
+    const ro = new ResizeObserver(follow)
+    if (feed) ro.observe(feed)
+    follow()
+    return () => ro.disconnect()
+  })
 
   function partsOf(m: any): any[] {
     return m?.parts ?? []
@@ -57,9 +87,59 @@
     return r.length ? r[r.length - 1].text : ''
   }
 
+  function firstInput(st: any, keys: string[]): string {
+    const inp = st?.input ?? {}
+    for (const k of keys) {
+      const v = inp[k]
+      if (typeof v === 'string' && v.trim()) return v.trim()
+    }
+    return ''
+  }
+
+  function clip(s: string, n = 120): string {
+    const one = s.replace(/\s+/g, ' ').trim()
+    return one.length > n ? one.slice(0, n - 1) + '…' : one
+  }
+
+  // One-line summary per tool: read → file, glob → pattern, bash → command…
+  // Falls back to the engine's own title, then any string argument.
   function toolSummary(p: any): string {
-    const s = p.state?.status ?? p.state?.title ?? ''
-    return `${p.tool ?? 'tool'}${s ? ` · ${s}` : ''}`
+    const st = p.state ?? {}
+    const status = typeof st.status === 'string' ? st.status : ''
+    const glyph = status === 'error' ? '✗ ' : status === 'running' || status === 'pending' ? '⏳ ' : ''
+    const tool = String(p.tool ?? '').toLowerCase()
+    let detail = ''
+    if (/bash|shell|cmd/.test(tool)) {
+      detail = firstInput(st, ['command', 'cmd', 'script'])
+    } else if (/glob/.test(tool)) {
+      const path = firstInput(st, ['path'])
+      detail = firstInput(st, ['pattern']) + (path ? ` in ${path}` : '')
+    } else if (/grep|find|search/.test(tool)) {
+      const inc = firstInput(st, ['include', 'file_pattern'])
+      const path = firstInput(st, ['path'])
+      detail =
+        firstInput(st, ['pattern', 'query', 'regex']) +
+        (inc ? ` (${inc})` : '') +
+        (path ? ` in ${path}` : '')
+    } else if (/read|view|cat|open|list|ls|tree/.test(tool)) {
+      detail = firstInput(st, ['filePath', 'file_path', 'path'])
+    } else if (/edit|write|patch|save|multiedit/.test(tool)) {
+      detail = firstInput(st, ['filePath', 'file_path', 'path'])
+    } else if (/fetch|web|http/.test(tool)) {
+      detail = firstInput(st, ['url', 'link'])
+    } else if (/task|agent|subagent/.test(tool)) {
+      detail = firstInput(st, ['description', 'prompt'])
+    } else if (/todo/.test(tool)) {
+      const n = Array.isArray(st.input?.todos) ? st.input.todos.length : 0
+      if (n) detail = `${n} todo${n === 1 ? '' : 's'}`
+    }
+    if (!detail) detail = typeof st.title === 'string' && st.title.trim() ? st.title.trim() : ''
+    if (!detail) {
+      const inp = st?.input ?? {}
+      const v = Object.values(inp).find((x) => typeof x === 'string' && x.trim())
+      if (v) detail = v as string
+    }
+    return glyph + [p.tool ?? 'tool', clip(detail)].filter(Boolean).join(' · ')
   }
 
   function timeStr(t?: number): string {
@@ -78,7 +158,10 @@
 
   async function revertTo(mid: string) {
     try {
-      await oc.revertTo(tab.id, mid)
+      // response is the updated session info, incl. the revert point — apply
+      // it immediately so the transcript updates without waiting for events
+      const s = await oc.revertTo(tab.id, mid)
+      tabs.patch(tab.id, { revert: s.revert ?? null })
       refetchNow(tab.id)
     } catch (e: any) {
       alert(`revert failed: ${e.message ?? e}`)
@@ -86,22 +169,25 @@
   }
 </script>
 
-<div class="transcript" bind:this={scroller}>
-  {#if !tab.messages.length}
-    <div class="empty">
-      <div class="logo">opencode</div>
-      {#if tab.live}
-        Type below to start the conversation.
-      {:else}
-        No message data for this session.
-      {/if}
-    </div>
-  {/if}
+<div class="transcript" bind:this={scroller} on:scroll={onScroll}>
+  <div class="feed" bind:this={feed}>
+    {#if !tab.messages.length}
+      <div class="empty">
+        <div class="logo">opencode</div>
+        {#if tab.live}
+          Type below to start the conversation.
+        {:else}
+          No message data for this session.
+        {/if}
+      </div>
+    {/if}
   {#each msgs as m (m.id)}
     <div class="msg" class:user={m.role === 'user'} id={`m-${m.id}`}>
       <div class="head" title={m.role}>
         <span class="role">{m.role === 'user' ? 'you' : m.agent || 'opencode'}</span>
-        <span class="time">{timeStr(m.time?.created)}</span>
+        {#if $showTimestamps}
+          <span class="time">{timeStr(m.time?.created)}</span>
+        {/if}
         {#if m.role === 'user'}
           <span class="acts">
             <button class="act" title="Revert session to before this message" on:click={() => revertTo(m.id)}>↩</button>
@@ -114,7 +200,7 @@
           {#if p.type === 'text' && (p.text ?? '').trim()}
             {@html html(p)}
           {:else if p.type === 'reasoning' && (p.text ?? '').trim()}
-            <details class="thinking" open={p.id === lastThinkingOpen || undefined}>
+            <details class="thinking" open={$showThinking || p.id === lastThinkingOpen || undefined}>
               <summary>💭 Thinking</summary>
               <div class="think-body">{p.text}</div>
             </details>
@@ -125,12 +211,13 @@
             </details>
           {/if}
         {/each}
-        {#if showThinking && m === lastMsg}
+        {#if liveThinking && m === lastMsg}
           <div class="live-thinking">💭 Thinking<span class="dots"><i>.</i><i>.</i><i>.</i></span></div>
         {/if}
       </div>
     </div>
   {/each}
+  </div>
 </div>
 
 <style>
@@ -152,8 +239,8 @@
   }
   .msg {
     max-width: 860px;
-    margin: 0 auto 18px;
-    padding: 10px 16px;
+    margin: 0 auto;
+    padding: 5px 16px;
     user-select: text;
     cursor: text;
   }
@@ -244,6 +331,9 @@
     padding: 5px 10px;
     color: var(--fg-dim);
     user-select: none;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   details.tool pre {
     max-height: 300px;
