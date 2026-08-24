@@ -189,6 +189,29 @@ export interface PermRequest {
   raw: any
 }
 
+// ---- "done & unread" session lights ----
+// A session that finished (idle/error) while another tab was being viewed
+// gets flagged here so the sidebar shows a green dot until it's opened.
+export const sessionUnread = writable<Set<string>>(new Set())
+
+export function markSessionUnread(sid: string) {
+  sessionUnread.update((s) => {
+    if (s.has(sid)) return s
+    const next = new Set(s)
+    next.add(sid)
+    return next
+  })
+}
+
+export function clearSessionUnread(sid: string) {
+  sessionUnread.update((s) => {
+    if (!s.has(sid)) return s
+    const next = new Set(s)
+    next.delete(sid)
+    return next
+  })
+}
+
 export const permissions = writable<PermRequest[]>([])
 export const sidebarOpen = writable(true)
 export const searchQuery = writable('')

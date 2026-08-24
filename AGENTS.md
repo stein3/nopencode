@@ -57,6 +57,7 @@ Deployment topology & procedures: see private ops notes (not tracked here).
 - Busy comes from a 5s poll of engine `/oc/session/status` in Sidebar.svelte (`busyMap`); permission from the shared `permissions` store.
 - Done/unread lives in `sessionUnread` store (stores.ts). Two producers: sse.ts marks on `session.idle`/`session.error` when `tabs.getActive() !== sid` (open tabs only — SSE drops non-open sessions); Sidebar's busy-poll diffs consecutive polls to catch busy→idle for sessions with no open tab. Consumer: App.svelte `$: if ($active) clearSessionUnread($active)` clears on any tab activation (clicks, hotkeys, new chats).
 - Unread state is in-memory only — lost on reload by design (no localStorage persistence).
+- Perf (measured headless vs live engine+chatserver via vite dev): dots are NOT a meaningful click-latency factor — median click→rendered ~240–280ms for ≤60-msg sessions in all animation states; idle dots don't animate at all. Cost scales with transcript size (364 msgs ≈ 10.4k DOM nodes ≈ 500–700ms, long tasks 90–156ms from markdown/hljs render). Guards added: `will-change: opacity` on animated dots only (compositor promotion), `refreshBusy()` assigns `busyMap` only on actual change (else every 5s poll re-diffs all rows). Bench harness pattern: `.webtest/bench.mjs`.
 
 ## Model selection (engine API shape, verified v1.18.18)
 

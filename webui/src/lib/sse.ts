@@ -53,6 +53,7 @@ export function normalizeMessages(msgs: any[]): any[] {
         text: p.text,
         tool: p.tool ?? p.toolName,
         state: p.state,
+        callID: p.callID, // question picker matches pending requests by callID
       })),
     }
   })

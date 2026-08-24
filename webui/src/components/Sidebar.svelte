@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { hist, type HistSession, type SearchHit } from '../lib/api'
-  import { searchQuery, sessionMetrics } from '../lib/stores'
+  import { oc, hist, type HistSession, type SearchHit } from '../lib/api'
+  import { searchQuery, sessionMetrics, permissions, tabs, sessionUnread, markSessionUnread } from '../lib/stores'
   import { relTime } from '../lib/util'
 
   export let onOpenHistory: (id: string, anchor?: string) => void
@@ -11,6 +11,36 @@
   let hits: SearchHit[] = []
   let searching = false
   let searchTimer: ReturnType<typeof setTimeout>
+
+  // live busy state from engine /oc/session/status
+  let busyMap: Record<string, boolean> = {}
+
+  async function refreshBusy() {
+    try {
+      const st = await oc.status()
+      const next: Record<string, boolean> = {}
+      for (const [k, v] of Object.entries(st)) {
+        next[k] = (v?.type ?? v?.state) === 'busy'
+      }
+      // busy→idle for sessions with no open tab never reaches the SSE handler
+      // (it drops non-open sessions) — detect the transition here instead
+      for (const [sid, busy] of Object.entries(busyMap)) {
+        if (busy && !next[sid] && !tabs.isopen(sid)) markSessionUnread(sid)
+      }
+      // assign only on actual change — a fresh object every tick would
+      // invalidate every row binding (re-diff of the whole list) each poll
+      const prev = busyMap
+      const changed =
+        Object.keys(prev).length !== Object.keys(next).length ||
+        Object.keys(next).some((k) => !!prev[k] !== !!next[k])
+      if (changed) busyMap = next
+    } catch {
+      /* engine down */
+    }
+  }
+
+  // set of sessionIDs that have a pending permission request
+  $: permSet = new Set($permissions.map((p) => p.sessionID).filter(Boolean))
 
   $: q = $searchQuery.trim()
 
@@ -41,13 +71,19 @@
   // sqlite snapshot only changes on reload — poll so non-open sessions stay
   // roughly fresh too (open tabs are corrected live via sessionMetrics)
   onMount(() => {
+    refreshBusy()
     const iv = setInterval(load, 60000)
+    const ivBusy = setInterval(refreshBusy, 5000)
     const onVis = () => {
-      if (document.visibilityState === 'visible') load()
+      if (document.visibilityState === 'visible') {
+        load()
+        refreshBusy()
+      }
     }
     document.addEventListener('visibilitychange', onVis)
     return () => {
       clearInterval(iv)
+      clearInterval(ivBusy)
       document.removeEventListener('visibilitychange', onVis)
     }
   })
@@ -115,7 +151,15 @@
       {#each rows as s (s.id)}
         <button class="item" on:click={() => onOpenHistory(s.id)} title={s.title}>
           <span class="row1">
-            <span class="title">{s.title || s.id.slice(0, 14)}</span>
+            <span class="title">
+              <span
+                class="dot"
+                class:unread={$sessionUnread.has(s.id)}
+                class:busy={busyMap[s.id]}
+                class:perm={permSet.has(s.id)}
+              ></span>
+              {s.title || s.id.slice(0, 14)}
+            </span>
             <span class="meta">{relTime(s.updated)}</span>
           </span>
           <span class="sub"
@@ -215,9 +259,38 @@
     gap: 8px;
   }
   .title {
+    display: flex;
+    align-items: center;
+    gap: 6px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+  .dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    background: transparent;
+  }
+  .dot.unread {
+    background: var(--accent);
+    animation: pulse 1.6s infinite alternate;
+    /* composite-only animation: keeps the pulse off the main thread so it
+       can't contend with transcript rendering after a click */
+    will-change: opacity;
+  }
+  .dot.busy {
+    background: var(--warn);
+    animation: pulse 1s infinite alternate;
+    will-change: opacity;
+  }
+  .dot.perm {
+    background: var(--err);
+  }
+  @keyframes pulse {
+    from { opacity: 0.4; }
+    to { opacity: 1; }
   }
   .meta,
   .sub {
