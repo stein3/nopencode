@@ -23,7 +23,7 @@
   let skillsIndex: Record<string, string> = {}
 
   function html(part: any): string {
-    if (part.type !== 'text') return ''
+    if (part.type !== 'text' && part.type !== 'reasoning') return ''
     // length in key so streaming appends invalidate the cached render
     const key = `${part.id ?? 'x'}:${(part.text ?? '').length}`
     const hit = renderCache.get(key)
@@ -580,9 +580,9 @@
             <details class="thinking" open={$showThinking || p.id === liveReasoningId || undefined}>
               <summary>💭 Thinking</summary>
               {#if p.id === liveReasoningId}
-                <div class="think-body" bind:this={liveThinkEl} on:scroll={onThinkScroll}>{p.text}</div>
+                <div class="think-body" bind:this={liveThinkEl} on:scroll={onThinkScroll}>{@html html(p)}</div>
               {:else}
-                <div class="think-body">{p.text}</div>
+                <div class="think-body">{@html html(p)}</div>
               {/if}
             </details>
           {:else if p.type === 'tool'}
@@ -1036,8 +1036,9 @@
     color: var(--fg-dim);
     user-select: none;
   }
+  /* rendered markdown (see .body :global rules above); pre-wrap removed so
+     block elements don't double-space against preserved newlines */
   .think-body {
-    white-space: pre-wrap;
     word-break: break-word;
     color: var(--fg-dim);
     padding: 8px 12px;
@@ -1045,6 +1046,61 @@
     max-height: 260px;
     overflow-y: auto;
     line-height: 1.5;
+  }
+  .think-body :global(> :first-child) {
+    margin-top: 0;
+  }
+  .think-body :global(> :last-child) {
+    margin-bottom: 0;
+  }
+  .think-body :global(p) {
+    margin: 0.4em 0;
+  }
+  .think-body :global(ul),
+  .think-body :global(ol) {
+    margin: 0.4em 0;
+    padding-left: 1.4em;
+  }
+  .think-body :global(li) {
+    margin: 0.15em 0;
+  }
+  .think-body :global(h1),
+  .think-body :global(h2),
+  .think-body :global(h3),
+  .think-body :global(h4),
+  .think-body :global(h5),
+  .think-body :global(h6) {
+    font-size: 12px;
+    font-weight: 600;
+    margin: 0.6em 0 0.3em;
+  }
+  .think-body :global(pre) {
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 10px;
+    overflow-x: auto;
+    font-size: 11.5px;
+    line-height: 1.45;
+  }
+  .think-body :global(code) {
+    font-family: var(--mono);
+    background: var(--bg-code);
+    border-radius: 4px;
+    padding: 1px 4px;
+    font-size: 0.92em;
+  }
+  .think-body :global(pre code) {
+    background: transparent;
+    padding: 0;
+  }
+  .think-body :global(a) {
+    color: var(--accent);
+  }
+  .think-body :global(blockquote) {
+    border-left: 2px solid var(--border);
+    margin: 0.4em 0;
+    padding-left: 0.8em;
   }
   .live-thinking {
     color: var(--fg-dim);
