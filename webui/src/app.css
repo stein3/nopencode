@@ -57,3 +57,25 @@ body {
 ::-webkit-scrollbar-track {
   background: transparent;
 }
+
+/* drawer feel when the side panels are swiped/toggled open on mobile */
+@media (max-width: 900px) {
+  .sidebar {
+    animation: oc-slide-l 0.16s ease-out;
+  }
+  aside.info {
+    animation: oc-slide-r 0.16s ease-out;
+  }
+}
+@keyframes oc-slide-l {
+  from {
+    transform: translateX(-48px);
+    opacity: 0;
+  }
+}
+@keyframes oc-slide-r {
+  from {
+    transform: translateX(48px);
+    opacity: 0;
+  }
+}
