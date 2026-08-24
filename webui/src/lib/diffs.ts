@@ -1,7 +1,7 @@
 // Unified-diff parsing + fetching for the DiffPane.
-// Data source: engine /vcs/diff?mode=git  -> [{file, patch}]
-//              /session/{id}/diff has the same shape but is often empty;
-//              we try it first and fall back to the worktree diff.
+// Sources: session mode -> chatserver /api/history/session/{id}/changes
+//          (per-session edit/write/apply_patch ops reconstructed into patches)
+//          worktree mode -> engine /vcs/diff?mode=git  [{file, patch}]
 // All results are cached at module level so closing/reopening the pane
 // (or switching tabs) is instant; the pane's ↻ button forces a refetch.
 
@@ -17,9 +17,69 @@ export interface ParsedDiff {
   deletions: number
 }
 
+interface ChangeOp {
+  k: 'edit' | 'write' | 'patch' | 'delete'
+  t?: number
+  patch?: string
+}
+
 const diffCache = new Map<string, { files: DiffFile[]; source: string }>()
-const parseCache = new Map<string, { patch: string; parsed: ParsedDiff }>()
+const parseCache = new Map<
+  string,
+  { patch: string; parsed: ParsedDiff; parsedInline: ParsedDiff }
+>()
 const fullCache = new Map<string, { patch: string; original: string; modified: string }>()
+
+const WORKTREE_PREFIX = '/workspace/'
+
+// Transcript paths are absolute under the shared worktree; vcs/diff returns
+// worktree-relative ones. Normalize both so cache/content-fetch keys match.
+function relPath(p: string): string {
+  return p.startsWith(WORKTREE_PREFIX) ? p.slice(WORKTREE_PREFIX.length) : p.replace(/^\//, '')
+}
+
+// A session touches a file through many sequential ops; concatenate their
+// hunks into ONE canonical multi-hunk patch. Never concat raw patch texts:
+// parsers stop at the first foreign header, and applyPatchReverse would then
+// only undo the first op.
+export function mergePatches(ops: ChangeOp[] | undefined): string {
+  const hunks: string[][] = []
+  let cur: string[] | null = null
+  const flush = () => {
+    if (cur?.length) hunks.push(cur)
+    cur = null
+  }
+  for (const op of ops ?? []) {
+    flush() // patches never span ops
+    for (const line of (op.patch ?? '').split('\n')) {
+      if (line.startsWith('@@')) {
+        flush()
+        cur = []
+      } else if (cur) {
+        if (line.startsWith('\\')) continue
+        if (line.startsWith('+') || line.startsWith('-') || line.startsWith(' ') || line === '') {
+          cur.push(line)
+        } else {
+          flush() // ran into a foreign file header inside the patch
+        }
+      }
+    }
+  }
+  flush()
+  return hunks
+    .map((h) => {
+      const oldN = h.filter((l) => !l.startsWith('+')).length
+      const newN = h.filter((l) => !l.startsWith('-')).length
+      return `@@ -1,${oldN} +1,${newN} @@\n${h.join('\n')}`
+    })
+    .join('\n')
+}
+
+function toDiffFiles(payload: { files?: { file: string; ops: ChangeOp[] }[] }): DiffFile[] {
+  return (payload.files ?? [])
+    .map((f) => ({ file: relPath(f.file), patch: mergePatches(f.ops) }))
+    .filter((f) => f.patch.length > 0) // pure overwrites/deletes have no recoverable pre-image
+}
 
 function key(sessionId?: string): string {
   return sessionId || 'worktree'
@@ -30,46 +90,56 @@ export function cachedDiffs(sessionId?: string): { files: DiffFile[]; source: st
 }
 
 export async function fetchDiffs(
-  sessionId?: string,
+  sessionId: string | undefined,
   force = false,
+  worktree = false,
 ): Promise<{ files: DiffFile[]; source: string }> {
-  const k = key(sessionId)
+  const k = key(worktree ? undefined : sessionId)
   if (!force) {
     const hit = diffCache.get(k)
     if (hit) return hit
   }
-  if (sessionId && !force) {
-    try {
-      const r = await fetch(`/oc/session/${sessionId}/diff`)
-      if (r.ok) {
-        const d = await r.json()
-        if (Array.isArray(d) && d.length) {
-          const res = { files: d, source: 'session' }
-          diffCache.set(k, res)
-          return res
-        }
-      }
-    } catch {
-      /* fall through */
-    }
+  if (!worktree && sessionId) {
+    const r = await fetch(`/api/history/session/${sessionId}/changes`)
+    if (!r.ok) throw new Error(`session changes fetch failed (${r.status})`)
+    const d = await r.json()
+    const res = { files: toDiffFiles(d), source: 'this session' }
+    diffCache.set(k, res)
+    return res
   }
   const r = await fetch('/oc/vcs/diff?mode=git')
   if (!r.ok) throw new Error(`diff fetch failed: ${r.status}`)
   const d = await r.json()
   if (!Array.isArray(d)) throw new Error('unexpected diff payload')
-  const res = { files: d, source: 'worktree (uncommitted)' }
+  const res = {
+    files: d.map((f: DiffFile) => ({ file: relPath(f.file), patch: f.patch })),
+    source: 'worktree (uncommitted)',
+  }
   diffCache.set(k, res)
   return res
 }
 
-// Parse a per-file unified patch into two full texts (memoized per cache key).
+// Parse a per-file patch into display pairs (memoized per cache key).
+// `parsed`  — row-aligned, for side-by-side rendering
+// `parsedInline` — unpadded, for inline (single-column) rendering
 export function parsedFor(sessionId: string | undefined, f: DiffFile): ParsedDiff {
+  return parseBothFor(sessionId, f).parsed
+}
+
+export function inlineParsedFor(sessionId: string | undefined, f: DiffFile): ParsedDiff {
+  return parseBothFor(sessionId, f).parsedInline
+}
+
+function parseBothFor(
+  sessionId: string | undefined,
+  f: DiffFile,
+): { parsed: ParsedDiff; parsedInline: ParsedDiff } {
   const k = `${key(sessionId)}:${f.file}`
   const hit = parseCache.get(k)
-  if (hit && hit.patch === f.patch) return hit.parsed
-  const parsed = parsePatch(f.patch)
-  parseCache.set(k, { patch: f.patch, parsed })
-  return parsed
+  if (hit && hit.patch === f.patch) return hit
+  const entry = { patch: f.patch, parsed: parsePatch(f.patch), parsedInline: parsePatchInline(f.patch) }
+  parseCache.set(k, entry)
+  return entry
 }
 
 // Current file contents straight from the engine workspace.
@@ -96,15 +166,15 @@ export async function fullPairFor(
   return { original, modified }
 }
 
-// Walk a per-file unified patch and synthesize the two texts so Monaco can
-// render a real side-by-side diff without fetching git blobs.
-export function parsePatch(patch: string): ParsedDiff {
-  const orig: string[] = []
-  const mod: string[] = []
-  let additions = 0
-  let deletions = 0
-  let inHunk = false
+interface Row {
+  t: '+' | '-' | ' '
+  s: string
+}
 
+// Collect tagged hunk rows from one patch (a foreign file header terminates it).
+function parseRows(patch: string): Row[] {
+  const rows: Row[] = []
+  let inHunk = false
   for (const line of patch.split('\n')) {
     if (!inHunk) {
       if (line.startsWith('@@')) inHunk = true
@@ -112,72 +182,138 @@ export function parsePatch(patch: string): ParsedDiff {
     }
     if (line.startsWith('@@')) continue // next hunk
     if (line.startsWith('\\')) continue // "\ No newline at end of file"
-    if (line.startsWith('+')) {
-      mod.push(line.slice(1))
-      orig.push('')
-      additions++
-    } else if (line.startsWith('-')) {
-      orig.push(line.slice(1))
-      mod.push('')
-      deletions++
-    } else if (line.startsWith(' ') || line === '') {
-      const text = line.startsWith(' ') ? line.slice(1) : ''
-      orig.push(text)
-      mod.push(text)
+    if (line.startsWith('+')) rows.push({ t: '+', s: line.slice(1) })
+    else if (line.startsWith('-')) rows.push({ t: '-', s: line.slice(1) })
+    else if (line.startsWith(' ') || line === '') {
+      rows.push({ t: ' ', s: line.startsWith(' ') ? line.slice(1) : '' })
     } else {
       inHunk = false // ran into a new file's header
     }
   }
-
-  return { original: orig.join('\n'), modified: mod.join('\n'), additions, deletions }
+  return rows
 }
 
-interface Hunk {
-  newStart: number
-  newLines: string[]
-  oldLines: string[]
+const statsOf = (rows: Row[]) => ({
+  additions: rows.filter((r) => r.t === '+').length,
+  deletions: rows.filter((r) => r.t === '-').length,
+})
+
+// Pair for SIDE-BY-SIDE view: each changed row pads the opposite side with a
+// blank so context lines stay row-aligned across the two editors.
+export function parsePatch(patch: string): ParsedDiff {
+  const rows = parseRows(patch)
+  const orig = rows.map((r) => (r.t === '+' ? '' : r.s))
+  const mod = rows.map((r) => (r.t === '-' ? '' : r.s))
+  return { original: orig.join('\n'), modified: mod.join('\n'), ...statsOf(rows) }
+}
+
+// Pair for INLINE (single-column) view: no placeholder padding — padding is
+// meaningless there and would surface as stray blank lines everywhere.
+export function parsePatchInline(patch: string): ParsedDiff {
+  const rows = parseRows(patch)
+  const orig = rows.filter((r) => r.t !== '+').map((r) => r.s)
+  const mod = rows.filter((r) => r.t !== '-').map((r) => r.s)
+  return { original: orig.join('\n'), modified: mod.join('\n'), ...statsOf(rows) }
+}
+
+// All positions where `needle` occurs in `hay` (empty needle never matches).
+function matchAll(hay: string[], needle: string[]): number[] {
+  if (!needle.length || needle.every((l) => l === '')) return []
+  const hits: number[] = []
+  outer: for (let i = 0; i <= hay.length - needle.length; i++) {
+    for (let j = 0; j < needle.length; j++) {
+      if (hay[i + j] !== needle[j]) continue outer
+    }
+    hits.push(i)
+    i += needle.length - 1 // no overlap interest; speeds up big blocks
+  }
+  return hits
 }
 
 // Reconstruct pre-change content by undoing each hunk against `modified`.
-// Bottom-up application keeps earlier line offsets valid.
+// Bottom-up application keeps earlier line offsets valid. When a hunk's
+// context matches several places, pick the hit nearest the previous hunk's
+// position (edits cluster); unresolvable hunks are skipped gracefully.
 export function applyPatchReverse(modified: string, patch: string): string {
-  const hunks: Hunk[] = []
+  const hunks: Row[][] = []
+  let cur: Row[] | null = null
+  const flush = () => {
+    if (cur?.length) hunks.push(cur)
+    cur = null
+  }
   for (const line of patch.split('\n')) {
     if (line.startsWith('@@')) {
-      const m = /@@ -\d+(?:,\d+)? \+(\d+)/.exec(line)
-      hunks.push({ newStart: m ? Number(m[1]) : 1, newLines: [], oldLines: [] })
-    } else if (hunks.length) {
-      const cur = hunks[hunks.length - 1]
+      flush()
+      cur = []
+    } else if (cur) {
       if (line.startsWith('\\')) continue
-      if (line.startsWith('+')) cur.newLines.push(line.slice(1))
-      else if (line.startsWith('-')) cur.oldLines.push(line.slice(1))
+      if (line.startsWith('+')) cur.push({ t: '+', s: line.slice(1) })
+      else if (line.startsWith('-')) cur.push({ t: '-', s: line.slice(1) })
       else if (line.startsWith(' ') || line === '') {
-        const t = line.startsWith(' ') ? line.slice(1) : ''
-        cur.newLines.push(t)
-        cur.oldLines.push(t)
+        cur.push({ t: ' ', s: line.startsWith(' ') ? line.slice(1) : '' })
       }
       // anything else = next file's header; stop collecting this patch
-      else break
+      else {
+        flush()
+        break
+      }
     }
   }
+  flush()
 
   const lines = modified.split('\n')
+  // Seed "previous position" at the file bottom: session edits accumulate
+  // toward EOF, so the chronologically-last hunk (processed first) should
+  // anchor as low as possible; continuity then guides earlier hunks upward.
+  let prev = lines.length
   for (let i = hunks.length - 1; i >= 0; i--) {
-    const h = hunks[i]
-    if (!h.newLines.length) continue
-    const idx =
-      matchAt(lines, h.newLines, h.newStart - 1) ?? matchAt(lines, h.newLines, 0) ?? -1
-    if (idx >= 0) lines.splice(idx, h.newLines.length, ...h.oldLines)
+    const rows = hunks[i]
+    const newSide = rows.filter((r) => r.t !== '-').map((r) => r.s)
+    let hits = matchAll(lines, newSide)
+    if (!hits.length) {
+      // Hunk no longer anchors exactly (V4A sections carry model-approximated
+      // context; a later write may have replaced the region): fall back to
+      // un-applying its longest contiguous added run.
+      let best = -1
+      let bestLen = 0
+      let runStart = -1
+      for (let j = 0; j <= rows.length; j++) {
+        const isAdd = j < rows.length && rows[j].t === '+' && rows[j].s !== ''
+        if (isAdd) {
+          if (runStart < 0) runStart = j
+        } else if (runStart >= 0) {
+          if (j - runStart > bestLen) {
+            bestLen = j - runStart
+            best = runStart
+          }
+          runStart = -1
+        }
+      }
+      if (best >= 0) {
+        const block = rows.slice(best, best + bestLen).map((r) => r.s).filter((l) => l !== '')
+        hits = matchAll(lines, block)
+        if (hits.length) {
+          const at = nearest(hits, prev)
+          lines.splice(at, block.length)
+          prev = at
+        }
+      }
+      continue
+    }
+    const at = nearest(hits, prev)
+    // Undo = keep context/deleted rows, DROP added rows entirely (never blank
+    // them — additions must vanish from the reconstructed pre-image).
+    const replacement = rows.filter((r) => r.t !== '+').map((r) => r.s)
+    lines.splice(at, newSide.length, ...replacement)
+    prev = at
   }
   return lines.join('\n')
 }
 
-function matchAt(hay: string[], needle: string[], start: number): number | null {
-  outer: for (let i = start; i <= hay.length - needle.length; i++) {
-    for (let j = 0; j < needle.length; j++) {
-      if (hay[i + j] !== needle[j]) continue outer
-    }
-    return i
+function nearest(hits: number[], prefer: number): number {
+  let bestHit = hits[0]
+  for (const h of hits) {
+    if (Math.abs(h - prefer) < Math.abs(bestHit - prefer)) bestHit = h
   }
-  return null
+  return bestHit
 }
