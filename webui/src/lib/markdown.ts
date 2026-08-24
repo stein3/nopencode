@@ -1,6 +1,7 @@
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
-import hljs from 'highlight.js'
+// lib/common = ~35 popular languages; keeps the bundle small vs full hljs
+import hljs from 'highlight.js/lib/common'
 
 const renderer = new marked.Renderer()
 renderer.code = ((arg: unknown, maybeLang?: string) => {
