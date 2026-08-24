@@ -1,4 +1,4 @@
-import { tabs, sessionTodos } from './stores'
+import { tabs, sessionTodos, selectedModel } from './stores'
 import { oc } from './api'
 import { refreshPermissions } from './permissions'
 
@@ -38,7 +38,9 @@ export function normalizeMessages(msgs: any[]): any[] {
     return {
       id: info.id,
       role: info.role ?? 'assistant',
-      time: info.time?.created ?? info.time?.created_at ?? 0,
+      // keep the { created } object shape used everywhere else (OcMessage,
+      // upsertPart, setMeta) — flattening here silently killed timestamps
+      time: { created: info.time?.created ?? info.time?.created_at ?? Date.now() },
       parts: (m.parts ?? info.parts ?? []).map((p: any) => ({
         id: p.id,
         type: p.type,
@@ -77,6 +79,7 @@ export function startEvents() {
 
     // todo lists arrive whole — stash them for the info panel
     if (type === 'todo.updated' && Array.isArray(p.todos)) {
+      if (!sid) return
       sessionTodos.update((m) => ({ ...m, [sid]: p.todos }))
       return
     }
@@ -97,6 +100,19 @@ export function startEvents() {
       // their message materialized locally
     } else if (type === 'message.updated' && p.info?.id) {
       tabs.setMeta(sid, p.info)
+      scheduleRefetch(sid)
+    } else if (type === 'session.updated' && p.info) {
+      // carries authoritative revert state: set by a revert, cleared when the
+      // next prompt prunes the reverted messages server-side
+      tabs.patch(sid, { revert: p.info.revert ?? null })
+      // follow renames / auto-titles (e.g. "New Session" → real title)
+      if (p.info.title && tabs.snapshot(sid)?.title !== p.info.title)
+        tabs.patch(sid, { title: p.info.title })
+      // keep the picker honest if the session's model changes underneath us
+      // (e.g. switched from the TUI) — only for the tab being looked at
+      const m = p.info.model
+      if (tabs.getActive() === sid && m?.providerID && m?.id)
+        selectedModel.save({ providerID: m.providerID, modelID: m.id })
       scheduleRefetch(sid)
     } else {
       scheduleRefetch(sid)
