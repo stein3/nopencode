@@ -106,6 +106,11 @@
   // Guarded three ways: activation re-pins, scrolls from hidden state are
   // ignored, and only real upward input (wheel / swipe / reading keys) unsticks.
   export let active = false
+  // Pane dormancy (App keeps only recent panes rendered): skip the message-row
+  // each-block entirely. Data lives on the Tab in the stores, so clearing this
+  // renders the full view synchronously from memory; activation force-pins to
+  // bottom, so no scroll position needs preserving across dormancy.
+  export let dormant = false
   let stuck = true
   let wasActive = true // don't fight openHistory anchor scrolling on mount
 
@@ -538,6 +543,9 @@
   on:touchmove|passive={onTouchMove}
 >
   <div class="feed" bind:this={feed}>
+    {#if dormant}
+      <!-- rows unmounted; Tab data stays in the stores -->
+    {:else}
     {#if tab.loadingOlder}
       <div class="older">loading earlier messages…</div>
     {:else if tab.partial}
@@ -652,6 +660,7 @@
       </div>
     </div>
   {/each}
+    {/if}
   </div>
 </div>
 
@@ -709,6 +718,11 @@
     padding: 5px 16px;
     user-select: text;
     cursor: text;
+    /* Skip style/layout/paint for rows far outside the viewport — the bulk of
+       open-latency and streaming reflow on long transcripts. `auto` remembers
+       each row's last-rendered size so scrollbar math stays honest. */
+    content-visibility: auto;
+    contain-intrinsic-size: auto 160px;
   }
   .msg.user {
     background: var(--bg-user);

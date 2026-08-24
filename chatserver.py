@@ -4,7 +4,8 @@
 Single-origin backend for the webui:
   /                -> webui/dist statics (SPA fallback to index.html)
   /oc/*            -> reverse proxy to the opencode engine (REST + SSE, streamed)
-  /api/history/*   -> read-only sqlite access to opencode.db (sessions, transcript)
+  /api/history/*   -> read-only sqlite access to opencode.db (sessions, transcript;
+                      transcript accepts ?limit=N for a newest-N window)
   /api/search      -> case-insensitive substring search across all message parts
   /healthz         -> liveness
 
@@ -102,15 +103,31 @@ def load_sessions():
     return out
 
 
-def load_messages(sid):
+def load_messages(sid, limit=None):
+    """Transcript projection for one session.
+
+    limit: newest-N window (ascending). Parts are fetched only for the
+    selected messages — the difference between a 400-message and a full
+    multi-thousand-part transcript payload is ~10x JSON build + transfer.
+    """
     msgs = []
     with _connect() as c:
         if not c.execute("SELECT 1 FROM session WHERE id=?", (sid,)).fetchone():
             return None
-        for mr in c.execute(
-            "SELECT id, data FROM message WHERE session_id=? ORDER BY time_created",
-            (sid,),
-        ):
+        if limit:
+            rows = c.execute(
+                """SELECT id, data FROM
+                     (SELECT id, data, time_created FROM message WHERE session_id=?
+                      ORDER BY time_created DESC LIMIT ?)
+                   ORDER BY time_created""",
+                (sid, limit),
+            ).fetchall()
+        else:
+            rows = c.execute(
+                "SELECT id, data FROM message WHERE session_id=? ORDER BY time_created",
+                (sid,),
+            ).fetchall()
+        for mr in rows:
             md = json.loads(mr["data"] or "{}")
             msgs.append(
                 {
@@ -123,10 +140,20 @@ def load_messages(sid):
                 }
             )
         pos = {m["id"]: m for m in msgs}
-        for pr in c.execute(
-            "SELECT id, message_id, data FROM part WHERE session_id=? ORDER BY time_created",
-            (sid,),
-        ):
+        if limit:
+            ph = ",".join("?" * len(pos))
+            prs = c.execute(
+                f"""SELECT id, message_id, data FROM part
+                    WHERE session_id=? AND message_id IN ({ph})
+                    ORDER BY time_created""",
+                [sid, *pos.keys()],
+            )
+        else:
+            prs = c.execute(
+                "SELECT id, message_id, data FROM part WHERE session_id=? ORDER BY time_created",
+                (sid,),
+            )
+        for pr in prs:
             m = pos.get(pr["message_id"])
             if not m:
                 continue
@@ -379,7 +406,14 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json(changes)
             if path.startswith("/api/history/session/"):
                 sid = path.rsplit("/", 1)[1]
-                msgs = load_messages(sid)
+                limit = None
+                try:
+                    limit = min(int(parse_qs(u.query).get("limit", [""])[0]), 2000)
+                    if limit <= 0:
+                        limit = None
+                except ValueError:
+                    pass
+                msgs = load_messages(sid, limit)
                 if msgs is None:
                     return self.send_json({"error": "unknown session"}, 404)
                 return self.send_json(msgs)

@@ -71,18 +71,9 @@
   }
   .dot.busy {
     background: var(--warn);
-    animation: pulse 1s infinite alternate;
   }
   .dot.dirty {
     background: var(--ok);
-  }
-  @keyframes pulse {
-    from {
-      opacity: 0.4;
-    }
-    to {
-      opacity: 1;
-    }
   }
   .label {
     white-space: nowrap;

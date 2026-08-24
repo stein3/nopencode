@@ -11,12 +11,35 @@
   import CommandDialog from './components/CommandDialog.svelte'
   import ModelPicker from './components/ModelPicker.svelte'
   import InfoPanel from './components/InfoPanel.svelte'
-  import { startEvents, applyMessages, backfill, loadOlder, RECENT_PAGE } from './lib/sse'
+  import { startEvents, applyMessages, backfill, loadOlder, RECENT_PAGE, JUMP_CAP } from './lib/sse'
   import { answerPermission, refreshPermissions } from './lib/permissions'
   import { initHotkeys } from './lib/hotkeys'
 
   let composers: Record<string, Composer> = {}
   let diffOpen = false
+
+  // ---- pane dormancy -------------------------------------------------------
+  // Transcript DOM is the app's heaviest asset (~20–70 nodes/message), and
+  // hidden panes keep every row mounted forever. Tabs outside the active one +
+  // the PANE_KEEP most-recently-active render a placeholder instead: their
+  // message data stays hot on the Tab in the stores, so re-activation renders
+  // instantly from memory (no refetch, no scroll restore needed — activation
+  // force-pins to bottom anyway).
+  const PANE_KEEP = 5
+  let recentOrder: string[] = [] // most-recent-first
+  $: noteActivation($active)
+  function noteActivation(id: string | null) {
+    if (!id || recentOrder[0] === id) return
+    recentOrder = [id, ...recentOrder.filter((x) => x !== id)].slice(0, 32)
+  }
+  $: dormantIds = computeDormant($tabs, $active, recentOrder)
+  function computeDormant(list: Tab[], activeId: string | null, order: string[]): Set<string> {
+    const keep = new Set(order.slice(0, PANE_KEEP))
+    if (activeId) keep.add(activeId)
+    const out = new Set<string>()
+    for (const t of list) if (!keep.has(t.id)) out.add(t.id)
+    return out
+  }
 
   function focusActiveComposer() {
     composers[tabs.getActive()]?.focus()
@@ -73,7 +96,10 @@
       // the transcript owns the actual scroll (it knows when backfilled rows
       // have landed and follow()-snapping must stand down)
       const snap = tabs.snapshot(id)
-      if (snap?.live && !snap.messages.some((m) => m.id === anchor)) await backfill(id)
+      if (snap?.live && !snap.messages.some((m) => m.id === anchor)) {
+        await backfill(id, JUMP_CAP)
+        if (!tabs.snapshot(id)?.messages.some((m) => m.id === anchor)) await backfill(id)
+      }
       tabs.patch(id, { jumpTo: anchor })
     }
   }
@@ -325,6 +351,7 @@
         <Transcript
           tab={t}
           active={t.id === $active}
+          dormant={dormantIds.has(t.id)}
           onLoadOlder={() => loadOlder(t.id)}
           onReverted={(text) => composers[t.id]?.prefill(text)}
         />
