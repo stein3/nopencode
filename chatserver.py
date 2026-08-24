@@ -238,6 +238,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json({"ok": True})
             if path == "/api/history/sessions":
                 return self.send_json(STORE.sessions)
+            if path.startswith("/api/history/session/") and path.endswith("/changes"):
+                sid = path.rsplit("/", 2)[1]
+                return self.send_json(session_changes(sid))
             if path.startswith("/api/history/session/"):
                 sid = path.rsplit("/", 1)[1]
                 msgs = STORE.msgs.get(sid)
