@@ -159,6 +159,9 @@ export interface HistSession {
   message_count: number
   cost: number
   model?: string
+  // set on subagent sessions (@explore, @general, …) — engine session parentID
+  parent?: string
+  agent?: string
 }
 
 export interface HistMsg {
