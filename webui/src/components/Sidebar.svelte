@@ -1,6 +1,7 @@
 <script lang="ts">
+  import { onMount } from 'svelte'
   import { hist, type HistSession, type SearchHit } from '../lib/api'
-  import { searchQuery } from '../lib/stores'
+  import { searchQuery, sessionMetrics } from '../lib/stores'
   import { relTime } from '../lib/util'
 
   export let onOpenHistory: (id: string, anchor?: string) => void
@@ -36,6 +37,50 @@
     }
   }
   load()
+
+  // sqlite snapshot only changes on reload — poll so non-open sessions stay
+  // roughly fresh too (open tabs are corrected live via sessionMetrics)
+  onMount(() => {
+    const iv = setInterval(load, 60000)
+    const onVis = () => {
+      if (document.visibilityState === 'visible') load()
+    }
+    document.addEventListener('visibilitychange', onVis)
+    return () => {
+      clearInterval(iv)
+      document.removeEventListener('visibilitychange', onVis)
+    }
+  })
+
+  interface Row extends HistSession {
+    tokens?: number
+  }
+
+  function fmtK(n?: number): string {
+    if (!n) return ''
+    if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M'
+    if (n >= 1000) return Math.round(n / 1000) + 'K'
+    return String(n)
+  }
+
+  // live metrics for open tabs overlay the snapshot; re-sorted so activity floats up
+  $: rows = mergeRows(sessions, $sessionMetrics)
+
+  function mergeRows(list: HistSession[], metrics: Record<string, any>): Row[] {
+    return list
+      .map((s) => {
+        const m = metrics[s.id]
+        if (!m) return s as Row
+        return {
+          ...s,
+          updated: m.updated ?? s.updated,
+          cost: m.cost ?? s.cost,
+          message_count: m.messages ?? s.message_count,
+          tokens: m.tokens,
+        }
+      })
+      .sort((a, b) => b.updated - a.updated)
+  }
 </script>
 
 <aside class="sidebar">
@@ -66,14 +111,18 @@
         {/each}
       {/if}
     {:else}
-      <div class="section">Sessions ({sessions.length})</div>
-      {#each sessions as s (s.id)}
+      <div class="section">Sessions ({rows.length})</div>
+      {#each rows as s (s.id)}
         <button class="item" on:click={() => onOpenHistory(s.id)} title={s.title}>
           <span class="row1">
             <span class="title">{s.title || s.id.slice(0, 14)}</span>
             <span class="meta">{relTime(s.updated)}</span>
           </span>
-          <span class="sub">{s.message_count} msgs{s.model ? ` · ${s.model}` : ''}</span>
+          <span class="sub"
+            >{s.message_count} msgs{fmtK(s.tokens) ? ` · ${fmtK(s.tokens)} tk` : ''}{s.model
+              ? ` · ${s.model}`
+              : ''}</span
+          >
         </button>
       {:else}
         <div class="hint">loading…</div>
