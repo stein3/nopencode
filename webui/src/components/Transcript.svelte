@@ -10,6 +10,9 @@
   export let tab: Tab
   // App wires this to a full-history backfill; only called while tab.partial
   export let onLoadOlder: () => Promise<unknown> = async () => {}
+  // fired after a successful revert with the reverted message's text so the
+  // composer can offer it back as an editable draft
+  export let onReverted: (text: string) => void = () => {}
 
   let scroller: HTMLElement
   let feed: HTMLElement
@@ -504,12 +507,20 @@
   }
 
   async function revertTo(mid: string) {
+    // capture the text first — the refetch below prunes the message from the
+    // window, and the composer refill needs it
+    const m = tab.messages.find((x) => x.id === mid)
+    const text = (m?.parts ?? [])
+      .filter((p) => p.type === 'text' && (p.text ?? '').trim())
+      .map((p) => p.text ?? '')
+      .join('\n\n')
     try {
       // response is the updated session info, incl. the revert point — apply
       // it immediately so the transcript updates without waiting for events
       const s = await oc.revertTo(tab.id, mid)
       tabs.patch(tab.id, { revert: s.revert ?? null })
       refetchNow(tab.id)
+      if (text.trim()) onReverted(text)
     } catch (e: any) {
       alert(`revert failed: ${e.message ?? e}`)
     }

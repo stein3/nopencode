@@ -322,7 +322,12 @@
     <TabsBar onClose={closeTab} onNewChat={newChat} />
     {#each $tabs as t (t.id)}
       <div class="tabpane" style:display={$active === t.id ? 'flex' : 'none'}>
-        <Transcript tab={t} active={t.id === $active} onLoadOlder={() => loadOlder(t.id)} />
+        <Transcript
+          tab={t}
+          active={t.id === $active}
+          onLoadOlder={() => loadOlder(t.id)}
+          onReverted={(text) => composers[t.id]?.prefill(text)}
+        />
         {#if $permissions.some((p) => p.sessionID === t.id)}
           <div class="perm-inline">
             {#each $permissions.filter((p) => p.sessionID === t.id) as p (p.id)}
