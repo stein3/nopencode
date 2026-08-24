@@ -6,12 +6,12 @@
   import Composer from './components/Composer.svelte'
   import Footer from './components/Footer.svelte'
   import { hist, oc } from './lib/api'
-  import { tabs, permissions, sidebarOpen, selectedModel, paletteOpen, infoOpen, toggleInfo, toastMsg, type Tab } from './lib/stores'
+  import { tabs, permissions, sidebarOpen, selectedModel, paletteOpen, infoOpen, toggleInfo, toastMsg, patchMetrics, type Tab } from './lib/stores'
   import CommandPalette from './components/CommandPalette.svelte'
   import CommandDialog from './components/CommandDialog.svelte'
   import ModelPicker from './components/ModelPicker.svelte'
   import InfoPanel from './components/InfoPanel.svelte'
-  import { startEvents, normalizeMessages } from './lib/sse'
+  import { startEvents, applyMessages } from './lib/sse'
   import { answerPermission, refreshPermissions } from './lib/permissions'
   import { initHotkeys } from './lib/hotkeys'
 
@@ -80,7 +80,10 @@
         oc.messages(id),
         oc.session(id).catch(() => null as any),
       ])
-      tabs.patch(id, { messages: normalizeMessages(msgs), live: true, revert: s?.revert ?? null })
+      applyMessages(id, msgs)
+      tabs.patch(id, { live: true, revert: s?.revert ?? null })
+      // session cost is engine-maintained; the messages payload can't derive it
+      if (typeof s?.cost === 'number') patchMetrics(id, { cost: s.cost })
       // the picker reflects the model this session actually uses; switching
       // tabs therefore carries the "last used" model into new chats
       const m = s?.model

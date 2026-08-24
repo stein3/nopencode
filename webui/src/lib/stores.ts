@@ -146,6 +146,36 @@ function makeTabs() {
 
 export const tabs = makeTabs()
 
+// ---- live per-session metrics (keeps the sidebar fresh for open tabs) ----
+// The sidebar's sqlite snapshot only changes on reload; these values are
+// maintained from SSE events and message fetches so open sessions show
+// current tokens/cost/activity without a manual refresh.
+export interface SessionMetrics {
+  tokens?: number // context estimate: input+output+reasoning+cache of newest assistant message
+  cost?: number // engine-maintained session spend
+  updated?: number // last activity, ms epoch
+  messages?: number // message count from the live engine view
+}
+
+export const sessionMetrics = writable<Record<string, SessionMetrics>>({})
+
+export function patchMetrics(sid: string, m: SessionMetrics) {
+  if (!sid || sid.startsWith('pending-')) return
+  sessionMetrics.update((all) => ({ ...all, [sid]: { ...all[sid], ...m } }))
+}
+
+// Derive metrics from a raw engine messages payload (info-wrapped or flat).
+export function metricsFromMessages(msgs: any[]): SessionMetrics {
+  const list = msgs ?? []
+  const withTok = [...list]
+    .reverse()
+    .find((m: any) => ((m.info ?? m)?.role ?? 'assistant') === 'assistant' && (m.info ?? m)?.tokens)
+  const t = withTok ? ((withTok.info ?? withTok).tokens ?? {}) : {}
+  const tokens =
+    (t.input ?? 0) + (t.output ?? 0) + (t.reasoning ?? 0) + ((t.cache?.read ?? 0) + (t.cache?.write ?? 0))
+  return { tokens, messages: list.length }
+}
+
 export interface PermRequest {
   id: string
   sessionID?: string
