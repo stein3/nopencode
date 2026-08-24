@@ -217,6 +217,21 @@ export function clearSessionUnread(sid: string) {
   })
 }
 
+export function preferredDefaultModel(providers: { id: string; models?: Record<string, any> }[]): ModelRef | null {
+  // Deployment preference: the opencode provider's free model is the
+  // cheapest, generally-available default; don't fall back to the first
+  // provider's first model (that's a local lemonade runtime that often
+  // isn't running in this environment).
+  const opencode = providers.find((p) => p.id === 'opencode')
+  if (opencode?.models?.['x-preview-f-free']) {
+    return { providerID: 'opencode', modelID: 'x-preview-f-free' }
+  }
+  const first = providers[0]
+  if (!first) return null
+  const mid = Object.keys(first.models ?? {})[0]
+  return mid ? { providerID: first.id, modelID: mid } : null
+}
+
 export const permissions = writable<PermRequest[]>([])
 
 // ---- pending question-tool requests (engine blocks the turn until answered) ----
@@ -229,7 +244,6 @@ export interface PendingQuestion {
   tool?: { messageID?: string; callID?: string }
 }
 export const pendingQuestions = writable<PendingQuestion[]>([])
-
 export const sidebarOpen = writable(true)
 export const searchQuery = writable('')
 export const paletteOpen = writable(false)

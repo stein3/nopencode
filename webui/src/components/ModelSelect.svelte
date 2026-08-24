@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { oc } from '../lib/api'
-  import { selectedModel } from '../lib/stores'
+  import { selectedModel, preferredDefaultModel } from '../lib/stores'
 
   // Compact native-select model picker for the new-session empty state.
   // Same store as the topbar ModelPicker — both views stay in sync because
@@ -11,9 +11,8 @@
   onMount(async () => {
     providers = await oc.providers().catch(() => [])
     if (!$selectedModel && providers.length) {
-      const p = providers[0]
-      const first = Object.keys(p.models ?? {})[0]
-      if (first) selectedModel.save({ providerID: p.id, modelID: first })
+      const def = preferredDefaultModel(providers)
+      if (def) selectedModel.save(def)
     }
   })
 
