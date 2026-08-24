@@ -4,6 +4,7 @@
   import { tabs, selectedModel, cmdVersion } from '../lib/stores'
   import type { Tab } from '../lib/stores'
   import { registry, type Cmd } from '../lib/commands'
+  import { RECENT_PAGE, normalizeMessages } from '../lib/sse'
 
   export let tab: Tab
   export let onSent: (sessionId: string) => void
@@ -76,16 +77,26 @@
   }
 
   // ---- send ---------------------------------------------------------------
+  // NOTE: tab.busy does NOT block — the engine queues messages sent during an
+  // in-flight turn (verified: the busy POST waits, then runs in order), so the
+  // composer lets you line up the next message instead of dead-ending on the
+  // stop button (which also used to trap sessions waiting on a question).
+  //
+  // `sending` only covers prep + dispatch. oc.prompt is a BLOCKING call — the
+  // engine answers when the turn finishes — so awaiting it here used to pin
+  // `sending` true for the entire run, disabling queueing entirely (button and
+  // Enter). The in-flight prompt is detached below; its errors are handled by
+  // failedSend().
   async function submit(body: string) {
-    if (tab.busy || sending) return
+    if (!body || sending) return
     sending = true
     sendError = ''
     let sid = tab.id
-    // clear the box right away: oc.prompt is a blocking call (the v1 engine
-    // answers when the turn finishes), so waiting would pin the text until
-    // the whole response streams in. Restored on failure.
+    // clear the box right away so the next (possibly queued) message can be
+    // typed while this one runs; restored on failure if it never landed
     text = ''
     autosize()
+    let flight: Promise<unknown> | null = null
     try {
       const isCmd = body.startsWith('/')
       const m = isCmd ? /^\/([a-z0-9_-]+)(?:\s+([\s\S]*))?$/.exec(body.trim()) : null
@@ -103,22 +114,52 @@
         if (cmd.source !== 'builtin' && real) onSent(real)
       } else {
         tabs.patch(sid, { busy: true }) // optimistic spinner immediately
-        if (m && !registry.ready) {
-          // engine list never arrived — give the legacy direct call a chance
-          await oc.runCommand(sid, m[1], m[2] ? [m[2]] : [])
-          onSent(sid)
-        } else {
-          await oc.prompt(sid, body, $selectedModel ?? undefined)
-          onSent(sid)
-        }
+        flight =
+          m && !registry.ready
+            ? oc.runCommand(sid, m[1], m[2] ? [m[2]] : [])
+            : oc.prompt(sid, body, $selectedModel ?? undefined)
+        onSent(sid)
       }
     } catch (e: any) {
-      text = body // give the message back so nothing is lost
+      text = body // fast failure (prep/dispatch): give the message back
       autosize()
       tabs.patch(sid, { busy: false })
       toastErr(e)
+      return
     } finally {
       sending = false
+    }
+    try {
+      await flight
+    } catch (e: any) {
+      tabs.patch(sid, { busy: false })
+      await failedSend(sid, body, e)
+    }
+  }
+
+  // Late failure of a detached send (proxy timeout, OS sleep, network drop).
+  // The connection dying does NOT mean the engine missed the message — the
+  // prompt POST stays open until the whole turn finishes, so the text usually
+  // already landed. Only hand it back when the transcript shows no matching
+  // user message; blindly restoring made returning to a backgrounded tab
+  // "resend" the last message.
+  async function failedSend(sid: string, body: string, e: any) {
+    toastErr(e)
+    let landed = false
+    try {
+      const msgs = normalizeMessages(await oc.messages(sid, RECENT_PAGE))
+      landed = msgs.some(
+        (mm) =>
+          mm.role === 'user' &&
+          mm.parts.some((p: any) => p.type === 'text' && (p.text ?? '').trim() === body),
+      )
+    } catch {
+      /* engine unreachable — assume it never arrived */
+    }
+    if (!landed && !text.trim()) {
+      // don't clobber a newer draft the user started meanwhile
+      text = body
+      autosize()
     }
   }
 
@@ -177,6 +218,9 @@
     <div class="error">{tab.error}</div>
   {/if}
   <div class="box">
+    {#if tab.busy}
+      <button class="stop" title="Abort current turn" on:click={abort}>■</button>
+    {/if}
     <div class="inputwrap">
       <textarea
         bind:this={ta}
@@ -215,7 +259,7 @@
       {/if}
     </div>
     {#if tab.busy}
-      <button class="stop" title="Abort" on:click={abort}>■</button>
+      <button class="go queued" disabled={!text.trim() || sending} title="Queue message (runs after the current turn)" on:click={() => submit(text.trim())}>➤</button>
     {:else}
       <button class="go" disabled={!text.trim() || sending} title="Send" on:click={() => submit(text.trim())}>➤</button>
     {/if}
@@ -352,6 +396,11 @@
   .go {
     background: var(--accent);
     color: #fff;
+  }
+  .go.queued {
+    background: transparent;
+    border: 1px solid var(--accent);
+    color: var(--accent);
   }
   .go:disabled {
     opacity: 0.35;
