@@ -16,10 +16,12 @@ Env: PORT(8080) HOST(0.0.0.0) OC_ENGINE(http://127.0.0.1:4096)
      OC_DB(/home/node/.local/share/opencode/opencode.db) WEBUI_DIST(./webui/dist)
 """
 
+import gzip
 import http.client
 import json
 import mimetypes
 import os
+import re
 import sqlite3
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs, urlunparse
@@ -36,6 +38,7 @@ WEBUI_DIST = os.path.abspath(
 
 SNIPPET_CTX = 70
 SEARCH_CAP = 300
+WORKTREE = "/workspace/"
 
 
 def num(v):
@@ -189,6 +192,144 @@ def search(q):
     return hits
 
 
+def _rel(path):
+    """Worktree-relative path for display/content-fetch parity with vcs/diff."""
+    p = path or ""
+    return p[len(WORKTREE):] if p.startswith(WORKTREE) else p.lstrip("/")
+
+
+V4A_SECTION_RE = re.compile(r"^\*\*\* (Add|Update|Delete) File: (.+?)\s*$")
+
+
+def _v4a_sections(patch_text):
+    """Split a V4A patchText into [(action, path, body_lines)] per file."""
+    out, action, path, body = [], None, None, []
+    for line in (patch_text or "").split("\n"):
+        m = V4A_SECTION_RE.match(line)
+        if m:
+            if action:
+                out.append((action, path, body))
+            action, path, body = m.group(1), m.group(2), []
+        elif action and not line.startswith("***"):
+            body.append(line)
+    if action:
+        out.append((action, path, body))
+    return out
+
+
+def _v4a_to_unified(body, force_add=False):
+    """Convert one V4A section body into unified-diff hunk text.
+
+    V4A hunks are context-anchored ('@@' separators optional, no line
+    numbers); we emit '@@ -1,O +1,N @@' headers and let the client locate
+    hunks by content match (matchAt scans from top as fallback).
+    force_add: Add File sections must yield pure additions — some models
+    emit blank or stray unprefixed lines there.
+    """
+    if force_add:
+        body = [("+" + (l[1:] if l.startswith("+") else l)) for l in body]
+    chunks, cur = [], []
+    for line in body:
+        if line.startswith("@@"):
+            if cur:
+                chunks.append(cur)
+            cur = []
+        else:
+            cur.append(line)
+    if cur:
+        chunks.append(cur)
+    parts = []
+    for ch in chunks:
+        old = sum(1 for l in ch if l.startswith(("-", " ")))
+        new = sum(1 for l in ch if l.startswith(("+", " ")))
+        parts.append("@@ -1,%d +1,%d @@" % (old, new))
+        parts.extend(ch)
+    return "\n".join(parts)
+
+
+def session_changes(sid):
+    """Per-file chronological ops (edit/write/apply_patch) for one session.
+
+    Minimal projection only: edit -> filediff.patch; write -> '+' pseudo-patch
+    for creates (overwrites have no before-image anywhere in the transcript);
+    apply_patch -> split V4A patchText per file, converted to unified hunks.
+    """
+    files, order = {}, []
+
+    def add(path, op):
+        p = _rel(path)
+        if p not in files:
+            files[p] = []
+            order.append(p)
+        files[p].append(op)
+
+    with _connect() as c:
+        if not c.execute("SELECT 1 FROM session WHERE id=?", (sid,)).fetchone():
+            return None
+        rows = c.execute(
+            """SELECT data FROM part
+               WHERE session_id=?
+                 AND json_extract(data,'$.type')='tool'
+                 AND json_extract(data,'$.tool') IN ('edit','write','apply_patch')
+               ORDER BY time_created""",
+            (sid,),
+        )
+        for (data,) in rows:
+            pd = json.loads(data or "{}")
+            st = pd.get("state") or {}
+            if st.get("status") != "completed":
+                continue
+            t = st.get("time") or {}
+            ts = num(t.get("end")) or num(t.get("start"))
+            tool = pd["tool"]
+            inp = st.get("input") or {}
+            md = st.get("metadata") or {}
+
+            if tool == "edit":
+                fd = md.get("filediff") or {}
+                path = fd.get("file") or inp.get("filePath")
+                patch = fd.get("patch") or md.get("diff")
+                if path and patch:
+                    add(path, {"k": "edit", "t": ts, "patch": patch})
+
+            elif tool == "write":
+                path = inp.get("filePath")
+                if not path:
+                    continue
+                if md.get("exists"):
+                    # overwrite: pre-image unrecoverable from the transcript
+                    add(path, {"k": "write", "t": ts, "exists": True})
+                else:
+                    lines = (inp.get("content") or "").split("\n")
+                    if lines and lines[-1] == "":
+                        lines.pop()
+                    add(
+                        path,
+                        {
+                            "k": "write",
+                            "t": ts,
+                            "patch": "@@ -0,0 +1,%d @@" % len(lines)
+                            + ("\n" + "\n".join("+" + l for l in lines) if lines else ""),
+                        },
+                    )
+
+            else:  # apply_patch
+                for action, vpath, body in _v4a_sections(inp.get("patchText")):
+                    if action == "Delete":
+                        add(vpath, {"k": "delete", "t": ts})
+                    else:
+                        add(
+                            vpath,
+                            {
+                                "k": "patch",
+                                "t": ts,
+                                "patch": _v4a_to_unified(body, force_add=action == "Add"),
+                            },
+                        )
+
+    return {"files": [{"file": p, "ops": files[p]} for p in order]}
+
+
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     server_version = "opencode-chatserver/0.2"
@@ -201,6 +342,11 @@ class Handler(BaseHTTPRequestHandler):
         body = json.dumps(obj).encode()
         self.send_response(code)
         self.send_header("Content-Type", "application/json")
+        # On-the-fly gzip for large payloads (patch-heavy /changes responses
+        # shrink ~8x); statics use precompressed siblings instead.
+        if len(body) > 1024 and "gzip" in (self.headers.get("Accept-Encoding") or ""):
+            body = gzip.compress(body, 6)
+            self.send_header("Content-Encoding", "gzip")
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
@@ -223,6 +369,12 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json({"ok": True})
             if path == "/api/history/sessions":
                 return self.send_json(load_sessions())
+            m = re.match(r"^/api/history/session/([^/]+)/changes$", path)
+            if m:
+                changes = session_changes(m.group(1))
+                if changes is None:
+                    return self.send_json({"error": "unknown session"}, 404)
+                return self.send_json(changes)
             if path.startswith("/api/history/session/"):
                 sid = path.rsplit("/", 1)[1]
                 msgs = load_messages(sid)
