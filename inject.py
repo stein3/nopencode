@@ -193,9 +193,10 @@ TOOLBAR = r"""<style>
 
   function repaintSoon() {
     repaintAround();
+    /* Single short fallback only: taps that generate no server output need
+       one nudge; everything else is covered by the onWriteParsed hook below.
+       The old 500/1000 ms timers just burned phone CPU on redundant repaints. */
     setTimeout(repaintAround, 120);
-    setTimeout(repaintAround, 500);
-    setTimeout(repaintAround, 1000);
   }
 
   /* Repaint shortly after every redraw xterm parses. onWriteParsed fires after
