@@ -5,6 +5,7 @@ export interface HotkeyHandlers {
   closeTab: () => void
   cycleTabs: (dir: 1 | -1) => void
   jumpTab: (n: number) => void
+  toggleDiff?: () => void
   openPalette?: () => void
 }
 
@@ -31,6 +32,14 @@ export function initHotkeys(h: HotkeyHandlers) {
     } else if (mod && e.key.toLowerCase() === 'w') {
       e.preventDefault()
       h.closeTab()
+    } else if (mod && !e.shiftKey && e.key.toLowerCase() === 'd') {
+      // diff pane toggle
+      e.preventDefault()
+      h.toggleDiff?.()
+    } else if (mod && e.key === '/') {
+      // works even while typing (e.g. escape hatch out of the search box)
+      e.preventDefault()
+      h.focusComposer()
     } else if (e.altKey && e.key === 'ArrowRight') {
       e.preventDefault()
       h.cycleTabs(1)
