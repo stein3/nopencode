@@ -184,6 +184,14 @@
     return typeof o === 'string' ? o : ''
   }
 
+  function outFirstLine(s: string): string {
+    return (s.split('\n').find((l) => l.trim()) ?? '').trim()
+  }
+
+  function outLineCount(s: string): number {
+    return s.replace(/\n+$/, '').split('\n').length
+  }
+
   function toolError(p: any): string {
     const e = p.state?.error
     if (!e) return ''
@@ -493,7 +501,18 @@
                 </div>
               </details>
               {#if isShellTool(p)}
-                <pre class="out">{toolOutputText(p) || (p.state?.status === 'running' ? '…' : '(no output)')}</pre>
+                {@const out = toolOutputText(p)}
+                {#if out}
+                  <details class="outbox">
+                    <summary>
+                      <span class="outline">{clip(outFirstLine(out), 150)}</span>
+                      {#if outLineCount(out) > 1}<span class="ocount">{outLineCount(out)} lines</span>{/if}
+                    </summary>
+                    <pre class="out">{out}</pre>
+                  </details>
+                {:else}
+                  <pre class="out">{p.state?.status === 'running' ? '…' : '(no output)'}</pre>
+                {/if}
               {/if}
             </div>
           {/if}
@@ -752,6 +771,45 @@
     white-space: pre-wrap;
     word-break: break-word;
     color: var(--fg-dim);
+  }
+  details.outbox summary {
+    display: flex;
+    gap: 8px;
+    align-items: baseline;
+    cursor: pointer;
+    padding: 6px 10px 6px 22px;
+    border-top: 1px dashed var(--border);
+    color: var(--fg-dim);
+    font-family: var(--mono);
+    font-size: 11.5px;
+    user-select: none;
+    list-style: none;
+    position: relative;
+  }
+  details.outbox summary::-webkit-details-marker {
+    display: none;
+  }
+  details.outbox summary::before {
+    content: '▸';
+    position: absolute;
+    left: 9px;
+  }
+  details.outbox[open] summary::before {
+    content: '▾';
+  }
+  details.outbox summary:hover {
+    color: var(--fg);
+  }
+  .outline {
+    min-width: 0;
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .ocount {
+    flex: none;
+    opacity: 0.7;
   }
   details.thinking {
     margin: 6px 0;
