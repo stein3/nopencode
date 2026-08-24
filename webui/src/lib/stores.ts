@@ -219,6 +219,17 @@ export function clearSessionUnread(sid: string) {
 
 export const permissions = writable<PermRequest[]>([])
 
+// ---- pending question-tool requests (engine blocks the turn until answered) ----
+// Shape (v1.18.x GET /question): { id, sessionID, questions: [{question, header,
+// options: [{label, description}], multiple?, custom?}], tool?: {messageID, callID} }
+export interface PendingQuestion {
+  id: string
+  sessionID?: string
+  questions: any[]
+  tool?: { messageID?: string; callID?: string }
+}
+export const pendingQuestions = writable<PendingQuestion[]>([])
+
 export const sidebarOpen = writable(true)
 export const searchQuery = writable('')
 export const paletteOpen = writable(false)

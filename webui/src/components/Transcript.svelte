@@ -1,10 +1,11 @@
 <script lang="ts">
   import { onMount, afterUpdate } from 'svelte'
-  import { tabs, showThinking, showTimestamps, type Tab } from '../lib/stores'
+  import { tabs, showThinking, showTimestamps, type Tab, pendingQuestions, type PendingQuestion } from '../lib/stores'
   import { oc, type OcMessage } from '../lib/api'
   import { refetchNow } from '../lib/sse'
   import { md } from '../lib/markdown'
   import ModelSelect from './ModelSelect.svelte'
+  import QuestionPicker from './QuestionPicker.svelte'
 
   export let tab: Tab
   // App wires this to a full-history backfill; only called while tab.partial
@@ -308,6 +309,18 @@
     return QUESTION_RE.test(String(p.tool ?? '').toLowerCase())
   }
 
+  // The engine holds the turn open until a question is answered; match the
+  // pending request to its tool part via callID (fall back to session-level
+  // match when the part's callID is unknown, e.g. single pending question).
+  // NOTE: takes the store value as a parameter so the {@const} expression
+  // re-runs when it changes (template calls can't see deps inside the fn).
+  function findPending(p: any, pend: PendingQuestion[]) {
+    const mine = pend.filter((q) => !q.sessionID || q.sessionID === tab.id)
+    if (!mine.length) return undefined
+    const byCall = p.callID ? mine.find((q) => q.tool?.callID === p.callID) : undefined
+    return byCall ?? (mine.length === 1 ? mine[0] : undefined)
+  }
+
   function questionRows(p: any): { q: any; picked: string[] }[] {
     const qs = p.state?.input?.questions
     if (!Array.isArray(qs)) return []
@@ -537,10 +550,11 @@
               {/if}
             </details>
           {:else if p.type === 'tool'}
+            {@const pq = findPending(p, $pendingQuestions)}
             <div class="toolcard">
-              <details class="tool">
+              <details class="tool" open={pq ? true : undefined}>
                 <summary>
-                  <span class="sum-text">{toolStatusGlyph(p)}<span class="tname {toolColorClass(p)}">{p.tool ?? 'tool'}</span>{#if toolDetail(p)}<span class="tsep">·</span><span>{toolDetail(p)}</span>{/if}</span>
+                  <span class="sum-text">{toolStatusGlyph(p)}<span class="tname {toolColorClass(p)}">{p.tool ?? 'tool'}</span>{#if pq}<span class="tsep">·</span><span class="qwait">awaiting your answer</span>{:else if toolDetail(p)}<span class="tsep">·</span><span>{toolDetail(p)}</span>{/if}</span>
                   {#if isTruncated(p)}<span class="badge warn">truncated</span>{/if}
                   {#if toolDuration(p)}<span class="badge">{toolDuration(p)}</span>{/if}
                 </summary>
@@ -548,20 +562,24 @@
                   {#if isShellTool(p)}
                     <pre class="cmd">{shellCommand(p) || '…'}</pre>
                   {:else if isQuestionTool(p)}
-                    {#each questionRows(p) as qr}
-                      <div class="qa">
-                        <div class="qq">{qr.q.header ? qr.q.header + ': ' : ''}{qr.q.question}</div>
-                        {#each qr.q.options ?? [] as opt (opt.label)}
-                          <div class="opt" class:picked={qr.picked.includes(opt.label)}>
-                            <span class="mark">✓</span>
-                            <span class="otext"><b>{opt.label}</b>{#if opt.description}<span class="odesc"> — {opt.description}</span>{/if}</span>
-                          </div>
-                        {/each}
-                        {#if !qr.q.options?.length && qr.picked.length}
-                          <div class="opt picked"><span class="mark">✓</span><span class="otext">{qr.picked.join(', ')}</span></div>
-                        {/if}
-                      </div>
-                    {/each}
+                    {#if pq}
+                      <QuestionPicker req={pq} />
+                    {:else}
+                      {#each questionRows(p) as qr}
+                        <div class="qa">
+                          <div class="qq">{qr.q.header ? qr.q.header + ': ' : ''}{qr.q.question}</div>
+                          {#each qr.q.options ?? [] as opt (opt.label)}
+                            <div class="opt" class:picked={qr.picked.includes(opt.label)}>
+                              <span class="mark">✓</span>
+                              <span class="otext"><b>{opt.label}</b>{#if opt.description}<span class="odesc"> — {opt.description}</span>{/if}</span>
+                            </div>
+                          {/each}
+                          {#if !qr.q.options?.length && qr.picked.length}
+                            <div class="opt picked"><span class="mark">✓</span><span class="otext">{qr.picked.join(', ')}</span></div>
+                          {/if}
+                        </div>
+                      {/each}
+                    {/if}
                   {:else}
                     {#each toolDetails(p) as d (d.label)}
                       {#if d.kind === 'diff'}
@@ -770,6 +788,15 @@
   }
   .tname.tc-question {
     color: #e3d26f;
+  }
+  .qwait {
+    color: #e3d26f;
+    animation: qpulse 1.6s ease-in-out infinite;
+  }
+  @keyframes qpulse {
+    50% {
+      opacity: 0.45;
+    }
   }
   .tname.tc-skill {
     color: #66d0b0;
