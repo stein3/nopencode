@@ -17,6 +17,7 @@
   }
 
   async function refresh() {
+    if (tab.pending) return // no session on the engine yet
     try {
       const [sess, msgs, path] = await Promise.all([
         oc.session(tab.id),
@@ -38,7 +39,7 @@
     }
   }
 
-  $: if (tab.id || tab.busy === false) refresh(), void tab.busy
+  $: if (!tab.pending && (tab.id || tab.busy === false)) refresh(), void tab.busy
 
   let limit = 0
   onMount(async () => {
@@ -46,7 +47,7 @@
     const m = $selectedModel
     const prov = provs.find((p: any) => p.id === m?.providerID)
     limit = prov?.models?.[m?.modelID ?? '']?.limit?.context ?? 0
-    if (!dir) dir = (await oc.path().catch(() => ({})))?.directory ?? ''
+    if (!dir) dir = (await oc.path().catch(() => ({ directory: undefined })))?.directory ?? ''
   })
 
   $: pct = limit ? Math.min(100, (usedTokens / limit) * 100) : 0
