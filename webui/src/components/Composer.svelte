@@ -1,62 +1,156 @@
 <script lang="ts">
+  import { tick } from 'svelte'
   import { oc } from '../lib/api'
-  import { tabs, selectedModel, paletteOpen } from '../lib/stores'
+  import { tabs, selectedModel, cmdVersion } from '../lib/stores'
   import type { Tab } from '../lib/stores'
+  import { registry, type Cmd } from '../lib/commands'
 
   export let tab: Tab
   export let onSent: (sessionId: string) => void
+  // creates the engine session on first use (pending tabs)
+  export let realize: () => Promise<string> = async () => tab.id
 
   let text = ''
   let ta: HTMLTextAreaElement
   let sending = false
   let sendError = ''
+  let sel = 0
+
+  registry.load()
 
   export function focus() {
     ta?.focus()
   }
 
-  async function send() {
-    const body = text.trim()
-    if (!body || tab.busy || sending) return
-    if (body.startsWith('/')) {
-      // slash command, not a chat message
-      const name = body.slice(1).split(/\s+/)[0]
+  // ---- inline slash menu -------------------------------------------------
+  // active while the box is exactly "/name" (any space closes the menu)
+  $: slashQuery = /^\/([a-z0-9_-]*)$/.exec(text)
+  $: menuOpen = !!slashQuery
+  $: filtered = menuOpen ? filterCmds(slashQuery![1], $cmdVersion) : []
+  $: if (menuOpen && sel >= filtered.length) sel = Math.max(0, filtered.length - 1)
+
+  function filterCmds(q: string, _version: number): Cmd[] {
+    const ql = q.toLowerCase()
+    const all = registry.all()
+    const byName = all.filter((c) => c.name.startsWith(ql))
+    return byName.length ? byName : all.filter((c) => c.description.toLowerCase().includes(ql))
+  }
+
+  async function pickFromMenu(c: Cmd): Promise<void> {
+    if (c.source === 'builtin') {
       text = ''
       autosize()
-      tabs.patch(tab.id, { busy: true })
       try {
-        await oc.runCommand(tab.id, name)
-        onSent(tab.id)
+        await c.run(ctx(), '')
       } catch (e: any) {
-        tabs.patch(tab.id, { busy: false })
-        sendError = e.message ?? String(e)
+        toastErr(e)
       }
-      return
+    } else {
+      // engine command/skill: stage it in the box so arguments can be added
+      text = '/' + c.name + ' '
+      autosize()
+      await tick()
+      focusAtEnd()
     }
+    ta?.focus()
+  }
+
+  function ctx(override?: string) {
+    const sid = override ?? (tab.pending ? null : tab.id)
+    return {
+      sessionId: () => sid,
+      newChat: () => window.dispatchEvent(new CustomEvent('oc:new-chat')),
+      focusComposer: () => ta?.focus(),
+      focusSidebar: () => document.dispatchEvent(new CustomEvent('oc:focus-sidebar')),
+    }
+  }
+
+  function toastErr(e: any) {
+    sendError = e?.message ?? String(e)
+  }
+
+  function focusAtEnd() {
+    if (!ta) return
+    const n = ta.value.length
+    ta.setSelectionRange(n, n)
+  }
+
+  // ---- send ---------------------------------------------------------------
+  async function submit(body: string) {
+    if (tab.busy || sending) return
     sending = true
     sendError = ''
-    tabs.patch(tab.id, { busy: true }) // optimistic spinner immediately
+    let sid = tab.id
+    // clear the box right away: oc.prompt is a blocking call (the v1 engine
+    // answers when the turn finishes), so waiting would pin the text until
+    // the whole response streams in. Restored on failure.
+    text = ''
+    autosize()
     try {
-      await oc.prompt(tab.id, body, $selectedModel ?? undefined)
-      text = ''
-      autosize()
-      onSent(tab.id)
+      const isCmd = body.startsWith('/')
+      const m = isCmd ? /^\/([a-z0-9_-]+)(?:\s+([\s\S]*))?$/.exec(body.trim()) : null
+      const cmd = m ? registry.find(m[1]) : undefined
+      // a real session is only needed for prompts and engine commands —
+      // built-in commands (dialogs, pickers, prefs) work on a pending tab
+      let real: string | null = null
+      if (!isCmd || !cmd || cmd.source !== 'builtin') {
+        real = tab.pending ? await realize() : tab.id
+        sid = real
+      }
+      if (isCmd && cmd) {
+        await cmd.run(real ? ctx(real) : ctx(), m![2] ?? '')
+        // only engine commands produce assistant output
+        if (cmd.source !== 'builtin' && real) onSent(real)
+      } else {
+        tabs.patch(sid, { busy: true }) // optimistic spinner immediately
+        if (m && !registry.ready) {
+          // engine list never arrived — give the legacy direct call a chance
+          await oc.runCommand(sid, m[1], m[2] ? [m[2]] : [])
+          onSent(sid)
+        } else {
+          await oc.prompt(sid, body, $selectedModel ?? undefined)
+          onSent(sid)
+        }
+      }
     } catch (e: any) {
-      tabs.patch(tab.id, { busy: false })
-      sendError = e.message ?? String(e)
+      text = body // give the message back so nothing is lost
+      autosize()
+      tabs.patch(sid, { busy: false })
+      toastErr(e)
     } finally {
       sending = false
     }
   }
 
   function key(e: KeyboardEvent) {
+    if (e.key === 'Escape' && menuOpen) {
+      // dismiss menu and clear the staged slash, like the TUI
+      e.preventDefault()
+      text = ''
+      autosize()
+      return
+    }
+    if (menuOpen && filtered.length) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        sel = (sel + 1) % filtered.length
+        return
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        sel = (sel - 1 + filtered.length) % filtered.length
+        return
+      }
+      if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) {
+        e.preventDefault()
+        pickFromMenu(filtered[sel])
+        return
+      }
+    }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
-      send()
-    } else if (e.key === '/' && text === '') {
-      // leading slash opens the command palette like the TUI
-      e.preventDefault()
-      paletteOpen.set(true)
+      const body = text.trim()
+      if (body) submit(body)
     }
   }
 
@@ -83,18 +177,47 @@
     <div class="error">{tab.error}</div>
   {/if}
   <div class="box">
-    <textarea
-      bind:this={ta}
-      bind:value={text}
-      rows="1"
-      placeholder="Message…  (Enter to send, Shift+Enter newline, / to focus)"
-      on:keydown={key}
-      on:input={autosize}
-    ></textarea>
+    <div class="inputwrap">
+      <textarea
+        bind:this={ta}
+        bind:value={text}
+        rows="1"
+        id="composer-input"
+        placeholder="Message…  (Enter to send, Shift+Enter newline, / for commands)"
+        on:keydown={key}
+        on:input={() => {
+          autosize()
+          sel = 0
+        }}
+      ></textarea>
+      {#if menuOpen}
+        <div class="menu" role="listbox">
+          {#each filtered as c, i (c.source + '/' + c.name)}
+            <button
+              type="button"
+              class="row"
+              class:active={i === sel}
+              title={c.description}
+              on:mousedown|preventDefault={() => (sel = i)}
+              on:click={() => pickFromMenu(c)}
+            >
+              <span class="name">/{c.name}</span>
+              <span class="desc">{c.description}</span>
+              {#if c.source !== 'builtin'}
+                <span class="badge {c.source}">{c.source}</span>
+              {/if}
+            </button>
+          {:else}
+            <div class="none">no matching command — enter sends as a normal message</div>
+          {/each}
+          <div class="foot">↑↓ pick · ↵/tab select · esc dismiss</div>
+        </div>
+      {/if}
+    </div>
     {#if tab.busy}
       <button class="stop" title="Abort" on:click={abort}>■</button>
     {:else}
-      <button class="go" disabled={!text.trim() || sending} title="Send" on:click={send}>➤</button>
+      <button class="go" disabled={!text.trim() || sending} title="Send" on:click={() => submit(text.trim())}>➤</button>
     {/if}
   </div>
 </div>
@@ -124,8 +247,14 @@
   .box:focus-within {
     border-color: var(--accent);
   }
-  textarea {
+  .inputwrap {
     flex: 1;
+    position: relative;
+    min-width: 0;
+  }
+  textarea {
+    width: 100%;
+    display: block;
     resize: none;
     background: transparent;
     color: var(--fg);
@@ -137,7 +266,81 @@
     min-height: 22px;
     max-height: 200px;
   }
-  button {
+  /* floats above the composer, anchored to the input */
+  .menu {
+    position: absolute;
+    bottom: calc(100% + 8px);
+    left: 0;
+    right: 0;
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    max-height: 44vh;
+    overflow-y: auto;
+    z-index: 80;
+    box-shadow: 0 14px 40px rgba(0, 0, 0, 0.5);
+    padding: 4px;
+  }
+  .row {
+    display: flex;
+    gap: 10px;
+    width: 100%;
+    text-align: left;
+    background: transparent;
+    border: none;
+    border-radius: 6px;
+    color: var(--fg);
+    padding: 7px 10px;
+    cursor: pointer;
+    font-size: 13px;
+    align-items: baseline;
+  }
+  .row.active,
+  .row:hover {
+    background: var(--bg-hover);
+  }
+  .name {
+    font-family: var(--mono);
+    color: var(--accent);
+    white-space: nowrap;
+  }
+  .desc {
+    flex: 1;
+    color: var(--fg-dim);
+    font-size: 12px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .badge {
+    font-size: 9.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    border: 1px solid var(--border);
+    color: var(--fg-dim);
+    border-radius: 4px;
+    padding: 0 5px;
+    flex-shrink: 0;
+  }
+  .badge.skill {
+    color: #c9a7f7;
+    border-color: #5a4472;
+  }
+  .none {
+    padding: 10px;
+    color: var(--fg-dim);
+    font-size: 12px;
+  }
+  .foot {
+    border-top: 1px solid var(--border);
+    margin-top: 4px;
+    padding: 5px 12px;
+    font-size: 10.5px;
+    color: var(--fg-dim);
+    user-select: none;
+  }
+  button.go,
+  button.stop {
     width: 30px;
     height: 30px;
     border-radius: 6px;
