@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { oc, hist, type HistSession, type SearchHit } from '../lib/api'
-  import { searchQuery, sessionMetrics, permissions, tabs, sessionUnread, markSessionUnread } from '../lib/stores'
+  import { searchQuery, sessionMetrics, permissions, tabs, sessionUnread, markSessionUnread, hideSubagents } from '../lib/stores'
   import { relTime } from '../lib/util'
 
   export let onOpenHistory: (id: string, anchor?: string) => void
@@ -117,6 +117,28 @@
       })
       .sort((a, b) => b.updated - a.updated)
   }
+
+  // ---- subagent sessions (@explore / @general / …) -------------------------
+  // Engine marks them with a parentID; titles carry a redundant
+  // " (@explore subagent)" suffix that the badge replaces.
+  const SUB_SUFFIX = /\s*\(@\S+ subagent\)\s*$/
+
+  function isSub(s: Row): boolean {
+    return !!s.parent
+  }
+
+  function subLabel(s: Row): string {
+    return s.agent ? `@${s.agent}` : '@sub'
+  }
+
+  function displayTitle(s: Row): string {
+    if (!isSub(s)) return s.title || s.id.slice(0, 14)
+    const t = (s.title || '').replace(SUB_SUFFIX, '').trim()
+    return t || s.id.slice(0, 14)
+  }
+
+  $: subCount = rows.filter(isSub).length
+  $: visible = $hideSubagents ? rows.filter((s) => !isSub(s)) : rows
 </script>
 
 <aside class="sidebar">
@@ -147,9 +169,22 @@
         {/each}
       {/if}
     {:else}
-      <div class="section">Sessions ({rows.length})</div>
-      {#each rows as s (s.id)}
-        <button class="item" on:click={() => onOpenHistory(s.id)} title={s.title}>
+      <div class="section">
+        <span class="count"
+          >Sessions ({visible.length}){#if $hideSubagents && subCount}
+            <span class="hidcount">· {subCount} hidden</span>{/if}</span
+        >
+        <label class="hidesub" title="Show or hide subagent sessions (@explore, @general, …)">
+          <input type="checkbox" bind:checked={$hideSubagents} /> subs
+        </label>
+      </div>
+      {#each visible as s (s.id)}
+        <button
+          class="item"
+          class:sub-row={isSub(s)}
+          on:click={() => onOpenHistory(s.id)}
+          title={s.title}
+        >
           <span class="row1">
             <span class="title">
               <span
@@ -158,14 +193,16 @@
                 class:busy={busyMap[s.id]}
                 class:perm={permSet.has(s.id)}
               ></span>
-              {s.title || s.id.slice(0, 14)}
+              {displayTitle(s)}
             </span>
             <span class="meta">{relTime(s.updated)}</span>
           </span>
           <span class="sub"
-            >{s.message_count} msgs{fmtK(s.tokens) ? ` · ${fmtK(s.tokens)} tk` : ''}{s.model
-              ? ` · ${s.model}`
-              : ''}</span
+            >{#if isSub(s)}<span class="subagent">{subLabel(s)}</span> · {/if}{s.message_count} msgs{fmtK(
+                s.tokens
+              )
+                ? ` · ${fmtK(s.tokens)} tk`
+                : ''}{s.model ? ` · ${s.model}` : ''}</span
           >
         </button>
       {:else}
@@ -234,6 +271,40 @@
     text-transform: uppercase;
     letter-spacing: 0.06em;
     color: var(--fg-dim);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    row-gap: 2px;
+  }
+  .count {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .hidesub {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    text-transform: none;
+    letter-spacing: 0;
+    font-size: 11px;
+    color: var(--fg-dim);
+    cursor: pointer;
+    user-select: none;
+  }
+  .hidesub input {
+    accent-color: var(--accent);
+    margin: 0;
+  }
+  .hidesub:hover {
+    color: var(--fg);
+  }
+  .hidcount {
+    opacity: 0.7;
+    text-transform: none;
+    letter-spacing: 0;
   }
   .item {
     display: flex;
@@ -299,6 +370,13 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+  .item.sub-row .title {
+    opacity: 0.85;
+  }
+  .subagent {
+    color: #ec7ba4;
+    font-weight: 600;
   }
   .snippet {
     color: var(--fg-dim);

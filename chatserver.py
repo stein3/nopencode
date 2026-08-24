@@ -73,7 +73,7 @@ def load_sessions():
     out = []
     with _connect() as c:
         rows = c.execute(
-            """SELECT s.id, s.title, s.cost, s.model, s.time_created tc,
+            """SELECT s.id, s.title, s.cost, s.model, s.parent_id, s.agent, s.time_created tc,
                       s.time_updated tu, COUNT(m.id) n
                FROM session s LEFT JOIN message m ON m.session_id = s.id
                GROUP BY s.id ORDER BY s.rowid DESC"""
@@ -92,6 +92,8 @@ def load_sessions():
                     "title": r["title"] or "",
                     "cost": float(r["cost"] or 0),
                     "model": model,
+                    "parent": r["parent_id"] or "",
+                    "agent": r["agent"] or "",
                     "created": created,
                     "updated": num(r["tu"]) or created,
                     "message_count": r["n"],
