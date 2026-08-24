@@ -6,7 +6,7 @@
   import Composer from './components/Composer.svelte'
   import Footer from './components/Footer.svelte'
   import { hist, oc } from './lib/api'
-  import { tabs, permissions, sidebarOpen, selectedModel, paletteOpen, infoOpen, toggleInfo, toastMsg, patchMetrics, type Tab } from './lib/stores'
+  import { tabs, permissions, sidebarOpen, selectedModel, paletteOpen, infoOpen, toggleInfo, toastMsg, patchMetrics, clearSessionUnread, type Tab } from './lib/stores'
   import CommandPalette from './components/CommandPalette.svelte'
   import CommandDialog from './components/CommandDialog.svelte'
   import ModelPicker from './components/ModelPicker.svelte'
@@ -84,10 +84,10 @@
       tabs.patch(id, { live: true, revert: s?.revert ?? null })
       // session cost is engine-maintained; the messages payload can't derive it
       if (typeof s?.cost === 'number') patchMetrics(id, { cost: s.cost })
-      // the picker reflects the model this session actually uses; switching
-      // tabs therefore carries the "last used" model into new chats
-      const m = s?.model
-      if (m?.providerID && m?.id) selectedModel.save({ providerID: m.providerID, modelID: m.id })
+      // NOTE: no selectedModel sync from the session here — this runs on every
+      // tab open and right after each send, so echoing session.model back into
+      // the picker clobbered fresh user picks (the "model didn't stick" bug).
+      // The picker is the single source of truth for the next prompt's model.
     } catch {
       // not an engine session (pure history) — fall back to history view;
       // allowLive=false prevents openHistory ↔ openLive recursion
@@ -117,7 +117,10 @@
     const t = tabs.snapshot(tabId)
     if (!t) throw new Error('tab closed')
     if (!t.pending) return tabId
-    const s = await oc.createSession()
+    // born with the picker's model — otherwise the session inherits the engine
+    // config default and the first turn ignores the dropdown selection
+    const m = $selectedModel
+    const s = await oc.createSession(undefined, m ?? undefined)
     tabs.rekey(tabId, { ...t, id: s.id, pending: false })
     return s.id
   }
@@ -172,6 +175,9 @@
   let order: string[] = []
   $: order = $tabs.map((t) => t.id)
   const active = tabs.active
+  // viewing a session clears its done/unread sidebar light (covers tab clicks,
+  // hotkey cycling, new chats — any path that changes the active tab)
+  $: if ($active) clearSessionUnread($active)
 
   function cycle(dir: 1 | -1) {
     const cur = order.indexOf(tabs.getActive())
