@@ -56,7 +56,9 @@ export interface OcPart {
 export const oc = {
   sessions: () => req<OcSession[]>('/oc/session'),
   session: (id: string) => req<OcSession>(`/oc/session/${id}`),
-  messages: (id: string) => req<OcMessage[]>(`/oc/session/${id}/message`),
+  messages: (id: string, limit?: number) =>
+    // engine returns the NEWEST `limit` messages in ascending order
+    req<OcMessage[]>(`/oc/session/${id}/message${limit ? `?limit=${limit}` : ''}`),
   createSession: (title?: string, model?: { providerID: string; modelID: string }) =>
     req<OcSession>('/oc/session', {
       method: 'POST',

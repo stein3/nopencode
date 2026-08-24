@@ -7,6 +7,8 @@
   import ModelSelect from './ModelSelect.svelte'
 
   export let tab: Tab
+  // App wires this to a full-history backfill; only called while tab.partial
+  export let onLoadOlder: () => Promise<unknown> = async () => {}
 
   let scroller: HTMLElement
   let feed: HTMLElement
@@ -94,10 +96,21 @@
     wasActive = active
   }
 
+  // Anchor jumps (e.g. search hits into backfilled history): the node may
+  // appear several ticks after tab.jumpTo is set, and follow()-snapping must
+  // stand down once we're parked on it — otherwise RO callbacks yank us back
+  // to the bottom while rows are still inserting.
+  $: if (tab.jumpTo && document.getElementById(`m-${tab.jumpTo}`)) {
+    stuck = false
+    document.getElementById(`m-${tab.jumpTo}`)?.scrollIntoView({ block: 'start' })
+    tabs.patch(tab.id, { jumpTo: undefined })
+  }
+
   function onScroll() {
     // offsetParent is null under display:none — restore/clamp noise, not user
     if (!scroller || !scroller.offsetParent) return
     if (nearBottom(scroller)) stuck = true
+    void maybeLoadOlder()
   }
 
   function onWheel(e: WheelEvent) {
@@ -124,14 +137,51 @@
   function follow(force = false) {
     if ((!stuck && !force) || !scroller) return
     requestAnimationFrame(() => {
-      if ((stuck || force) && scroller?.offsetParent) scroller.scrollTop = scroller.scrollHeight
+      if (!scroller?.offsetParent) return
+      if (tab.jumpTo) return // an anchor jump owns scrolling until it parks
+      if (stuck || force) scroller.scrollTop = scroller.scrollHeight
     })
   }
+
+  // ---- older-history backfill -------------------------------------------
+  // Triggered near the top of a partial transcript. The prepend grows content
+  // ABOVE the reader, so keep the distance from viewport-top to content-bottom
+  // constant across the update — that pins the same rows under the reader's
+  // eyes instead of jumping them.
+  let anchoring = false
+  let anchorFromBottom = 0
+
+  // Auto-paging stops here; deeper history is opt-in via the button so an
+  // idle scroll-up can't silently grow the DOM into thousands of nodes.
+  const AUTO_PAGE_CAP = 400
+
+  async function maybeLoadOlder(auto = true) {
+    if (!tab.partial || tab.loadingOlder || anchoring || !onLoadOlder) return
+    if (auto && tab.messages.length > AUTO_PAGE_CAP) return
+    if (!scroller || !scroller.offsetParent) return
+    if (scroller.scrollTop > 900) return
+    anchoring = true
+    anchorFromBottom = scroller.scrollHeight - scroller.scrollTop
+    try {
+      await onLoadOlder()
+    } catch {}
+  }
+
+  afterUpdate(() => {
+    if (!anchoring || tab.loadingOlder) return
+    anchoring = false
+    requestAnimationFrame(() => {
+      if (!scroller?.offsetParent) return
+      scroller.scrollTop = Math.max(0, scroller.scrollHeight - anchorFromBottom)
+      void maybeLoadOlder() // reader still near the top → keep paging upward
+    })
+  })
 
   onMount(() => {
     const ro = new ResizeObserver(() => follow())
     if (feed) ro.observe(feed)
     follow()
+    void maybeLoadOlder() // short windows can sit near the top without any scroll event
     oc.skills()
       .then((list) => {
         skillsIndex = Object.fromEntries((list ?? []).map((s: any) => [s.name, s.description ?? '']))
@@ -443,6 +493,11 @@
   on:touchmove|passive={onTouchMove}
 >
   <div class="feed" bind:this={feed}>
+    {#if tab.loadingOlder}
+      <div class="older">loading earlier messages…</div>
+    {:else if tab.partial}
+      <button class="older" on:click={() => maybeLoadOlder(false)}>↑ load earlier messages</button>
+    {/if}
     {#if !tab.messages.length}
       <div class="empty">
         <div class="logo">opencode</div>
@@ -556,6 +611,21 @@
     text-align: center;
     color: var(--fg-dim);
     margin-top: 18vh;
+  }
+  .older {
+    display: block;
+    margin: 10px auto;
+    padding: 4px 14px;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    color: var(--fg-dim);
+    font-size: 11.5px;
+    cursor: pointer;
+  }
+  button.older:hover {
+    color: var(--fg);
+    border-color: var(--accent);
   }
   .logo {
     font-size: 22px;

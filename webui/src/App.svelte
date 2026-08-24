@@ -11,7 +11,7 @@
   import CommandDialog from './components/CommandDialog.svelte'
   import ModelPicker from './components/ModelPicker.svelte'
   import InfoPanel from './components/InfoPanel.svelte'
-  import { startEvents, applyMessages } from './lib/sse'
+  import { startEvents, applyMessages, backfill, loadOlder, RECENT_PAGE } from './lib/sse'
   import { answerPermission, refreshPermissions } from './lib/permissions'
   import { initHotkeys } from './lib/hotkeys'
 
@@ -68,19 +68,23 @@
         alert(`open failed: ${e.message}`)
       }
     }
-    if (anchor)
-      requestAnimationFrame(() =>
-        document.getElementById(`m-${anchor}`)?.scrollIntoView({ block: 'start' }),
-      )
+    if (anchor) {
+      // search hits can point into history the initial window didn't load;
+      // the transcript owns the actual scroll (it knows when backfilled rows
+      // have landed and follow()-snapping must stand down)
+      const snap = tabs.snapshot(id)
+      if (snap?.live && !snap.messages.some((m) => m.id === anchor)) await backfill(id)
+      tabs.patch(id, { jumpTo: anchor })
+    }
   }
 
   async function openLive(id: string, title?: string) {
     try {
       const [msgs, s] = await Promise.all([
-        oc.messages(id),
+        oc.messages(id, RECENT_PAGE),
         oc.session(id).catch(() => null as any),
       ])
-      applyMessages(id, msgs)
+      applyMessages(id, msgs, msgs.length < RECENT_PAGE)
       tabs.patch(id, { live: true, revert: s?.revert ?? null })
       // session cost is engine-maintained; the messages payload can't derive it
       if (typeof s?.cost === 'number') patchMetrics(id, { cost: s.cost })
@@ -318,7 +322,7 @@
     <TabsBar onClose={closeTab} onNewChat={newChat} />
     {#each $tabs as t (t.id)}
       <div class="tabpane" style:display={$active === t.id ? 'flex' : 'none'}>
-        <Transcript tab={t} active={t.id === $active} />
+        <Transcript tab={t} active={t.id === $active} onLoadOlder={() => loadOlder(t.id)} />
         {#if $permissions.some((p) => p.sessionID === t.id)}
           <div class="perm-inline">
             {#each $permissions.filter((p) => p.sessionID === t.id) as p (p.id)}

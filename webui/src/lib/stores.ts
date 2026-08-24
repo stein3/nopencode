@@ -12,13 +12,16 @@ export interface RevertPoint {
 export interface Tab {
   id: string // session id — or a local `pending-*` id until first send
   title: string
-  messages: OcMessage[]
+  messages: OcMessage[] // loaded window, chronological — NOT necessarily the whole session
   live: boolean // engine-backed vs pure history snapshot
   busy?: boolean
   dirty?: boolean // refetch pending
   error?: string
   revert?: RevertPoint | null
   pending?: boolean // not created on the engine yet
+  partial?: boolean // older messages exist on the engine but aren't loaded yet
+  loadingOlder?: boolean // backfill fetch in flight (transcript shows a spinner)
+  jumpTo?: string // message id the transcript should scroll to once rendered
 }
 
 function makeTabs() {
@@ -165,7 +168,9 @@ export function patchMetrics(sid: string, m: SessionMetrics) {
 }
 
 // Derive metrics from a raw engine messages payload (info-wrapped or flat).
-export function metricsFromMessages(msgs: any[]): SessionMetrics {
+// `complete` = payload wasn't truncated by a page limit; a truncated list
+// must not override the sidebar's true sqlite message_count.
+export function metricsFromMessages(msgs: any[], complete = true): SessionMetrics {
   const list = msgs ?? []
   const withTok = [...list]
     .reverse()
@@ -173,7 +178,7 @@ export function metricsFromMessages(msgs: any[]): SessionMetrics {
   const t = withTok ? ((withTok.info ?? withTok).tokens ?? {}) : {}
   const tokens =
     (t.input ?? 0) + (t.output ?? 0) + (t.reasoning ?? 0) + ((t.cache?.read ?? 0) + (t.cache?.write ?? 0))
-  return { tokens, messages: list.length }
+  return complete ? { tokens, messages: list.length } : { tokens }
 }
 
 export interface PermRequest {
@@ -213,6 +218,7 @@ export function clearSessionUnread(sid: string) {
 }
 
 export const permissions = writable<PermRequest[]>([])
+
 export const sidebarOpen = writable(true)
 export const searchQuery = writable('')
 export const paletteOpen = writable(false)
