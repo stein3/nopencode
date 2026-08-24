@@ -1,19 +1,29 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { oc } from '../lib/api'
-  import { selectedModel } from '../lib/stores'
+  import { selectedModel, modelPickerOpen, tabs } from '../lib/stores'
 
   let providers: { id: string; name?: string; models: Record<string, any> }[] = []
   let open = false
 
   onMount(async () => {
-    providers = await oc.providers().catch(() => [])
+    await load()
     if (!$selectedModel && providers.length) {
       const p = providers[0]
       const first = Object.keys(p.models ?? {})[0]
       if (first) selectedModel.save({ providerID: p.id, modelID: first })
     }
   })
+
+  async function load() {
+    if (!providers.length) providers = await oc.providers().catch(() => [])
+  }
+
+  // /models and the command palette can trigger the picker externally
+  $: if ($modelPickerOpen) {
+    modelPickerOpen.set(false)
+    load().then(() => (open = true))
+  }
 
   function label(): string {
     const m = $selectedModel
@@ -25,6 +35,9 @@
 
   function pick(pid: string, mid: string) {
     selectedModel.save({ providerID: pid, modelID: mid })
+    // switch the open session right away, not just the next prompt
+    const sid = tabs.getActive()
+    if (sid) oc.setSessionModel(sid, { providerID: pid, modelID: mid }).catch(() => {})
     open = false
   }
 </script>

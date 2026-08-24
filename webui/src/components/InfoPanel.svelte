@@ -10,7 +10,6 @@
   let usedTokens = 0
   let limit = 0
   let fetchedTodos: any[] = []
-  let lastKey = ''
 
   function fmtK(n: number): string {
     if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M'
@@ -18,35 +17,54 @@
     return String(n)
   }
 
+  function clearVals() {
+    cost = 0
+    usedTokens = 0
+    fetchedTodos = []
+  }
+
+  const keyOf = (t: Tab | null) => `${t?.id ?? ''}:${t?.busy ? 1 : 0}`
+
   async function refresh() {
-    if (!tab?.id || !tab.live) {
-      fetchedTodos = []
-      cost = 0
-      usedTokens = 0
+    const cur = tab
+    if (!cur?.id || !cur.live || cur.pending) {
+      // pure-history snapshot or not created on the engine yet: no data
+      clearVals()
       return
     }
+    const myKey = keyOf(cur)
     try {
       const [sess, msgs, td] = await Promise.all([
-        oc.session(tab.id),
-        oc.messages(tab.id),
-        oc.todos(tab.id),
+        oc.session(cur.id),
+        oc.messages(cur.id),
+        oc.todos(cur.id),
       ])
+      // discard a stale response if the panel switched sessions meanwhile
+      if (keyOf(tab) !== myKey) return
       cost = sess?.cost ?? 0
       fetchedTodos = Array.isArray(td) ? td : []
       const withTok = [...(msgs ?? [])]
         .reverse()
         .find((m: any) => ((m.info ?? m)?.role ?? 'assistant') === 'assistant' && (m.info ?? m)?.tokens)
-      const t = withTok ? ((withTok.info ?? withTok).tokens ?? {}) : {}
+      const tk = withTok ? ((withTok.info ?? withTok).tokens ?? {}) : {}
       usedTokens =
-        (t.input ?? 0) + (t.output ?? 0) + (t.reasoning ?? 0) +
-        ((t.cache?.read ?? 0) + (t.cache?.write ?? 0))
+        (tk.input ?? 0) + (tk.output ?? 0) + (tk.reasoning ?? 0) +
+        ((tk.cache?.read ?? 0) + (tk.cache?.write ?? 0))
     } catch {
       /* keep previous values */
     }
   }
 
-  $: key = `${tab?.id ?? ''}:${tab?.busy}`
+  let lastKey = ''
+  let lastId = ''
+  $: key = keyOf(tab)
   $: if (key !== lastKey) {
+    // switching sessions: drop the previous session's numbers/todos instead of
+    // flashing them while the new fetch is in flight
+    if ((tab?.id ?? '') !== lastId) {
+      lastId = tab?.id ?? ''
+      clearVals()
+    }
     lastKey = key
     refresh()
   }
