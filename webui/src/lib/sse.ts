@@ -116,6 +116,7 @@ export function normalizeMessages(msgs: any[]): any[] {
     return {
       id: info.id,
       role: info.role ?? 'assistant',
+      modelID: info.modelID,
       // keep the { created } object shape used everywhere else (OcMessage,
       // upsertPart, setMeta) — flattening here silently killed timestamps
       time: { created: info.time?.created ?? info.time?.created_at ?? Date.now() },

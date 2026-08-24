@@ -37,6 +37,7 @@ export interface OcMessage {
   id: string
   role?: string
   agent?: string
+  modelID?: string
   time?: { created?: number }
   tokens?: Record<string, any>
   parts?: OcPart[]

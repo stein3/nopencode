@@ -526,6 +526,7 @@
     <div class="msg" class:user={m.role === 'user'} id={`m-${m.id}`}>
       <div class="head" title={m.role}>
         <span class="role">{m.role === 'user' ? 'you' : m.agent || 'opencode'}</span>
+        {#if m.modelID}<span class="model-id" title={m.modelID}>{m.modelID}</span>{/if}
         {#if $showTimestamps}
           <span class="time">{timeStr(m.time?.created)}</span>
         {/if}
@@ -686,6 +687,14 @@
   }
   .time {
     opacity: 0.7;
+  }
+  .model-id {
+    font-family: var(--mono);
+    opacity: 0.6;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 40%;
   }
   .acts {
     margin-left: auto;

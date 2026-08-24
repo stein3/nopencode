@@ -130,7 +130,7 @@ function makeTabs() {
             ...t,
             messages: t.messages.map((x) =>
               x.id === info.id
-                ? { ...x, role: info.role ?? x.role, agent: info.agent ?? x.agent, time: info.time ?? x.time }
+                ? { ...x, role: info.role ?? x.role, agent: info.agent ?? x.agent, modelID: info.modelID ?? x.modelID, time: info.time ?? x.time }
                 : x,
             ),
           }
