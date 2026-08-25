@@ -1,6 +1,6 @@
 <script lang="ts">
   import { tick } from 'svelte'
-  import { oc, hist } from '../lib/api'
+  import { oc } from '../lib/api'
   import { tabs, selectedModel, cmdVersion } from '../lib/stores'
   import type { Tab } from '../lib/stores'
   import { registry, type Cmd } from '../lib/commands'
@@ -121,8 +121,10 @@
         // only engine commands produce assistant output
         if (cmd.source !== 'builtin' && real) onSent(real)
       } else {
-        tabs.patch(sid, { busy: true, errors: [] }) // optimistic spinner; drop stale error tiles (server rows cleared too)
-        hist.clearSessionErrors(sid)
+        tabs.patch(sid, { busy: true }) // optimistic spinner immediately
+        // NOTE: error tiles are NOT cleared here — they're history (a record
+        // of the failed turn), not a transient banner. A resend that fails
+        // again dedupes server-side (UNIQUE sid,msg).
         flight =
           m && !registry.ready
             ? oc.runCommand(sid, m[1], m[2] ? [m[2]] : [])

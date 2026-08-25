@@ -57,9 +57,9 @@
     setTimeout(() => document.getElementById('sidebar-search')?.focus(), 50)
   }
 
-  // Persisted turn-failure tiles: one fetch per tab open. errorsFetched also
-  // keeps the onSent refetch path (openLive 150ms after each send) from
-  // resurrecting rows the composer just DELETEd.
+  // Persisted turn-failure tiles: fetch once per tab open. The errorsFetched
+  // guard also keeps the onSent refetch path (openLive 150ms after each send)
+  // from re-fetching rows it already has.
   function loadErrors(id: string) {
     if (tabs.snapshot(id)?.errorsFetched) return
     tabs.patch(id, { errorsFetched: true })
