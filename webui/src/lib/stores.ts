@@ -308,6 +308,9 @@ export const hideSubagents = makePref('hideSubagents', true) // sidebar: hide @a
 // ---- externally-triggered model picker ----
 export const modelPickerOpen = writable(false)
 
+// ---- rename-session dialog target (sid + current title); null = closed ----
+export const renameTarget = writable<{ sid: string; title: string } | null>(null)
+
 // ---- transient toast ----
 export const toastMsg = writable('')
 let toastTimer: ReturnType<typeof setTimeout> | undefined

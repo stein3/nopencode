@@ -9,6 +9,7 @@
   import { tabs, permissions, sidebarOpen, selectedModel, paletteOpen, infoOpen, toggleInfo, toastMsg, patchMetrics, clearSessionUnread, type Tab } from './lib/stores'
   import CommandPalette from './components/CommandPalette.svelte'
   import CommandDialog from './components/CommandDialog.svelte'
+  import RenameDialog from './components/RenameDialog.svelte'
   import ModelPicker from './components/ModelPicker.svelte'
   import InfoPanel from './components/InfoPanel.svelte'
   import { startEvents, applyMessages, backfill, loadOlder, RECENT_PAGE, JUMP_CAP } from './lib/sse'
@@ -399,11 +400,9 @@
     {:else}
       <div class="notabs">Ctrl+T to start a chat · pick a session from the sidebar</div>
     {/each}
-    <CommandPalette
-      sessionId={tabs.snapshot(tabs.getActive())?.pending ? null : tabs.getActive() || null}
-      onDone={() => focusActiveComposer()}
-    />
+    <CommandPalette onDone={() => focusActiveComposer()} />
     <CommandDialog />
+    <RenameDialog />
     {#if $toastMsg}
       <div class="toast">{$toastMsg}</div>
     {/if}
