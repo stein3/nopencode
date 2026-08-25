@@ -311,7 +311,24 @@ def search(q):
             i = low.find(ql)
             a = max(0, i - SNIPPET_CTX)
             b = min(len(low), i + len(ql) + SNIPPET_CTX)
-            snippet = ("…" if a > 0 else "") + low[a:b].replace("\n", " ") + (
+            # slice the window from the ORIGINAL text (lowercase-derived
+            # indices) to preserve casing, then mark every case-insensitive
+            # occurrence with \x00/\x01 sentinels for client-side highlighting
+            window = r["txt"][a:b]
+            wl = window.lower()
+            marked = []
+            pos = 0
+            while True:
+                j = wl.find(ql, pos)
+                if j < 0:
+                    marked.append(window[pos:])
+                    break
+                marked.append(window[pos:j])
+                marked.append("\x00")
+                marked.append(window[j : j + len(ql)])
+                marked.append("\x01")
+                pos = j + len(ql)
+            snippet = ("…" if a > 0 else "") + "".join(marked).replace("\n", " ") + (
                 "…" if b < len(low) else ""
             )
             hits.append(

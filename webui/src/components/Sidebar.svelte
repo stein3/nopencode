@@ -86,6 +86,31 @@
     return out.sort((a, b) => b.latest - a.latest)
   }
 
+  // split a server snippet into plain/highlighted segments; snippets carry
+  // \x00/\x01 sentinels around each case-insensitive match occurrence.
+  // Toggle-based scan drops the sentinel chars; stray/unterminated markers
+  // degrade harmlessly instead of rendering as text.
+  function snipSegs(s: string): { t: string; hl: boolean }[] {
+    const segs: { t: string; hl: boolean }[] = []
+    let hl = false
+    let buf = ''
+    for (const ch of s) {
+      if (ch === '\x00') {
+        if (buf) segs.push({ t: buf, hl })
+        buf = ''
+        hl = true
+      } else if (ch === '\x01') {
+        if (buf) segs.push({ t: buf, hl })
+        buf = ''
+        hl = false
+      } else {
+        buf += ch
+      }
+    }
+    if (buf) segs.push({ t: buf, hl })
+    return segs
+  }
+
   async function load() {
     try {
       const all = await hist.sessions()
@@ -271,7 +296,9 @@
           </div>
           {#each g.hits as h (h.part_id)}
             <button class="item hit" on:click={() => onOpenHistory(h.session_id, h.message_id)}>
-              <span class="snippet">{h.snippet}</span>
+              <span class="snippet"
+                >{#each snipSegs(h.snippet) as seg}<span class:hl={seg.hl}>{seg.t}</span>{/each}</span
+              >
             </button>
           {/each}
         {:else}
@@ -604,6 +631,13 @@
   }
   .item.hit {
     padding-left: 28px;
+  }
+  /* match highlight inside search snippets — quiet accent tint */
+  .snippet .hl {
+    background: rgba(78, 201, 176, 0.28);
+    background: color-mix(in srgb, var(--accent) 28%, transparent);
+    border-radius: 2px;
+    color: inherit;
   }
   .hint {
     padding: 10px 12px;
