@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, afterUpdate } from 'svelte'
-  import { tabs, showThinking, showTimestamps, type Tab, pendingQuestions, type PendingQuestion } from '../lib/stores'
+  import { tabs, showThinking, showTimestamps, toast, type Tab, pendingQuestions, type PendingQuestion } from '../lib/stores'
   import { oc, type OcMessage } from '../lib/api'
   import { refetchNow } from '../lib/sse'
   import { md } from '../lib/markdown'
@@ -562,6 +562,32 @@
       alert(`revert failed: ${e.message ?? e}`)
     }
   }
+
+  async function forkFrom(mid: string) {
+    // engine copies everything BEFORE this message; its text is handed to the
+    // new tab's composer (Tab.prefill → Composer onMount) so it can be edited
+    // and resent there
+    const m = tab.messages.find((x) => x.id === mid)
+    const text = (m?.parts ?? [])
+      .filter((p) => p.type === 'text' && (p.text ?? '').trim())
+      .map((p) => p.text ?? '')
+      .join('\n\n')
+    try {
+      const s = await oc.forkSession(tab.id, mid)
+      // engine titles the fork itself ("… (fork #N)") — don't append again
+      tabs.open({
+        id: s.id,
+        title: s.title ?? 'forked session',
+        messages: [],
+        live: true,
+        prefill: text.trim() || undefined,
+      })
+      refetchNow(s.id)
+      toast('session forked from message')
+    } catch (e: any) {
+      alert(`fork failed: ${e.message ?? e}`)
+    }
+  }
 </script>
 
 <svelte:window on:keydown={onKey} />
@@ -608,6 +634,7 @@
         {#if m.role === 'user'}
           <span class="acts">
             <button class="act" title="Revert session to before this message" on:click={() => revertTo(m.id)}>↩</button>
+            <button class="act" title="Fork a new session from before this message" on:click={() => forkFrom(m.id)}>⑂</button>
             <button class="act" title="Delete message" on:click={() => delMessage(m.id)}>🗑</button>
           </span>
         {/if}

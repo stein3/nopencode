@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { tick } from 'svelte'
+  import { onMount, tick } from 'svelte'
   import { oc } from '../lib/api'
   import { tabs, selectedModel, cmdVersion } from '../lib/stores'
   import type { Tab } from '../lib/stores'
@@ -18,6 +18,17 @@
   let sel = 0
 
   registry.load()
+
+  // Fork-refill: a fork carries the forked-from message's text in Tab.prefill;
+  // consume it once when the pane mounts (the tab is brand-new, so the box is
+  // always empty here).
+  onMount(() => {
+    if (tab.prefill) {
+      const t = tab.prefill
+      tabs.patch(tab.id, { prefill: undefined })
+      prefill(t)
+    }
+  })
 
   export function focus() {
     ta?.focus()

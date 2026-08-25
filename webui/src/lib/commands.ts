@@ -249,7 +249,8 @@ registry.builtins = [
       if (!sid) return
       try {
         const s = await oc.forkSession(sid)
-        tabs.open({ id: s.id, title: (s.title ?? 'forked') + ' (fork)', messages: [], live: true })
+        // engine titles the fork itself ("… (fork #N)") — don't append again
+        tabs.open({ id: s.id, title: s.title ?? 'forked session', messages: [], live: true })
         refetchNow(s.id)
         toast('session forked')
       } catch (e: any) {

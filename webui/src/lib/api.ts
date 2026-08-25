@@ -131,8 +131,13 @@ export const oc = {
     }),
   summarize: (sessionId: string, model: { providerID: string; modelID: string }) =>
     req<unknown>(`/oc/session/${sessionId}/summarize`, { method: 'POST', body: JSON.stringify(model) }),
-  forkSession: (sessionId: string) =>
-    req<OcSession>(`/oc/session/${sessionId}/fork`, { method: 'POST', body: '{}' }),
+  // engine forks everything BEFORE the given messageID (exclusive, TUI
+  // "Fork from message" semantics); no messageID = copy the whole session
+  forkSession: (sessionId: string, messageID?: string) =>
+    req<OcSession>(`/oc/session/${sessionId}/fork`, {
+      method: 'POST',
+      body: JSON.stringify(messageID ? { messageID } : {}),
+    }),
   shareSession: (sessionId: string) =>
     req<OcSession & { share?: { url?: string } }>(`/oc/session/${sessionId}/share`, {
       method: 'POST',
