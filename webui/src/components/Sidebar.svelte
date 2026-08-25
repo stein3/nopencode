@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { oc, hist, type HistSession, type SearchHit } from '../lib/api'
-  import { searchQuery, sessionMetrics, permissions, tabs, sessionUnread, markSessionUnread, hideSubagents, subExpanded } from '../lib/stores'
+  import { searchQuery, sessionMetrics, permissions, pendingQuestions, tabs, sessionUnread, markSessionUnread, hideSubagents, subExpanded } from '../lib/stores'
   import { relTime } from '../lib/util'
 
   export let onOpenHistory: (id: string, anchor?: string) => void
@@ -41,6 +41,10 @@
 
   // set of sessionIDs that have a pending permission request
   $: permSet = new Set($permissions.map((p) => p.sessionID).filter((x): x is string => !!x))
+
+  // set of sessionIDs with a pending engine question-tool request — red dot
+  // like permissions (the engine holds the turn busy until it's answered)
+  $: qSet = new Set($pendingQuestions.map((q) => q.sessionID).filter((x): x is string => !!x))
 
   $: q = $searchQuery.trim()
 
@@ -205,7 +209,7 @@
     depth: number
     kids: number
     expanded: boolean
-    agg: { busy: boolean; perm: boolean; unread: boolean }
+    agg: { busy: boolean; perm: boolean; ask: boolean; unread: boolean }
   }
 
   $: idSet = new Set(rows.map((r) => r.id))
@@ -240,14 +244,16 @@
     expandedSet: Set<string>,
     busy: Record<string, boolean>,
     perms: Set<string>,
+    asks: Set<string>,
     unread: Set<string>,
   ): Disp[] {
     const out: Disp[] = []
     const statusOf = (ids: string[]) => {
-      const a = { busy: false, perm: false, unread: false }
+      const a = { busy: false, perm: false, ask: false, unread: false }
       for (const id of ids) {
         if (busy[id]) a.busy = true
         if (perms.has(id)) a.perm = true
+        if (asks.has(id)) a.ask = true
         if (unread.has(id)) a.unread = true
       }
       return a
@@ -263,12 +269,12 @@
     return out
   }
 
-  const flat = (s: Row): Disp => ({ s, depth: 0, kids: 0, expanded: false, agg: { busy: false, perm: false, unread: false } })
+  const flat = (s: Row): Disp => ({ s, depth: 0, kids: 0, expanded: false, agg: { busy: false, perm: false, ask: false, unread: false } })
 
   // re-runs on rows / collapse state / any per-session status change
   $: displayRows = $hideSubagents
     ? visible.map(flat)
-    : flattenTree(roots, kidsMap, $subExpanded, busyMap, permSet, $sessionUnread)
+    : flattenTree(roots, kidsMap, $subExpanded, busyMap, permSet, qSet, $sessionUnread)
 </script>
 
 <aside class="sidebar">
@@ -329,12 +335,13 @@
         >
           <span class="row1">
             <span class="title">
-              <span
-                class="dot"
-                class:unread={$sessionUnread.has(d.s.id)}
-                class:busy={busyMap[d.s.id]}
-                class:perm={permSet.has(d.s.id)}
-              ></span>
+                <span
+                  class="dot"
+                  class:unread={$sessionUnread.has(d.s.id)}
+                  class:busy={busyMap[d.s.id]}
+                  class:ask={qSet.has(d.s.id)}
+                  class:perm={permSet.has(d.s.id)}
+                ></span>
               {#if d.kids && d.depth < MAX_DEPTH}
                 <span
                   class="chev"
@@ -359,6 +366,7 @@
               {#if d.kids}<span class="kidcount">{d.kids}</span>{/if}
               {#if d.kids && !d.expanded}
                 {#if d.agg.perm}<span class="aggdot perm" title="a subagent needs permission"></span>
+                {:else if d.agg.ask}<span class="aggdot ask" title="a subagent needs an answer"></span>
                 {:else if d.agg.busy}<span class="aggdot busy" title="a subagent is running"></span>
                 {:else if d.agg.unread}<span class="aggdot unread" title="a subagent finished"></span>{/if}
               {/if}
@@ -549,6 +557,9 @@
   .aggdot.perm {
     background: var(--err);
   }
+  .aggdot.ask {
+    background: var(--err);
+  }
   .aggdot.unread {
     background: var(--accent);
     opacity: 0.7;
@@ -578,6 +589,10 @@
   }
   .dot.busy {
     background: var(--warn);
+  }
+  /* source order = precedence: perm > ask > busy > unread */
+  .dot.ask {
+    background: var(--err);
   }
   .dot.perm {
     background: var(--err);

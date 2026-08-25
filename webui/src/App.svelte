@@ -4,6 +4,7 @@
   import TabsBar from './components/Tabs.svelte'
   import Transcript from './components/Transcript.svelte'
   import Composer from './components/Composer.svelte'
+  import QuestionBanner from './components/QuestionBanner.svelte'
   import Footer from './components/Footer.svelte'
   import { hist, oc } from './lib/api'
   import { tabs, permissions, sidebarOpen, selectedModel, paletteOpen, infoOpen, toggleInfo, toastMsg, patchMetrics, clearSessionUnread, type Tab } from './lib/stores'
@@ -400,6 +401,7 @@
             {/each}
           </div>
         {/if}
+        <QuestionBanner sessionId={t.id} />
         <Composer
           bind:this={composers[t.id]}
           tab={t}
