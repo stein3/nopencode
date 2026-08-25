@@ -209,6 +209,9 @@
     depth: number
     kids: number
     expanded: boolean
+    // hide-mode rows: sub rows aren't rendered, but kids/agg still carry the
+    // aggregated descendant state so the light stays visible (count/chev don't)
+    subsHidden?: boolean
     agg: { busy: boolean; perm: boolean; ask: boolean; unread: boolean }
   }
 
@@ -269,11 +272,18 @@
     return out
   }
 
-  const flat = (s: Row): Disp => ({ s, depth: 0, kids: 0, expanded: false, agg: { busy: false, perm: false, ask: false, unread: false } })
+  // hide-mode expand set: nothing expands (sub rows aren't rendered anyway)
+  const NO_EXPAND = new Set<string>()
 
-  // re-runs on rows / collapse state / any per-session status change
+  // re-runs on rows / collapse state / any per-session status change.
+  // Hidden mode still flattens to aggregate descendant status into kids/agg,
+  // but keeps only root rows flagged subsHidden — the template then drops the
+  // chevron + count while keeping the aggregated light. $hideSubagents must be
+  // read directly here (template reactivity gotcha — it is).
   $: displayRows = $hideSubagents
-    ? visible.map(flat)
+    ? flattenTree(visible, kidsMap, NO_EXPAND, busyMap, permSet, qSet, $sessionUnread)
+        .filter((d) => d.depth === 0)
+        .map((d) => ({ ...d, subsHidden: true }))
     : flattenTree(roots, kidsMap, $subExpanded, busyMap, permSet, qSet, $sessionUnread)
 </script>
 
@@ -342,7 +352,7 @@
                   class:ask={qSet.has(d.s.id)}
                   class:perm={permSet.has(d.s.id)}
                 ></span>
-              {#if d.kids && d.depth < MAX_DEPTH}
+              {#if d.kids && d.depth < MAX_DEPTH && !d.subsHidden}
                 <span
                   class="chev"
                   title={d.expanded ? 'Collapse subagents' : 'Expand subagents'}
@@ -362,9 +372,9 @@
                   </svg>
                 </span>
               {/if}
-              {displayTitle(d.s)}
-              {#if d.kids}<span class="kidcount">{d.kids}</span>{/if}
-              {#if d.kids && !d.expanded}
+              <span class="ttext">{displayTitle(d.s)}</span>
+              {#if d.kids && !d.subsHidden}<span class="kidcount">{d.kids}</span>{/if}
+              {#if d.kids && (d.subsHidden || !d.expanded)}
                 {#if d.agg.perm}<span class="aggdot perm" title="a subagent needs permission"></span>
                 {:else if d.agg.ask}<span class="aggdot ask" title="a subagent needs an answer"></span>
                 {:else if d.agg.busy}<span class="aggdot busy" title="a subagent is running"></span>
@@ -577,6 +587,16 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
+  /* the bare title text is its own flex item — without min-width:0 its
+     min-content width pins the whole one-line title and pushes the trailing
+     kidcount/aggdot past the clip edge; give the TEXT the overflow instead so
+     it ellipsizes and dot/chev/badge/light always stay visible */
+  .ttext {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
   .dot {
     width: 7px;
     height: 7px;
@@ -604,6 +624,11 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+  /* row timestamp never shrinks — the title text absorbs overflow instead
+     (same precedent as .grphead .meta below) */
+  .row1 .meta {
+    flex: none;
   }
   .item.sub-row .title {
     opacity: 0.85;
