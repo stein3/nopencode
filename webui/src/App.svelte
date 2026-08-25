@@ -10,6 +10,7 @@
   import CommandPalette from './components/CommandPalette.svelte'
   import CommandDialog from './components/CommandDialog.svelte'
   import RenameDialog from './components/RenameDialog.svelte'
+  import ImageLightbox from './components/ImageLightbox.svelte'
   import ModelPicker from './components/ModelPicker.svelte'
   import InfoPanel from './components/InfoPanel.svelte'
   import { startEvents, applyMessages, backfill, loadOlder, RECENT_PAGE, JUMP_CAP } from './lib/sse'
@@ -403,6 +404,7 @@
     <CommandPalette onDone={() => focusActiveComposer()} />
     <CommandDialog />
     <RenameDialog />
+    <ImageLightbox />
     {#if $toastMsg}
       <div class="toast">{$toastMsg}</div>
     {/if}

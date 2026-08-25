@@ -311,6 +311,9 @@ export const modelPickerOpen = writable(false)
 // ---- rename-session dialog target (sid + current title); null = closed ----
 export const renameTarget = writable<{ sid: string; title: string } | null>(null)
 
+// ---- full-size image viewer (read-tool thumbnails); null = closed ----
+export const lightbox = writable<{ src: string; caption?: string } | null>(null)
+
 // ---- transient toast ----
 export const toastMsg = writable('')
 let toastTimer: ReturnType<typeof setTimeout> | undefined

@@ -1,9 +1,10 @@
 <script lang="ts">
   import { onMount, afterUpdate } from 'svelte'
-  import { tabs, showThinking, showTimestamps, toast, type Tab, pendingQuestions, type PendingQuestion } from '../lib/stores'
+  import { tabs, showThinking, showTimestamps, toast, type Tab, pendingQuestions, type PendingQuestion, lightbox } from '../lib/stores'
   import { oc, type OcMessage } from '../lib/api'
   import { refetchNow } from '../lib/sse'
   import { md } from '../lib/markdown'
+  import { isImagePath, imageDataUrl } from '../lib/images'
   import ModelSelect from './ModelSelect.svelte'
   import QuestionPicker from './QuestionPicker.svelte'
 
@@ -259,6 +260,17 @@
 
   function shellCommand(p: any): string {
     return firstInput(p.state ?? {}, ['command', 'cmd', 'script'])
+  }
+
+  // read-tool parts that loaded a picture file render an inline thumbnail
+  function imageOf(p: any): string | null {
+    if (!/read|view|cat|open/.test(String(p.tool ?? '').toLowerCase())) return null
+    const path = p.state?.input?.filePath ?? p.state?.input?.file_path ?? p.state?.input?.path
+    return typeof path === 'string' && isImagePath(path) ? path : null
+  }
+
+  function openLightbox(src: string, caption?: string) {
+    lightbox.set({ src, caption })
   }
 
   function toolOutputText(p: any): string {
@@ -654,6 +666,7 @@
             </details>
           {:else if p.type === 'tool'}
             {@const pq = findPending(p, $pendingQuestions)}
+            {@const imgPath = imageOf(p)}
             <div class="toolcard" class:toolerr={isToolErr(p)}>
               <details class="tool" open={pq ? true : undefined}>
                 <summary>
@@ -696,6 +709,19 @@
                   {/if}
                 </div>
               </details>
+              {#if imgPath}
+                {#await imageDataUrl(imgPath) then url}
+                  <button
+                    class="imgthumb"
+                    title="{imgPath} — click to view full size"
+                    on:click={() => openLightbox(url, imgPath)}
+                  >
+                    <img src={url} alt={imgPath} loading="lazy" />
+                  </button>
+                {:catch}
+                  <!-- missing/unreadable: the plain tool card says enough -->
+                {/await}
+              {/if}
               {#if isShellTool(p)}
                 {@const out = toolOutputText(p)}
                 {#if out}
@@ -1126,6 +1152,29 @@
     white-space: pre-wrap;
     word-break: break-word;
     color: var(--fg-dim);
+  }
+  /* read-tool image thumbnail — visible without expanding the card; click
+     opens the full-size lightbox */
+  .imgthumb {
+    display: block;
+    margin: 8px 10px;
+    padding: 0;
+    width: min(240px, 100%);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--bg-code);
+    overflow: hidden;
+    cursor: zoom-in;
+  }
+  .imgthumb:hover {
+    border-color: var(--accent);
+  }
+  .imgthumb img {
+    display: block;
+    width: 100%;
+    height: auto;
+    max-height: 220px;
+    object-fit: contain;
   }
   details.outbox summary {
     display: flex;
