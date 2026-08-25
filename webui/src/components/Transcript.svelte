@@ -47,8 +47,10 @@
     return [...msgs.slice(0, i), { ...m, parts: pi < 0 ? parts : parts.slice(0, pi) }]
   }
 
-  $: msgs = applyRevert(tab.messages, tab.revert).filter((m) =>
-    m.parts?.some((p) => p.type === 'text' || p.type === 'tool' || p.type === 'reasoning'),
+  $: msgs = applyRevert(tab.messages, tab.revert).filter(
+    // errored assistant messages can have zero renderable parts (provider died
+    // before anything streamed) — keep them so their inline tile shows
+    (m) => !!m.error || m.parts?.some((p) => p.type === 'text' || p.type === 'tool' || p.type === 'reasoning'),
   )
   $: lastMsg = msgs.at(-1)
   $: lastHasVisible =
@@ -279,6 +281,29 @@
     if (typeof e === 'string') return e
     return e.message ?? JSON.stringify(e)
   }
+
+  // ---- turn-error tiles -----------------------------------------------------
+  // Two sources render the same red tile: (a) the engine stamps `error` on the
+  // assistant message for mid-turn failures (persisted, TUI-parity), and (b)
+  // the sidecar `tab.errors` for instant fails that never created a message.
+  // Aborts (MessageAbortedError) are muted, never red — same as the TUI.
+  function errText(e: any): string {
+    if (!e) return ''
+    if (typeof e === 'string') return e
+    return e.data?.message ?? e.message ?? e.name ?? 'error'
+  }
+
+  function isAborted(e: any): boolean {
+    return e?.name === 'MessageAbortedError'
+  }
+
+  function isToolErr(p: any): boolean {
+    return p.state?.status === 'error'
+  }
+
+  // sidecar tiles whose text already renders inline on a message are dropped
+  $: inlineErrTexts = new Set(msgs.filter((m) => m.error && !isAborted(m.error)).map((m) => errText(m.error)))
+  $: sidecarErrors = (tab.errors ?? []).filter((e) => !inlineErrTexts.has(e.message))
 
   // ---- summary-line badges ------------------------------------------------
   function isTruncated(p: any): boolean {
@@ -595,7 +620,7 @@
             </details>
           {:else if p.type === 'tool'}
             {@const pq = findPending(p, $pendingQuestions)}
-            <div class="toolcard">
+            <div class="toolcard" class:toolerr={isToolErr(p)}>
               <details class="tool" open={pq ? true : undefined}>
                 <summary>
                   <span class="sum-text">{toolStatusGlyph(p)}<span class="tname {toolColorClass(p)}">{p.tool ?? 'tool'}</span>{#if pq}<span class="tsep">·</span><span class="qwait">awaiting your answer</span>{:else if toolDetail(p)}<span class="tsep">·</span><span>{toolDetail(p)}</span>{/if}</span>
@@ -657,9 +682,25 @@
         {#if liveThinking && m === lastMsg}
           <div class="live-thinking">💭 Thinking<span class="dots"><i>.</i><i>.</i><i>.</i></span></div>
         {/if}
+        {#if m.error && m.role !== 'user'}
+          {#if isAborted(m.error)}
+            <div class="aborted">session aborted</div>
+          {:else}
+            <div class="errtile-inline">
+              <span class="elabel">error</span>
+              <span class="etext">{errText(m.error)}</span>
+            </div>
+          {/if}
+        {/if}
       </div>
     </div>
   {/each}
+    {#each sidecarErrors as e, i (i)}
+      <div class="msg errtile">
+        <div class="head"><span class="role">error</span></div>
+        <div class="body">{e.message}</div>
+      </div>
+    {/each}
     {/if}
   </div>
 </div>
@@ -728,6 +769,60 @@
     background: var(--bg-user);
     border-left: 2px solid var(--user-accent);
     border-radius: 6px;
+  }
+  /* turn-failure tiles — the whole tile reads red (faint red wash, not just
+     the side chip). Sources: engine-stamped message errors (inline) and the
+     sidecar tab.errors (end of transcript). */
+  .msg.errtile {
+    background: rgba(244, 135, 113, 0.09);
+    border: 1px solid rgba(244, 135, 113, 0.28);
+    border-left: 2px solid var(--err);
+    border-radius: 6px;
+  }
+  .errtile .head .role {
+    color: var(--err);
+  }
+  .errtile .body {
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .errtile-inline {
+    display: flex;
+    gap: 8px;
+    align-items: baseline;
+    margin: 6px 0;
+    padding: 6px 10px;
+    background: rgba(244, 135, 113, 0.09);
+    border: 1px solid rgba(244, 135, 113, 0.28);
+    border-left: 2px solid var(--err);
+    border-radius: 6px;
+    font-size: 12.5px;
+    line-height: 1.5;
+  }
+  .errtile-inline .elabel {
+    flex: none;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--err);
+  }
+  .errtile-inline .etext {
+    min-width: 0;
+    word-break: break-word;
+    white-space: pre-wrap;
+  }
+  .aborted {
+    margin: 4px 0;
+    color: var(--fg-dim);
+    font-size: 12px;
+    font-style: italic;
+  }
+  /* errored tool calls stay panel-colored — red border + left accent + the ✗
+     glyph, but normal text colors (full red is for turn-failure tiles) */
+  .toolcard.toolerr {
+    border-color: rgba(244, 135, 113, 0.3);
+    border-left: 2px solid var(--err);
   }
   .head {
     display: flex;

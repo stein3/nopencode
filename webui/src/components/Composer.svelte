@@ -1,6 +1,6 @@
 <script lang="ts">
   import { tick } from 'svelte'
-  import { oc } from '../lib/api'
+  import { oc, hist } from '../lib/api'
   import { tabs, selectedModel, cmdVersion } from '../lib/stores'
   import type { Tab } from '../lib/stores'
   import { registry, type Cmd } from '../lib/commands'
@@ -121,7 +121,8 @@
         // only engine commands produce assistant output
         if (cmd.source !== 'builtin' && real) onSent(real)
       } else {
-        tabs.patch(sid, { busy: true }) // optimistic spinner immediately
+        tabs.patch(sid, { busy: true, errors: [] }) // optimistic spinner; drop stale error tiles (server rows cleared too)
+        hist.clearSessionErrors(sid)
         flight =
           m && !registry.ready
             ? oc.runCommand(sid, m[1], m[2] ? [m[2]] : [])
@@ -220,8 +221,6 @@
 <div class="composer">
   {#if sendError}
     <div class="error">send failed: {sendError}</div>
-  {:else if tab.error}
-    <div class="error">{tab.error}</div>
   {/if}
   <div class="box">
     {#if tab.busy}

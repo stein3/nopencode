@@ -16,7 +16,11 @@ export interface Tab {
   live: boolean // engine-backed vs pure history snapshot
   busy?: boolean
   dirty?: boolean // refetch pending
-  error?: string
+  // turn-failure tiles (SSE session.error). Persisted server-side by
+  // chatserver (sidecar webui.db) so they survive reloads; cleared on the
+  // next prompt dispatch.
+  errors?: { message: string; t: number }[]
+  errorsFetched?: boolean // persisted errors loaded for this tab (once per open)
   revert?: RevertPoint | null
   pending?: boolean // not created on the engine yet
   partial?: boolean // older messages exist on the engine but aren't loaded yet
@@ -130,7 +134,7 @@ function makeTabs() {
             ...t,
             messages: t.messages.map((x) =>
               x.id === info.id
-                ? { ...x, role: info.role ?? x.role, agent: info.agent ?? x.agent, modelID: info.modelID ?? x.modelID, time: info.time ?? x.time }
+                ? { ...x, role: info.role ?? x.role, agent: info.agent ?? x.agent, modelID: info.modelID ?? x.modelID, time: info.time ?? x.time, error: info.error ?? x.error }
                 : x,
             ),
           }

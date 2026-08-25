@@ -43,6 +43,9 @@ export interface OcMessage {
   time?: { created?: number }
   tokens?: Record<string, any>
   parts?: OcPart[]
+  // mid-turn turn failure stamped on the assistant message by the engine
+  // (persisted; instant fails leave no message — those are SSE/sidecar only)
+  error?: any
   // v1 engine wraps message data as { info, parts } — both shapes flow through
   info?: Partial<OcMessage> & { sessionID?: string; tokens?: Record<string, any>; cost?: number }
 }
@@ -199,8 +202,28 @@ export interface SearchHit {
   snippet: string
 }
 
+// persisted turn-failure tile (chatserver sidecar webui.db — the engine
+// records session.error nowhere)
+export interface HistErr {
+  seq: number
+  message: string
+  t: number
+}
+
 export const hist = {
   sessions: () => req<HistSession[]>('/api/history/sessions'),
   messages: (id: string) => req<HistMsg[]>(`/api/history/session/${id}`),
   search: (q: string) => req<SearchHit[]>(`/api/search?q=${encodeURIComponent(q)}`),
+  sessionErrors: (id: string) =>
+    req<HistErr[]>(`/api/history/session/${id}/errors`).catch(() => []),
+  // fire-and-forget by contract — callers ignore the promise
+  addSessionError: (id: string, message: string, t = Date.now()) =>
+    req<{ ok: boolean }>(`/api/history/session/${id}/errors`, {
+      method: 'POST',
+      body: JSON.stringify({ message, t }),
+    }).catch(() => {}),
+  clearSessionErrors: (id: string) =>
+    req<{ ok: boolean }>(`/api/history/session/${id}/errors`, { method: 'DELETE' }).catch(
+      () => {},
+    ),
 }

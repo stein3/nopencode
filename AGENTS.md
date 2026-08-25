@@ -74,6 +74,17 @@ Facts about the opencode container stack in this directory.
 - No async variant exists for `POST /session/{id}/command` — long-running slash commands (e.g. /compact) can still hit CF 524.
 - chatserver.py proxies `/oc/*` with `timeout=600`; Caddy adds none by default — Cloudflare (~100 s, free/pro) is the binding limit.
 
+## Session error tiles (webui)
+
+- Turn failures render as **full-red tiles** (faint `rgba(244,135,113,.09)` wash + red border, not just a side chip) in three places: (1) errored **tool cards** (`.toolcard.toolerr`, `state.status==='error'` — persisted parts, always rendered); (2) **inline tiles** on the assistant message the engine stamped `$.error` on (mid-turn provider failures, persisted in opencode.db, TUI-parity — `.errtile-inline` inside the message body); (3) **sidecar end tiles** (`tab.errors` → `.msg.errtile` after the last message) for instant fails that never created a message.
+- Engine facts verified: mid-turn errors are stamped on the assistant message and served by `GET /message` (`$.error = {name, data:{message,statusCode,…}}`; 98 rows in DB) — but **instant fails (bad model) create no assistant message** and the `event` table stores no `session.error` at all. Readable text sits at `error.data.message`, NOT `error.message`; fallback chain `data.message → message → name → 'error'`.
+- **Aborts**: engine fires `session.error` with `MessageAbortedError` for user aborts AND stamps it on the message. TUI-parity: excluded from tiles/persistence, rendered as muted italic "session aborted" (`.aborted`). Don't "fix" this into a red tile.
+- Dedupe: a mid-turn failure can exist in BOTH sources (inline $.error + sidecar row from the witnessed SSE event) — Transcript filters sidecar tiles whose text matches an inline one (`inlineErrTexts`). Errored messages with **zero renderable parts** are kept by the msgs filter (common: provider died before any part streamed).
+- Sidecar persistence: sse.ts POSTs to chatserver `GET/POST/DELETE /api/history/session/{id}/errors`, backed by `webui.db` next to opencode.db (table `serr`, `UNIQUE(sid,msg)` dedupes concurrent POSTs from several clients). compose.yaml dropped the `:ro` on opencode-web's share mount for this; opencode.db itself stays mode=ro+query_only. Tiles load once per tab open (`Tab.errorsFetched` guard — also keeps the onSent refetch from resurrecting just-DELETEd rows); cleared on next prompt dispatch. Coverage limit: only errors witnessed by an OPEN webui tab get recorded (TUI-only/background instant-fails leave no tile — mid-turn ones still show via $.error).
+- Cheap real trigger: `POST /session/{id}/message` with `model:{providerID:'does-not-exist',modelID:'nope'}` → 500 + SSE `session.error`. Verify scripts: `.webtest/verify-errtile-persist.mjs` (live engine; reload persistence + resend-clear; mocks only `prompt_async`→502) and `.webtest/verify-errtile-render.mjs` (fully mocked payloads; inline/abort/dedupe/tool-red/zero-part). Seed rows by writing `serr` in `~/.local/share/opencode/webui.db` directly (same file the deployed chatserver uses).
+
+## Permission requests (engine API shape, verified v1.18.18)
+
 ## Permission requests (engine API shape, verified v1.18.18)
 
 - `GET /permission` items and the SSE `permission.asked` payload are `{id, sessionID, permission, patterns[], metadata{}, always[], tool?{messageID,callID}}` — there is NO `title`, `pattern`, `path`, or `type` field. The webui originally mapped those nonexistent fields, so pending permissions rendered as bare request-id prefixes.

@@ -78,7 +78,9 @@ services:
       - "host.docker.internal:host-gateway"
 
   # Custom chat UI (Phase 2): serves webui/dist + sqlite history/search,
-  # proxies live-session traffic to the engine. Read-only DB access.
+  # proxies live-session traffic to the engine. opencode.db itself is opened
+  # mode=ro + query_only; the mount is rw only so chatserver can keep its
+  # tiny sidecar webui.db (persisted error tiles) next to it.
   opencode-web:
     <<: *limits
     mem_limit: 256m
@@ -94,7 +96,7 @@ services:
     ports:
       - "7683:7683"
     volumes:
-      - opencode-share:/home/node/.local/share/opencode:ro
+      - opencode-share:/home/node/.local/share/opencode
     environment:
       - PORT=7683
       - OC_ENGINE=http://opencode-engine:4096

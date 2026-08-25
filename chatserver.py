@@ -6,15 +6,25 @@ Single-origin backend for the webui:
   /oc/*            -> reverse proxy to the opencode engine (REST + SSE, streamed)
   /api/history/*   -> read-only sqlite access to opencode.db (sessions, transcript;
                       transcript accepts ?limit=N for a newest-N window)
+  /api/history/session/{id}/errors
+                   -> webui turn-failure tiles (GET list / POST {message,t} /
+                      DELETE clear). Stored in the sidecar webui.db NEXT TO
+                      opencode.db — the engine does not persist session.error
+                      anywhere, so this is the only record. UNIQUE(sid,msg)
+                      collapses duplicate inserts from multiple webui clients
+                      witnessing the same SSE event.
   /api/search      -> case-insensitive substring search across all message parts
   /healthz         -> liveness
 
 Pure stdlib. Stateless: every /api request runs its own read-only SQL against
 opencode.db (WAL-safe alongside a live engine/TUI) instead of materializing
-the whole database in RAM. Statics get ETag/304 revalidation, immutable
-caching for hashed /assets/, and transparent .br/.gz precompressed serving.
+the whole database in RAM. The sole write path is the tiny sidecar error
+table (never touches opencode.db, which stays mode=ro + query_only). Statics
+get ETag/304 revalidation, immutable caching for hashed /assets/, and
+transparent .br/.gz precompressed serving.
 Env: PORT(8080) HOST(0.0.0.0) OC_ENGINE(http://127.0.0.1:4096)
      OC_DB(/home/node/.local/share/opencode/opencode.db) WEBUI_DIST(./webui/dist)
+     OC_WEBUI_DB(<dir of OC_DB>/webui.db)
 """
 
 import gzip
@@ -24,6 +34,7 @@ import mimetypes
 import os
 import re
 import sqlite3
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs, urlunparse
 
@@ -31,6 +42,9 @@ PORT = int(os.environ.get("PORT", "8080"))
 HOST = os.environ.get("HOST", "0.0.0.0")
 OC_DB = os.environ.get(
     "OC_DB", os.path.expanduser("~/.local/share/opencode/opencode.db")
+)
+WEBUI_DB = os.environ.get(
+    "OC_WEBUI_DB", os.path.join(os.path.dirname(OC_DB) or ".", "webui.db")
 )
 OC_ENGINE = os.environ.get("OC_ENGINE", "http://127.0.0.1:4096").replace("http://", "")
 WEBUI_DIST = os.path.abspath(
@@ -77,6 +91,68 @@ def _connect():
     # keeps search semantics identical to the previous in-Python index.
     conn.create_function("pylower", 1, lambda s: s.lower() if s else s)
     return conn
+
+
+# ---- sidecar: webui turn-failure tiles -------------------------------------
+# The engine fires session.error over SSE but persists nothing, so the webui
+# records failures here to survive reloads. Tiny append-only table; UNIQUE
+# (sid,msg) makes concurrent POSTs from several clients idempotent.
+
+def _serr_connect(create=False):
+    if create:
+        os.makedirs(os.path.dirname(WEBUI_DB) or ".", exist_ok=True)
+        conn = sqlite3.connect(WEBUI_DB, timeout=5)
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS serr("
+            "seq INTEGER PRIMARY KEY AUTOINCREMENT,"
+            "sid TEXT NOT NULL,"
+            "msg TEXT NOT NULL,"
+            "t INTEGER NOT NULL,"
+            "UNIQUE(sid,msg))"
+        )
+        conn.commit()
+        return conn
+    conn = sqlite3.connect("file:%s?mode=ro" % WEBUI_DB, uri=True, timeout=5)
+    return conn
+
+
+def session_errors(sid):
+    try:
+        conn = _serr_connect()
+    except Exception:
+        return []
+    try:
+        rows = conn.execute(
+            "SELECT seq, msg, t FROM serr WHERE sid=? ORDER BY seq", (sid,)
+        ).fetchall()
+        return [{"seq": r[0], "message": r[1], "t": r[2]} for r in rows]
+    except sqlite3.OperationalError:
+        return []  # table not created yet
+    finally:
+        conn.close()
+
+
+def session_error_add(sid, message, t=None):
+    conn = _serr_connect(create=True)
+    try:
+        cur = conn.execute(
+            "INSERT OR IGNORE INTO serr(sid,msg,t) VALUES(?,?,?)",
+            (sid, message, int(t or time.time() * 1000)),
+        )
+        conn.commit()
+        return {"ok": True, "seq": cur.lastrowid if cur.rowcount else None}
+    finally:
+        conn.close()
+
+
+def session_error_clear(sid):
+    conn = _serr_connect(create=True)
+    try:
+        conn.execute("DELETE FROM serr WHERE sid=?", (sid,))
+        conn.commit()
+        return {"ok": True}
+    finally:
+        conn.close()
 
 
 def load_sessions():
@@ -164,6 +240,9 @@ def load_messages(sid, limit=None):
                     "agent": (md.get("agent") or "") or None,
                     "modelID": ((md.get("model") or {}).get("modelID")) or None,
                     "time": num((md.get("time") or {}).get("created")),
+                    # mid-turn failures: engine stamps the error on the assistant
+                    # message (TUI renders it inline too); absent on instant fails
+                    "error": md.get("error"),
                     "parts": [],
                 }
             )
@@ -432,6 +511,22 @@ class Handler(BaseHTTPRequestHandler):
                 if changes is None:
                     return self.send_json({"error": "unknown session"}, 404)
                 return self.send_json(changes)
+            m = re.match(r"^/api/history/session/([^/]+)/errors$", path)
+            if m:
+                sid = m.group(1)
+                if self.command == "POST":
+                    length = int(self.headers.get("Content-Length") or 0)
+                    try:
+                        body = json.loads(self.rfile.read(length) or b"{}")
+                    except ValueError:
+                        return self.send_json({"error": "bad json"}, 400)
+                    msg = str(body.get("message") or "").strip()
+                    if not msg:
+                        return self.send_json({"error": "message required"}, 400)
+                    return self.send_json(session_error_add(sid, msg, body.get("t")))
+                if self.command == "DELETE":
+                    return self.send_json(session_error_clear(sid))
+                return self.send_json(session_errors(sid))
             if path.startswith("/api/history/session/"):
                 sid = path.rsplit("/", 1)[1]
                 limit = None
@@ -554,6 +649,10 @@ class Handler(BaseHTTPRequestHandler):
 if __name__ == "__main__":
     if not os.path.exists(OC_DB):
         raise SystemExit(f"database not found: {OC_DB}")
+    try:
+        _serr_connect(create=True).close()
+    except Exception as e:
+        print(f"webui sidecar unavailable ({e}) — error tiles won't persist", flush=True)
     srv = ThreadingHTTPServer((HOST, PORT), Handler)
     print(f"chatserver: http://{HOST}:{PORT}  dist={WEBUI_DIST}  engine={OC_ENGINE}", flush=True)
     srv.serve_forever()
