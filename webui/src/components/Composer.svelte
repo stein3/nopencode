@@ -5,6 +5,7 @@
   import type { Tab } from '../lib/stores'
   import { registry, type Cmd } from '../lib/commands'
   import { RECENT_PAGE, normalizeMessages } from '../lib/sse'
+  import { cancelRetry } from '../lib/retries'
 
   export let tab: Tab
   export let onSent: (sessionId: string) => void
@@ -143,6 +144,7 @@
         // only engine commands produce assistant output
         if (cmd.source !== 'builtin' && real) onSent(real)
       } else {
+        cancelRetry(sid) // manual send takes over from any pending auto-retry
         tabs.patch(sid, { busy: true }) // optimistic spinner immediately
         // NOTE: error tiles are NOT cleared here — they're history (a record
         // of the failed turn), not a transient banner. A resend that fails
