@@ -1,5 +1,5 @@
 import { tabs, sessionTodos, patchMetrics, metricsFromMessages, tokenTally, markSessionUnread } from './stores'
-import { oc } from './api'
+import { oc, hist } from './api'
 import { refreshPermissions } from './permissions'
 import { refreshQuestions } from './questions'
 
@@ -130,6 +130,7 @@ export function normalizeMessages(msgs: any[]): any[] {
       id: info.id,
       role: info.role ?? 'assistant',
       modelID: info.modelID,
+      error: info.error,
       // keep the { created } object shape used everywhere else (OcMessage,
       // upsertPart, setMeta) — flattening here silently killed timestamps
       time: { created: info.time?.created ?? info.time?.created_at ?? Date.now() },
@@ -188,7 +189,20 @@ export function startEvents() {
       // finished while another tab is being viewed → flag done/unread
       if (tabs.getActive() !== sid) markSessionUnread(sid)
     } else if (type === 'session.error') {
-      tabs.patch(sid, { busy: false, error: String(p.error?.message ?? 'error') })
+      // readable text sits at error.data.message on most engine errors.
+      // User aborts fire this event too (MessageAbortedError) — the TUI
+      // excludes them from error surfacing, and so do we: the aborted
+      // assistant message renders a muted note, no red tile, no persist.
+      const em: any = p.error
+      const aborted = em?.name === 'MessageAbortedError'
+      const msg = String(em?.data?.message ?? em?.message ?? em?.name ?? 'error')
+      const cur = tabs.snapshot(sid)
+      // server collapses identical (sid,message) — mirror that locally so a
+      // duplicate event can't double-render a tile before the next reload
+      const errors = [...(cur?.errors ?? [])]
+      if (!aborted && !errors.some((e) => e.message === msg)) errors.push({ message: msg, t: Date.now() })
+      tabs.patch(sid, { busy: false, errors })
+      if (!aborted) hist.addSessionError(sid, msg) // persist fire-and-forget
       if (tabs.getActive() !== sid) markSessionUnread(sid)
     }
 
@@ -203,6 +217,7 @@ export function startEvents() {
       // their message materialized locally
     } else if (type === 'message.updated' && p.info?.id) {
       tabs.setMeta(sid, p.info)
+      // assistant message info carries the live token tally + per-message cost
       const tally = tokenTally(p.info.tokens)
       if (tally !== undefined) patchMetrics(sid, { tokens: tally })
       scheduleRefetch(sid)

@@ -57,6 +57,22 @@
     setTimeout(() => document.getElementById('sidebar-search')?.focus(), 50)
   }
 
+  // Persisted turn-failure tiles: one fetch per tab open. errorsFetched also
+  // keeps the onSent refetch path (openLive 150ms after each send) from
+  // resurrecting rows the composer just DELETEd.
+  function loadErrors(id: string) {
+    if (tabs.snapshot(id)?.errorsFetched) return
+    tabs.patch(id, { errorsFetched: true })
+    hist.sessionErrors(id).then((errs) => {
+      if (!errs.length) return
+      const local = tabs.snapshot(id)?.errors ?? []
+      const merged = [...local]
+      for (const e of errs)
+        if (!merged.some((x) => x.message === e.message)) merged.push(e)
+      if (merged.length !== local.length) tabs.patch(id, { errors: merged })
+    })
+  }
+
   async function openHistory(id: string, anchor?: string, allowLive = true) {
     // Prefer the engine-backed (live) view so the info panel can populate
     // cost/tokens/todos; fall back to the pure-history snapshot only when the
@@ -85,8 +101,10 @@
             role: m.role,
             time: { created: m.time },
             parts: m.parts,
+            error: (m as any).error,
           })),
         })
+        loadErrors(id)
       } catch (e: any) {
         alert(`open failed: ${e.message}`)
       }
@@ -112,6 +130,7 @@
       ])
       applyMessages(id, msgs, msgs.length < RECENT_PAGE)
       tabs.patch(id, { live: true, revert: s?.revert ?? null })
+      loadErrors(id)
       // session cost is engine-maintained; the messages payload can't derive it
       if (typeof s?.cost === 'number') patchMetrics(id, { cost: s.cost })
       // NOTE: no selectedModel sync from the session here — this runs on every
