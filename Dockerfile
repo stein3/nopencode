@@ -33,6 +33,10 @@ RUN chmod +x /app/start.sh && chown -R node:node /app
 RUN mkdir -p /home/node/.config /home/node/.local/state /home/node/.local/share \
     && chown -R node:node /home/node/.config /home/node/.local/state /home/node/.local/share
 
+# Make opencode's built-in bash-tool claim ("/tmp/opencode exists and is
+# pre-approved") actually true: create it node-writable before dropping privs.
+RUN mkdir -p /tmp/opencode && chown node:node /tmp/opencode
+
 WORKDIR /workspace
 USER node
 ENTRYPOINT ["opencode"]
