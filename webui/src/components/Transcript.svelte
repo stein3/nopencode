@@ -301,6 +301,13 @@
     return p.state?.status === 'error'
   }
 
+  // head role label: errored turns present as "Error" instead of the agent name
+  function roleLabel(m: any): string {
+    if (m.role === 'user') return 'you'
+    if (m.error && !isAborted(m.error)) return 'Error'
+    return m.agent || 'opencode'
+  }
+
   // sidecar tiles whose text already renders inline on a message are dropped
   $: inlineErrTexts = new Set(msgs.filter((m) => m.error && !isAborted(m.error)).map((m) => errText(m.error)))
   $: sidecarErrors = (tab.errors ?? []).filter((e) => !inlineErrTexts.has(e.message))
@@ -589,8 +596,8 @@
     {/if}
   {#each msgs as m (m.id)}
     <div class="msg" class:user={m.role === 'user'} id={`m-${m.id}`}>
-      <div class="head" title={m.role}>
-        <span class="role">{m.role === 'user' ? 'you' : m.agent || 'opencode'}</span>
+        <div class="head" title={m.role}>
+        <span class="role" class:errole={m.error && m.role !== 'user' && !isAborted(m.error)}>{roleLabel(m)}</span>
         {#if m.modelID}<span class="model-id" title={m.modelID}>{m.modelID}</span>{/if}
         {#if $showTimestamps}
           <span class="time">{timeStr(m.time?.created)}</span>
@@ -623,7 +630,7 @@
             <div class="toolcard" class:toolerr={isToolErr(p)}>
               <details class="tool" open={pq ? true : undefined}>
                 <summary>
-                  <span class="sum-text">{toolStatusGlyph(p)}<span class="tname {toolColorClass(p)}">{p.tool ?? 'tool'}</span>{#if pq}<span class="tsep">·</span><span class="qwait">awaiting your answer</span>{:else if toolDetail(p)}<span class="tsep">·</span><span>{toolDetail(p)}</span>{/if}</span>
+                  <span class="sum-text">{#if isToolErr(p)}<span class="errglyph">✗ </span>{:else}{toolStatusGlyph(p)}{/if}<span class="tname {toolColorClass(p)}">{p.tool ?? 'tool'}</span>{#if pq}<span class="tsep">·</span><span class="qwait">awaiting your answer</span>{:else if toolDetail(p)}<span class="tsep">·</span><span>{toolDetail(p)}</span>{/if}</span>
                   {#if isTruncated(p)}<span class="badge warn">truncated</span>{/if}
                   {#if toolDuration(p)}<span class="badge">{toolDuration(p)}</span>{/if}
                 </summary>
@@ -687,7 +694,6 @@
             <div class="aborted">session aborted</div>
           {:else}
             <div class="errtile-inline">
-              <span class="elabel">error</span>
               <span class="etext">{errText(m.error)}</span>
             </div>
           {/if}
@@ -697,7 +703,7 @@
   {/each}
     {#each sidecarErrors as e, i (i)}
       <div class="msg errtile">
-        <div class="head"><span class="role">error</span></div>
+        <div class="head"><span class="role">Error</span></div>
         <div class="body">{e.message}</div>
       </div>
     {/each}
@@ -799,12 +805,10 @@
     font-size: 12.5px;
     line-height: 1.5;
   }
-  .errtile-inline .elabel {
-    flex: none;
-    font-size: 10px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
+  /* red "Error" head label — extra selectors to out-rank the global
+     :global(.msg:not(.user)) .role accent rule (which sits later in this
+     stylesheet and would win a specificity tie) */
+  .msg .head .role.errole {
     color: var(--err);
   }
   .errtile-inline .etext {
@@ -823,6 +827,9 @@
   .toolcard.toolerr {
     border-color: rgba(244, 135, 113, 0.3);
     border-left: 2px solid var(--err);
+  }
+  .toolcard .errglyph {
+    color: var(--err);
   }
   .head {
     display: flex;
