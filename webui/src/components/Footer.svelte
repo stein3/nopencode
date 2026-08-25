@@ -2,14 +2,16 @@
   import { onMount } from 'svelte'
   import { oc } from '../lib/api'
   import { RECENT_PAGE } from '../lib/sse'
-  import { selectedModel, paletteOpen } from '../lib/stores'
+  import { selectedModel, paletteOpen, sessionMetrics, metricsFromMessages } from '../lib/stores'
   import type { Tab } from '../lib/stores'
 
   export let tab: Tab
 
   let dir = ''
   let cost = 0
-  let usedTokens = 0 // context-window estimate from newest assistant message
+  // context-window estimate; live SSE tallies land in sessionMetrics and take
+  // precedence — the fetched value covers sessions with no SSE traffic yet
+  let fetchedTokens = 0
 
   function fmtK(n: number): string {
     if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M'
@@ -27,14 +29,9 @@
       ])
       cost = sess?.cost ?? 0
       if (path?.directory && !dir) dir = path.directory
-      // newest assistant message carries the live context tally
-      const withTok = [...(msgs ?? [])]
-        .reverse()
-        .find((m: any) => ((m.info ?? m)?.role ?? 'assistant') === 'assistant' && (m.info ?? m)?.tokens)
-      const t = withTok ? ((withTok.info ?? withTok).tokens ?? {}) : {}
-      usedTokens =
-        (t.input ?? 0) + (t.output ?? 0) + (t.reasoning ?? 0) +
-        ((t.cache?.read ?? 0) + (t.cache?.write ?? 0))
+      // newest assistant message with a NON-ZERO tally (aborted/empty turns
+      // leave all-zero tokens objects behind — see tokenTally)
+      fetchedTokens = metricsFromMessages(msgs ?? []).tokens ?? 0
     } catch {
       /* history-only tab or engine hiccup */
     }
@@ -60,6 +57,10 @@
     if (!dir) dir = (await oc.path().catch(() => ({ directory: undefined })))?.directory ?? ''
   })
 
+  // live tallies stream in via SSE (message.updated → sessionMetrics) and
+  // update DURING a turn; the busy-keyed refresh above only seeds the value
+  $: usedTokens =
+    (tab.live ? $sessionMetrics[tab.id]?.tokens : undefined) ?? fetchedTokens
   $: pct = limit ? Math.min(100, (usedTokens / limit) * 100) : 0
 </script>
 

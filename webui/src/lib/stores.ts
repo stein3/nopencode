@@ -167,18 +167,39 @@ export function patchMetrics(sid: string, m: SessionMetrics) {
   sessionMetrics.update((all) => ({ ...all, [sid]: { ...all[sid], ...m } }))
 }
 
+// Sum an engine token object into a context-size estimate. Returns undefined
+// when nothing is counted: aborted, empty-step, and provider-silent turns
+// permanently leave an ALL-ZERO `tokens` object on the newest assistant
+// message — treating that as "0 context" made sessions display "--" / 0%
+// forever. Callers fall back to the newest message that actually reported.
+export function tokenTally(t?: Record<string, any> | null): number | undefined {
+  if (!t) return undefined
+  const n =
+    (t.input ?? 0) +
+    (t.output ?? 0) +
+    (t.reasoning ?? 0) +
+    ((t.cache?.read ?? 0) + (t.cache?.write ?? 0))
+  return n > 0 ? n : undefined
+}
+
 // Derive metrics from a raw engine messages payload (info-wrapped or flat).
 // `complete` = payload wasn't truncated by a page limit; a truncated list
-// must not override the sidebar's true sqlite message_count.
+// must not override the sidebar's true sqlite message_count. `tokens` is
+// omitted entirely when no message reported usage so patchMetrics keeps the
+// last good value instead of clobbering it.
 export function metricsFromMessages(msgs: any[], complete = true): SessionMetrics {
   const list = msgs ?? []
-  const withTok = [...list]
-    .reverse()
-    .find((m: any) => ((m.info ?? m)?.role ?? 'assistant') === 'assistant' && (m.info ?? m)?.tokens)
-  const t = withTok ? ((withTok.info ?? withTok).tokens ?? {}) : {}
-  const tokens =
-    (t.input ?? 0) + (t.output ?? 0) + (t.reasoning ?? 0) + ((t.cache?.read ?? 0) + (t.cache?.write ?? 0))
-  return complete ? { tokens, messages: list.length } : { tokens }
+  const out: SessionMetrics = {}
+  for (let i = list.length - 1; i >= 0; i--) {
+    const info = (list[i] as any).info ?? list[i]
+    if (((info?.role ?? 'assistant') !== 'assistant')) continue
+    const t = tokenTally(info?.tokens)
+    if (t === undefined) continue
+    out.tokens = t
+    break
+  }
+  if (complete) out.messages = list.length
+  return out
 }
 
 export interface PermRequest {

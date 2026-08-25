@@ -165,6 +165,9 @@ export interface HistSession {
   message_count: number
   cost: number
   model?: string
+  // context estimate (newest assistant message with a non-zero tally);
+  // absent when no message ever reported usage
+  tokens?: number
   // set on subagent sessions (@explore, @general, …) — engine session parentID
   parent?: string
   agent?: string
