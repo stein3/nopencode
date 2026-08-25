@@ -34,6 +34,17 @@
     ta?.focus()
   }
 
+  // Focus insurance for soft keyboards that overlay the layout instead of
+  // resizing it: once the box gains focus, nudge it into whatever visual
+  // area remains. Best-effort — a no-op when there is nothing to scroll.
+  function onTaFocus() {
+    try {
+      ta?.scrollIntoView({ block: 'nearest' })
+    } catch {
+      /* engines without ScrollIntoViewOptions */
+    }
+  }
+
   // Revert-refill: drop a reverted message's text back into the box so it can
   // be edited and resent. Never clobbers a draft the user already started.
   export function prefill(t: string) {
@@ -246,6 +257,7 @@
         rows="1"
         id="composer-input"
         placeholder="Message…  (Enter to send, Shift+Enter newline, / for commands)"
+        on:focus={onTaFocus}
         on:keydown={key}
         on:input={() => {
           autosize()
