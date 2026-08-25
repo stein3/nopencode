@@ -1,5 +1,5 @@
 import { writable, get } from 'svelte/store'
-import { tabs, selectedModel } from './stores'
+import { tabs, selectedModel, selectedAgent } from './stores'
 import { oc } from './api'
 
 // Auto-retry for retryable turn failures. The engine stamps isRetryable on
@@ -7,7 +7,8 @@ import { oc } from './api'
 // opencode.db: {"name":"APIError","data":{...,"isRetryable":true}}). When the
 // SSE session.error carries that flag, the failed turn's user message is
 // re-dispatched with a growing (not quite exponential) backoff:
-//   5s → 15s → 30s → 60s → 2m → 5m, then every 5m until the turn lands.
+//   1s → 2s → 3s → 5s → 15s → 30s → 60s → 2m → 5m, then every 5m until
+// the turn lands.
 // Manual sends and tab closes cancel the loop; a clean turn (session.idle
 // with no error since the last dispatch) resets it.
 //
@@ -15,7 +16,7 @@ import { oc } from './api'
 // delays — harmless: the retry just fires later, and the UI isn't visible
 // in a hidden tab anyway.
 
-const DELAYS = [5, 15, 30, 60, 120, 300] // seconds; index min(attempt-1, last)
+const DELAYS = [1, 2, 3, 5, 15, 30, 60, 120, 300] // seconds; index min(attempt-1, last)
 
 export interface RetryState {
   attempt: number // dispatch number (1 = first retry after the original failure)
@@ -115,7 +116,9 @@ function fire(sid: string) {
   }
   lastDispatchAt.set(sid, Date.now())
   tabs.patch(sid, { busy: true }) // spinner while the retried turn runs
-  oc.prompt(sid, text, get(selectedModel) ?? undefined).catch(() => {
+  // same prefs as a manual send (picker model + per-message agent) so a
+  // retried turn doesn't silently fall back to the session default agent
+  oc.prompt(sid, text, get(selectedModel) ?? undefined, get(selectedAgent) ?? undefined).catch(() => {
     // dispatch itself died (network/proxy) — counts as another failure
     tabs.patch(sid, { busy: false })
     scheduleRetry(sid)
