@@ -229,6 +229,11 @@
     max-width: 320px;
     height: 100vh;
   }
+  @supports (height: 100dvh) {
+    .sidebar {
+      height: var(--vvh, 100dvh);
+    }
+  }
   .top {
     padding: 10px;
   }

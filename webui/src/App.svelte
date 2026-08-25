@@ -16,6 +16,7 @@
   import { startEvents, applyMessages, backfill, loadOlder, RECENT_PAGE, JUMP_CAP } from './lib/sse'
   import { answerPermission, refreshPermissions } from './lib/permissions'
   import { initHotkeys } from './lib/hotkeys'
+  import { installVisualViewportFix } from './lib/visualViewport'
 
   let composers: Record<string, Composer> = {}
   let diffOpen = false
@@ -182,6 +183,7 @@
 
   onMount(() => {
     startEvents()
+    installVisualViewportFix()
     window.addEventListener('oc:new-chat', onNewChatEvent)
     document.addEventListener('oc:focus-sidebar', onFocusSidebar)
     ;(async () => {
@@ -430,6 +432,15 @@
     height: 100vh;
     overflow: hidden;
   }
+  /* dvh + --vvh (visualViewport.ts): keyboard-aware shell height where the
+     soft keyboard overlays instead of resizing the layout. Base 100vh stays
+     for engines without dvh — a var() fallback would be dropped entirely
+     there (invalid at computed-value time), hence the @supports override. */
+  @supports (height: 100dvh) {
+    .app {
+      height: var(--vvh, 100dvh);
+    }
+  }
   main {
     flex: 1;
     display: flex;
@@ -466,6 +477,11 @@
     width: 45%;
     min-width: 340px;
     height: 100vh;
+  }
+  @supports (height: 100dvh) {
+    .diffwrap {
+      height: var(--vvh, 100dvh);
+    }
   }
   @media (max-width: 1100px) {
     .diffwrap {

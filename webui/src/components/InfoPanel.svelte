@@ -147,6 +147,11 @@
     height: 100vh;
     box-sizing: border-box;
   }
+  @supports (height: 100dvh) {
+    .info {
+      height: var(--vvh, 100dvh);
+    }
+  }
   .head .ttl {
     font-weight: 600;
     font-size: 13px;
