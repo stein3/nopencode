@@ -2,6 +2,7 @@ import { tabs, sessionTodos, patchMetrics, metricsFromMessages, tokenTally, mark
 import { oc, hist } from './api'
 import { refreshPermissions } from './permissions'
 import { refreshQuestions } from './questions'
+import { msgModel } from './util'
 
 const timers = new Map<string, ReturnType<typeof setTimeout>>()
 
@@ -126,10 +127,14 @@ function scheduleRefetch(sessionId: string) {
 export function normalizeMessages(msgs: any[]): any[] {
   return (msgs ?? []).map((m: any) => {
     const info = m.info ?? m
+    // assistant info carries flat modelID/providerID, user info nests them
+    // under `model` — msgModel reads both so user rows get their badge too
+    const mm = msgModel(info)
     return {
       id: info.id,
       role: info.role ?? 'assistant',
-      modelID: info.modelID,
+      modelID: mm.modelID,
+      providerID: mm.providerID,
       error: info.error,
       // keep the { created } object shape used everywhere else (OcMessage,
       // upsertPart, setMeta) — flattening here silently killed timestamps

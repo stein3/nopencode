@@ -1,5 +1,6 @@
 import { writable } from 'svelte/store'
 import type { OcMessage } from './api'
+import { msgModel } from './util'
 
 // Engine reverts don't delete messages — they mark a revert point on the
 // session and the next prompt physically prunes. Until then every client must
@@ -128,6 +129,9 @@ function makeTabs() {
     // Correct role/metadata once message.updated delivers the authoritative info
     setMeta(sid: string, info: any) {
       if (!info?.id) return
+      // assistant info carries flat modelID/providerID, user info nests them
+      // under `model` — msgModel reads both so user rows keep their badge
+      const mm = msgModel(info)
       update((all) =>
         all.map((t) => {
           if (t.id !== sid) return t
@@ -137,7 +141,7 @@ function makeTabs() {
             ...t,
             messages: t.messages.map((x) =>
               x.id === info.id
-                ? { ...x, role: info.role ?? x.role, agent: info.agent ?? x.agent, modelID: info.modelID ?? x.modelID, time: info.time ?? x.time, error: info.error ?? x.error }
+                ? { ...x, role: info.role ?? x.role, agent: info.agent ?? x.agent, modelID: mm.modelID ?? x.modelID, providerID: mm.providerID ?? x.providerID, time: info.time ?? x.time, error: info.error ?? x.error }
                 : x,
             ),
           }
