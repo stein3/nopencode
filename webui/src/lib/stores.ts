@@ -275,7 +275,7 @@ export function makePref(key: string, initial = true) {
 
 export const showThinking = makePref('showThinking', false) // /thinking expands all blocks
 export const showTimestamps = makePref('showTimestamps', true)
-export const hideSubagents = makePref('hideSubagents', false) // sidebar: hide @agent sessions
+export const hideSubagents = makePref('hideSubagents', true) // sidebar: hide @agent sessions by default
 
 // ---- externally-triggered model picker ----
 export const modelPickerOpen = writable(false)

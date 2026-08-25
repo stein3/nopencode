@@ -175,7 +175,7 @@
             <span class="hidcount">· {subCount} hidden</span>{/if}</span
         >
         <label class="hidesub" title="Show or hide subagent sessions (@explore, @general, …)">
-          <input type="checkbox" bind:checked={$hideSubagents} /> subs
+          <input type="checkbox" bind:checked={$hideSubagents} /> hide subagents
         </label>
       </div>
       {#each visible as s (s.id)}
