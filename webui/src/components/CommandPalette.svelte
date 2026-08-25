@@ -1,10 +1,17 @@
 <script lang="ts">
   import { tick } from 'svelte'
-  import { paletteOpen, cmdVersion } from '../lib/stores'
+  import { paletteOpen, cmdVersion, tabs } from '../lib/stores'
   import { registry, type Cmd } from '../lib/commands'
 
-  export let sessionId: string | null = null
   export let onDone: () => void = () => {}
+
+  // resolve the active session at COMMAND RUN time — a prop computed from
+  // tabs method calls has no reactive deps and freezes at its mount value
+  function resolveSid(): string | null {
+    const id = tabs.getActive()
+    const t = id ? tabs.snapshot(id) : null
+    return t?.pending ? null : id
+  }
 
   let query = ''
   let sel = 0
@@ -58,7 +65,7 @@
   async function run(c: Cmd) {
     close()
     try {
-      await c.run(ctxFor(sessionId), '')
+      await c.run(ctxFor(resolveSid()), '')
     } catch (e: any) {
       console.error('command failed', e)
     }

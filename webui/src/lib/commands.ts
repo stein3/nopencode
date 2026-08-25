@@ -12,6 +12,7 @@ import {
   showTimestamps,
   selectedModel,
   modelPickerOpen,
+  renameTarget,
   cmdVersion,
   type DialogSpec,
 } from './stores'
@@ -323,16 +324,7 @@ registry.builtins = [
     run: async (ctx) => {
       const sid = needSession(ctx)
       if (!sid) return
-      const cur = tabs.snapshot(sid)?.title ?? ''
-      const title = prompt('New session title:', cur)
-      if (!title?.trim()) return
-      try {
-        const s = await oc.renameSession(sid, title.trim())
-        tabs.patch(sid, { title: s.title ?? title.trim() })
-        toast('renamed')
-      } catch (e: any) {
-        toast(`/rename failed: ${e.message ?? e}`)
-      }
+      renameTarget.set({ sid, title: tabs.snapshot(sid)?.title ?? '' })
     },
   },
   {
