@@ -1,11 +1,22 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { oc } from '../lib/api'
+  import { oc, hist, type HistSession } from '../lib/api'
   import { RECENT_PAGE } from '../lib/sse'
-  import { selectedModel, sessionTodos, sessionMetrics, metricsFromMessages } from '../lib/stores'
+  import {
+    selectedModel,
+    sessionTodos,
+    sessionMetrics,
+    metricsFromMessages,
+    permissions,
+    pendingQuestions,
+    sessionUnread,
+  } from '../lib/stores'
+  import { relTime } from '../lib/util'
   import type { Tab } from '../lib/stores'
 
   export let tab: Tab | null
+  // linked-session rows open the child session (App wires this to openHistory)
+  export let onOpen: ((id: string) => void) | undefined = undefined
 
   let cost = 0
   // live SSE tallies (sessionMetrics) take precedence; fetchedTokens seeds
@@ -68,9 +79,13 @@
   }
   // live updates from todo.updated events, fetch as initial/fallback source
   $: todos = $sessionTodos[tab?.id ?? ''] ?? fetchedTodos
-  // safety net: slow poll in case events are missed (e.g. reconnect gaps)
+  // safety net: slow poll in case events are missed (e.g. reconnect gaps);
+  // also re-pulls the linked-sessions list + busy states at the same cadence
   onMount(() => {
-    const iv = setInterval(() => refresh(), 30000)
+    const iv = setInterval(() => {
+      refresh()
+      refreshLinked()
+    }, 30000)
     return () => clearInterval(iv)
   })
   $: limit = getContextLimit($selectedModel)
@@ -95,6 +110,75 @@
   $: usedTokens =
     (tab?.live ? $sessionMetrics[tab.id]?.tokens : undefined) ?? fetchedTokens
   $: pct = limit ? Math.min(100, (usedTokens / limit) * 100) : 0
+
+  // ---- linked sessions: DIRECT children of the active session --------------
+  // Same title-suffix convention as the Sidebar (badge replaces "(@… subagent)").
+  const SUB_SUFFIX = /\s*\(@\S+ subagent\)\s*$/
+
+  let kids: HistSession[] = []
+  let busyKids: Record<string, boolean> = {}
+
+  function kidTitle(s: HistSession): string {
+    if (!s.parent) return s.title || s.id.slice(0, 14)
+    const t = (s.title || '').replace(SUB_SUFFIX, '').trim()
+    return t || s.id.slice(0, 14)
+  }
+  function kidLabel(s: HistSession): string {
+    return s.agent ? `@${s.agent}` : '@sub'
+  }
+
+  function clearLinked() {
+    kids = []
+    busyKids = {}
+  }
+
+  async function refreshLinked() {
+    const cur = tab?.id
+    if (!cur || cur.startsWith('pending-')) {
+      clearLinked()
+      return
+    }
+    try {
+      const all = await hist.sessions()
+      if ((tab?.id ?? '') !== cur) return // panel switched sessions meanwhile
+      kids = all.filter((s) => s.parent === cur).sort((a, b) => b.updated - a.updated)
+    } catch {
+      /* keep previous list */
+    }
+    try {
+      const st = await oc.status()
+      if ((tab?.id ?? '') !== cur) return
+      const next: Record<string, boolean> = {}
+      for (const [k, v] of Object.entries(st)) next[k] = (v?.type ?? v?.state) === 'busy'
+      busyKids = next
+    } catch {
+      /* engine down — dots just never show busy */
+    }
+  }
+
+  let lastLinkId = ''
+  $: linkId = tab?.id ?? ''
+  $: if (linkId !== lastLinkId) {
+    lastLinkId = linkId
+    clearLinked()
+    refreshLinked()
+  }
+
+  // dot precedence perm > ask > busy > unread — resolved per row here so the
+  // derivation reads every store directly (template reactivity gotcha: reads
+  // hidden behind method calls are invisible to the compiler)
+  $: kidRows = kids.map((c) => ({
+    s: c,
+    dot: $permissions.some((p) => p.sessionID === c.id)
+      ? 'perm'
+      : $pendingQuestions.some((q) => q.sessionID === c.id)
+        ? 'ask'
+        : busyKids[c.id]
+          ? 'busy'
+          : $sessionUnread.has(c.id)
+            ? 'unread'
+            : '',
+  }))
 
   const statusIcon: Record<string, string> = {
     completed: '☑',
@@ -132,6 +216,18 @@
         <span class="ic">{statusIcon[td.status] ?? '☐'}</span>
         <span class="t" class:done={td.status === 'completed'}>{td.content ?? td.title ?? td.description ?? '(unnamed)'}</span>
       </div>
+    {/each}
+  {/if}
+
+  {#if kidRows.length}
+    <div class="sec">Linked Sessions</div>
+    {#each kidRows as r (r.s.id)}
+      <button class="kid" on:click={() => onOpen?.(r.s.id)} title={r.s.title}>
+        <span class="dot {r.dot}"></span>
+        <span class="ag">{kidLabel(r.s)}</span>
+        <span class="ttext">{kidTitle(r.s)}</span>
+        <span class="rt">{relTime(r.s.updated)}</span>
+      </button>
     {/each}
   {/if}
 </aside>
@@ -214,5 +310,64 @@
   .todo .t.done {
     text-decoration: line-through;
     color: var(--fg-dim);
+  }
+  /* linked sessions — solid status dots, no animations (repo rule); scoped
+     duplication of Sidebar's dot classes is the repo convention */
+  .kid {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    text-align: left;
+    background: transparent;
+    border: none;
+    border-radius: 6px;
+    color: var(--fg);
+    padding: 5px 6px;
+    cursor: pointer;
+    font-family: inherit; /* no global button reset in app.css */
+    font-size: 12px;
+  }
+  .kid:hover {
+    background: var(--bg-hover);
+  }
+  .dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    background: transparent;
+  }
+  .dot.unread {
+    background: var(--accent);
+    opacity: 0.7;
+  }
+  .dot.busy {
+    background: var(--warn);
+  }
+  /* source order = precedence: perm > ask > busy > unread (mirrors Sidebar) */
+  .dot.ask {
+    background: var(--err);
+  }
+  .dot.perm {
+    background: var(--err);
+  }
+  .ag {
+    color: #ec7ba4;
+    font-weight: 600;
+    font-size: 11px;
+    flex: none;
+  }
+  .ttext {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .rt {
+    color: var(--fg-dim);
+    font-size: 10.5px;
+    flex: none;
+    margin-left: auto;
   }
 </style>
