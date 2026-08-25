@@ -14,9 +14,8 @@ Facts about the opencode container stack in this directory.
 
 - Rebuild/restart just the web UI after changes:
   ```sh
-  sudo docker compose build opencode-web && sudo docker compose up -d --no-deps opencode-web
+  sudo docker compose up --build -d --no-deps opencode-web
   ```
-  (or `sudo docker compose up -d --build --no-deps opencode-web`)
 - Engine not responding → sessions/messages 500: check `sudo docker compose logs opencode-engine` first.
 - All container commands need `sudo` (sandbox user isn't in the docker group).
 - **Never execute `sudo docker ...` yourself** — from inside the dev sandbox there is no `sudo` binary and no docker access (see `sandbox-environment` skill). When a deploy/restart is needed, print the exact command(s) for the user to run on the docker host; don't attempt them.
