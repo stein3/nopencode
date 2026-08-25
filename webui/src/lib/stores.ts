@@ -431,6 +431,39 @@ function makeModel() {
 
 export const selectedModel = makeModel()
 
+// ---- selected per-message agent (persisted) ----
+// Mirrors selectedModel. `undefined` = follow the session/engine default
+// (the `agent` field is omitted from the prompt payload). Written ONLY by
+// explicit user picks in AgentPicker — never echo session.agent / SSE
+// session.updated data back into it (same invariant as selectedModel).
+const AGENT_KEY = 'opencode.agent'
+function makeAgent() {
+  const { subscribe, set } = writable<string | undefined>(
+    (() => {
+      try {
+        const raw = localStorage.getItem(AGENT_KEY)
+        return raw ? (JSON.parse(raw) as string) : undefined
+      } catch {
+        return undefined
+      }
+    })(),
+  )
+  return {
+    subscribe,
+    save(a: string | undefined) {
+      set(a)
+      try {
+        if (a) localStorage.setItem(AGENT_KEY, JSON.stringify(a))
+        else localStorage.removeItem(AGENT_KEY)
+      } catch {
+        /* private mode */
+      }
+    },
+  }
+}
+
+export const selectedAgent = makeAgent()
+
 // ---- recently used models (persisted, most recent first) ----
 const RECENTS_KEY = 'opencode.modelRecents'
 const RECENTS_CAP = 12
