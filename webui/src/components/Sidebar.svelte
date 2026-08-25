@@ -53,9 +53,37 @@
     searching = true
     try {
       hits = await hist.search(q)
+      groups = groupHits(hits)
     } finally {
       searching = false
     }
+  }
+
+  // search results grouped per session; sessions ordered by their most recent
+  // match (server returns global time-desc, so re-sort within each group asc)
+  interface SearchGroup {
+    session_id: string
+    title: string
+    latest: number
+    hits: SearchHit[]
+  }
+
+  let groups: SearchGroup[] = []
+
+  function groupHits(list: SearchHit[]): SearchGroup[] {
+    const bySid = new Map<string, SearchGroup>()
+    for (const h of list) {
+      let g = bySid.get(h.session_id)
+      if (!g) {
+        g = { session_id: h.session_id, title: h.session_title, latest: h.time, hits: [] }
+        bySid.set(h.session_id, g)
+      }
+      if (h.time > g.latest) g.latest = h.time
+      g.hits.push(h)
+    }
+    const out = [...bySid.values()]
+    for (const g of out) g.hits.sort((a, b) => a.time - b.time)
+    return out.sort((a, b) => b.latest - a.latest)
   }
 
   async function load() {
@@ -235,12 +263,17 @@
       {#if searching}
         <div class="hint">searching…</div>
       {:else}
-        <div class="section">Results ({hits.length})</div>
-        {#each hits as h (h.part_id)}
-          <button class="item" on:click={() => onOpenHistory(h.session_id, h.message_id)}>
-            <span class="title">{h.session_title}</span>
-            <span class="snippet">{h.snippet}</span>
-          </button>
+        <div class="section">Results ({hits.length} in {groups.length} chats)</div>
+        {#each groups as g (g.session_id)}
+          <div class="grphead">
+            <span class="title">{g.title}</span>
+            <span class="meta">{relTime(g.latest)}</span>
+          </div>
+          {#each g.hits as h (h.part_id)}
+            <button class="item hit" on:click={() => onOpenHistory(h.session_id, h.message_id)}>
+              <span class="snippet">{h.snippet}</span>
+            </button>
+          {/each}
         {:else}
           <div class="hint">no matches</div>
         {/each}
@@ -550,6 +583,27 @@
     background: rgba(255, 200, 0, 0.35);
     color: inherit;
     padding: 0;
+  }
+  /* grouped search results: session header row + slightly indented hits */
+  .grphead {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 12px 2px;
+    font-size: 12.5px;
+  }
+  .grphead .title {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  /* hint never shrinks — title absorbs overflow and ellipsizes instead */
+  .grphead .meta {
+    flex: none;
+  }
+  .item.hit {
+    padding-left: 28px;
   }
   .hint {
     padding: 10px 12px;

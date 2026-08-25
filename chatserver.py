@@ -296,13 +296,14 @@ def search(q):
         cur = c.execute(
             """SELECT p.id pid, p.message_id mid, p.session_id sid,
                       json_extract(p.data, '$.text') txt,
-                      COALESCE(json_extract(m.data, '$.role'), 'assistant') role
+                      COALESCE(json_extract(m.data, '$.role'), 'assistant') role,
+                      p.time_created tcreated
                FROM part p
                JOIN message m ON m.id = p.message_id AND m.session_id = p.session_id
                WHERE json_extract(p.data, '$.type') = 'text'
                  AND json_extract(p.data, '$.text') IS NOT NULL
                  AND instr(pylower(CAST(json_extract(p.data, '$.text') AS TEXT)), ?) > 0
-               ORDER BY p.time_created""",
+               ORDER BY p.time_created DESC""",
             (ql,),
         )
         for r in cur:
@@ -320,6 +321,7 @@ def search(q):
                     "message_id": r["mid"],
                     "part_id": r["pid"],
                     "role": r["role"],
+                    "time": num(r["tcreated"]),
                     "snippet": snippet,
                 }
             )

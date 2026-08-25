@@ -208,6 +208,7 @@ export interface SearchHit {
   message_id: string
   part_id: string
   role: string
+  time: number
   snippet: string
 }
 
