@@ -86,7 +86,7 @@ Facts about the opencode container stack in this directory.
 
 ## Auto-retry of retryable turn failures (webui)
 
-- `webui/src/lib/retries.ts`: when SSE `session.error` carries `isRetryable` (engine stamps it on transient `APIError`s, e.g. upstream 503 — shape `error.data.isRetryable`), the failed turn's user message (newest user msg's text parts) is re-dispatched with backoff **5s → 15s → 30s → 60s → 2m → 5m**, then every 5m until the turn lands. Model comes from the picker (`selectedModel`), consistent with manual sends.
+- `webui/src/lib/retries.ts`: when SSE `session.error` carries `isRetryable` (engine stamps it on transient `APIError`s, e.g. upstream 503 — shape `error.data.isRetryable`), the failed turn's user message (newest user msg's text parts) is re-dispatched with backoff **1s → 2s → 3s → 5s → 15s → 30s → 60s → 2m → 5m**, then every 5m until the turn lands. Model comes from the picker (`selectedModel`), consistent with manual sends.
 - Loop lifecycle: attempt count persists across dispatches per session; a dispatch that itself dies (network) counts as a failure and re-schedules. Cleared by: clean `session.idle` (only when no error since the last dispatch — engines can emit idle AFTER session.error, so clearing on idle unconditionally would kill pending retries), manual send (Composer.submit `cancelRetry`), tab close, or missing user text. Aborts (`MessageAbortedError`) are never retryable.
 - UI: red countdown line under the error tiles (`.retryline` in Transcript) — "↻ retrying in 0:05 · attempt N" + cancel button; hidden while a dispatch is in flight (busy spinner covers that).
 - Countdown is a 1s `setInterval` ticker → background-tab timer throttling can stretch delays; harmless (fires later, UI hidden anyway).
