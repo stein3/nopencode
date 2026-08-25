@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { oc, hist, type HistSession, type SearchHit } from '../lib/api'
-  import { searchQuery, sessionMetrics, permissions, tabs, sessionUnread, markSessionUnread, hideSubagents } from '../lib/stores'
+  import { searchQuery, sessionMetrics, permissions, tabs, sessionUnread, markSessionUnread, hideSubagents, subExpanded } from '../lib/stores'
   import { relTime } from '../lib/util'
 
   export let onOpenHistory: (id: string, anchor?: string) => void
@@ -40,7 +40,7 @@
   }
 
   // set of sessionIDs that have a pending permission request
-  $: permSet = new Set($permissions.map((p) => p.sessionID).filter(Boolean))
+  $: permSet = new Set($permissions.map((p) => p.sessionID).filter((x): x is string => !!x))
 
   $: q = $searchQuery.trim()
 
@@ -141,6 +141,81 @@
 
   $: subCount = rows.filter(isSub).length
   $: visible = $hideSubagents ? rows.filter((s) => !isSub(s)) : rows
+
+  // ---- nesting: subagent sessions grouped under their parent ---------------
+  // rows are already sorted updated-desc; groups preserve that order. A sub
+  // whose parent is missing from the list (deleted session) stays top-level.
+  const MAX_DEPTH = 2
+
+  interface Disp {
+    s: Row
+    depth: number
+    kids: number
+    expanded: boolean
+    agg: { busy: boolean; perm: boolean; unread: boolean }
+  }
+
+  $: idSet = new Set(rows.map((r) => r.id))
+  $: kidsMap = (() => {
+    const m = new Map<string, Row[]>()
+    for (const r of rows) {
+      if (!r.parent || !idSet.has(r.parent)) continue
+      const arr = m.get(r.parent)
+      if (arr) arr.push(r)
+      else m.set(r.parent, [r])
+    }
+    return m
+  })()
+  $: roots = rows.filter((r) => !r.parent || !idSet.has(r.parent))
+  $: nestedCount = rows.length - roots.length
+
+  function descIds(kids: Row[], map: Map<string, Row[]>): string[] {
+    const out: string[] = []
+    const stack = [...kids]
+    for (let i = 0; i < stack.length; i++) {
+      const r = stack[i]
+      out.push(r.id)
+      const k = map.get(r.id)
+      if (k) stack.push(...k)
+    }
+    return out
+  }
+
+  function flattenTree(
+    roots: Row[],
+    map: Map<string, Row[]>,
+    expandedSet: Set<string>,
+    busy: Record<string, boolean>,
+    perms: Set<string>,
+    unread: Set<string>,
+  ): Disp[] {
+    const out: Disp[] = []
+    const statusOf = (ids: string[]) => {
+      const a = { busy: false, perm: false, unread: false }
+      for (const id of ids) {
+        if (busy[id]) a.busy = true
+        if (perms.has(id)) a.perm = true
+        if (unread.has(id)) a.unread = true
+      }
+      return a
+    }
+    const walk = (r: Row, depth: number) => {
+      const kids = map.get(r.id) ?? []
+      const expanded = expandedSet.has(r.id)
+      out.push({ s: r, depth, kids: kids.length, expanded, agg: statusOf(descIds(kids, map)) })
+      // depth cap: deeper generations stay behind their (counted) chevron
+      if (kids.length && expanded && depth < MAX_DEPTH) for (const k of kids) walk(k, depth + 1)
+    }
+    for (const r of roots) walk(r, 0)
+    return out
+  }
+
+  const flat = (s: Row): Disp => ({ s, depth: 0, kids: 0, expanded: false, agg: { busy: false, perm: false, unread: false } })
+
+  // re-runs on rows / collapse state / any per-session status change
+  $: displayRows = $hideSubagents
+    ? visible.map(flat)
+    : flattenTree(roots, kidsMap, $subExpanded, busyMap, permSet, $sessionUnread)
 </script>
 
 <aside class="sidebar">
@@ -173,38 +248,69 @@
     {:else}
       <div class="section">
         <span class="count"
-          >Sessions ({visible.length}){#if $hideSubagents && subCount}
-            <span class="hidcount">· {subCount} hidden</span>{/if}</span
+          >{#if $hideSubagents}Sessions ({visible.length}
+              <span class="hidcount">· {subCount} hidden</span>)
+            {:else}Sessions ({roots.length}{nestedCount
+              ? ` · ${nestedCount} nested`
+              : ''}){/if}</span
         >
         <label class="hidesub" title="Show or hide subagent sessions (@explore, @general, …)">
           <input type="checkbox" bind:checked={$hideSubagents} /> hide subagents
         </label>
       </div>
-      {#each visible as s (s.id)}
+      {#each displayRows as d (d.s.id)}
         <button
           class="item"
-          class:sub-row={isSub(s)}
-          on:click={() => onOpenHistory(s.id)}
-          title={s.title}
+          class:sub-row={isSub(d.s)}
+          class:child={d.depth > 0}
+          style="--depth: {d.depth}"
+          on:click={() => onOpenHistory(d.s.id)}
+          title={d.s.title}
         >
           <span class="row1">
             <span class="title">
               <span
                 class="dot"
-                class:unread={$sessionUnread.has(s.id)}
-                class:busy={busyMap[s.id]}
-                class:perm={permSet.has(s.id)}
+                class:unread={$sessionUnread.has(d.s.id)}
+                class:busy={busyMap[d.s.id]}
+                class:perm={permSet.has(d.s.id)}
               ></span>
-              {displayTitle(s)}
+              {#if d.kids && d.depth < MAX_DEPTH}
+                <span
+                  class="chev"
+                  title={d.expanded ? 'Collapse subagents' : 'Expand subagents'}
+                  role="button"
+                  tabindex="-1"
+                  on:click|stopPropagation={() => subExpanded.toggle(d.s.id)}
+                  on:keydown|stopPropagation={(e) =>
+                    e.key === 'Enter' && subExpanded.toggle(d.s.id)}
+                >
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 8 8"
+                    style:transform={d.expanded ? 'rotate(90deg)' : 'none'}
+                  >
+                    <path d="M2 1 L6.5 4 L2 7 Z" fill="currentColor" />
+                  </svg>
+                </span>
+              {/if}
+              {displayTitle(d.s)}
+              {#if d.kids}<span class="kidcount">{d.kids}</span>{/if}
+              {#if d.kids && !d.expanded}
+                {#if d.agg.perm}<span class="aggdot perm" title="a subagent needs permission"></span>
+                {:else if d.agg.busy}<span class="aggdot busy" title="a subagent is running"></span>
+                {:else if d.agg.unread}<span class="aggdot unread" title="a subagent finished"></span>{/if}
+              {/if}
             </span>
-            <span class="meta">{relTime(s.updated)}</span>
+            <span class="meta">{relTime(d.s.updated)}</span>
           </span>
           <span class="sub"
-            >{#if isSub(s)}<span class="subagent">{subLabel(s)}</span> · {/if}{s.message_count} msgs{fmtK(
-                s.tokens
+            >{#if isSub(d.s)}<span class="subagent">{subLabel(d.s)}</span> · {/if}{d.s.message_count} msgs{fmtK(
+                d.s.tokens
               )
-                ? ` · ${fmtK(s.tokens)} tk`
-                : ''}{s.model ? ` · ${s.model}` : ''}</span
+                ? ` · ${fmtK(d.s.tokens)} tk`
+                : ''}{d.s.model ? ` · ${d.s.model}` : ''}</span
           >
         </button>
       {:else}
@@ -324,12 +430,68 @@
     border-left: 2px solid transparent;
     color: var(--fg);
     padding: 7px 12px;
+    padding-left: calc(12px + var(--depth, 0) * 16px);
     cursor: pointer;
     font-size: 12.5px;
+    position: relative;
   }
   .item:hover {
     background: var(--bg-hover);
     border-left-color: var(--accent);
+  }
+  /* tree guide line for nested rows, drawn in the parent's indent gutter */
+  .item.child::before {
+    content: '';
+    position: absolute;
+    left: calc(12px + (var(--depth) - 1) * 16px + 8px);
+    top: 0;
+    bottom: 0;
+    width: 1px;
+    background: var(--border);
+    pointer-events: none;
+  }
+  .chev {
+    flex: none;
+    width: 16px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--fg-dim);
+    cursor: pointer;
+    user-select: none;
+  }
+  .chev svg {
+    display: block;
+  }
+  .chev:hover {
+    color: var(--fg);
+  }
+  .kidcount {
+    flex: none;
+    font-size: 9.5px;
+    font-weight: 600;
+    color: var(--fg-dim);
+    background: var(--bg-hover);
+    border-radius: 8px;
+    padding: 0 5px;
+    line-height: 1.5;
+  }
+  /* aggregated descendant status on a collapsed parent — solid, no animation */
+  .aggdot {
+    flex: none;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+  }
+  .aggdot.busy {
+    background: var(--warn);
+  }
+  .aggdot.perm {
+    background: var(--err);
+  }
+  .aggdot.unread {
+    background: var(--accent);
+    opacity: 0.7;
   }
   .row1 {
     display: flex;

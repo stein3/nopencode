@@ -309,6 +309,35 @@ export const showThinking = makePref('showThinking', false) // /thinking expands
 export const showTimestamps = makePref('showTimestamps', true)
 export const hideSubagents = makePref('hideSubagents', true) // sidebar: hide @agent sessions by default
 
+// ---- sidebar: EXPANDED subagent groups (persisted set of parent sessionIDs) ----
+// Inverted on purpose: an empty set = every group collapsed (the default), and
+// unknown/new parents collapse automatically without any migration.
+const SUB_EXPANDED_KEY = 'opencode.subExpanded'
+export const subExpanded = (() => {
+  let initial = new Set<string>()
+  try {
+    const raw = localStorage.getItem(SUB_EXPANDED_KEY)
+    if (raw) initial = new Set(JSON.parse(raw) as string[])
+  } catch {
+    /* private mode etc. */
+  }
+  const w = writable(initial)
+  let cur = initial
+  w.subscribe((v) => (cur = v))
+  return {
+    subscribe: w.subscribe,
+    toggle(id: string) {
+      const next = new Set(cur)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      w.set(next)
+      try {
+        localStorage.setItem(SUB_EXPANDED_KEY, JSON.stringify([...next]))
+      } catch {}
+    },
+  }
+})()
+
 // ---- externally-triggered model picker ----
 export const modelPickerOpen = writable(false)
 
