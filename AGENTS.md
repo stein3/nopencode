@@ -120,6 +120,14 @@ Deployment topology & procedures: see private ops notes (not tracked here).
 - Pending tabs (`id: pending-*`, not yet realized) must resolve to null → "no session yet" toast; verified in `.webtest/verify-palette-sid.mjs` (intercepts PATCH `/oc/session/*`, checks A→A then switch→B freshness + pending no-op).
 - `/rename` opens the themed in-app `RenameDialog.svelte` (store: `renameTarget` = `{sid,title}`; App renders it beside CommandDialog) — NOT native `window.prompt()` (unstyled, blocked in some webviews). Svelte gotcha #4: seeding an input by assigning inside a `$:` block (`$: if ($renameTarget) value = $renameTarget.title`) re-runs the statement whenever the bound input invalidates `value` — user edits revert to the old title mid-dialog. Seed via a plain `renameTarget.subscribe()` callback instead (same escape hatch as commands.ts's `selModel` snapshot).
 
+## Session fork (engine API shape, verified v1.18.18 via binary + live probe)
+
+- `POST /session/{id}/fork` takes an UNDOCUMENTED JSON body `{messageID}` (OpenAPI /doc omits it; SDK maps it to body, handler `forkRaw` decodes). Empty/absent = whole-session copy.
+- Core `Session.fork` semantics: new session is STANDALONE (no parentID → sidebar subagent badge/hide filter don't apply); copies messages strictly BEFORE the messageID (`findIndex` + `slice(0,o)` — EXCLUSIVE, TUI "Fork from message" parity); unknown messageID degrades to full copy. Message/part ids remapped, compaction `tail_start_id` remapped, metadata cloned, revert state NOT copied, source untouched. Engine emits `session.forked` SSE.
+- Engine TITLES the fork itself: `"<source> (fork #N)"` — never append another "(fork)" client-side (the old /fork command double-suffixed).
+- Webui: ⑂ button on user messages (Transcript.svelte `forkFrom`) → `oc.forkSession(id, mid)`; forked-from text lands in the new tab's composer via `Tab.prefill` consumed in Composer onMount (same pattern as `Tab.jumpTo`). Verify script: `.webtest/verify-fork.mjs` (seeds 3 user msgs with `noReply:true` POSTs — no LLM turns needed — clicks ⑂ on msg 2, asserts 1-row fork + composer refill + source intact, deletes probe sessions).
+- `POST /session/{id}/message` with `{"noReply":true, parts:[…]}` creates a user message WITHOUT running a turn — the cheap way to seed transcript fixtures for tests.
+
 ## Webui browser verification (headless, no deploy)
 
 - Local loop for UI tests: point chatserver at the engine: `OC_ENGINE=127.0.0.1:4096 PORT=8123 HOST=127.0.0.1 python3 /workspace/opencode/chatserver.py &`, then drive `http://127.0.0.1:8123` with the headless-browser skill (setup dir `/workspace/opencode/.webtest`, example script `verify.mjs` there).
