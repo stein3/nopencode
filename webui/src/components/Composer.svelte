@@ -1,11 +1,12 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte'
   import { oc } from '../lib/api'
-  import { tabs, selectedModel, cmdVersion } from '../lib/stores'
+  import { tabs, selectedModel, selectedAgent, cmdVersion } from '../lib/stores'
   import type { Tab } from '../lib/stores'
   import { registry, type Cmd } from '../lib/commands'
   import { RECENT_PAGE, normalizeMessages } from '../lib/sse'
   import { cancelRetry } from '../lib/retries'
+  import AgentPicker from './AgentPicker.svelte'
 
   export let tab: Tab
   export let onSent: (sessionId: string) => void
@@ -152,7 +153,7 @@
         flight =
           m && !registry.ready
             ? oc.runCommand(sid, m[1], m[2] ? [m[2]] : [])
-            : oc.prompt(sid, body, $selectedModel ?? undefined)
+            : oc.prompt(sid, body, $selectedModel ?? undefined, $selectedAgent ?? undefined)
         onSent(sid)
       }
     } catch (e: any) {
@@ -252,6 +253,7 @@
     {#if tab.busy}
       <button class="stop" title="Abort current turn" on:click={abort}>■</button>
     {/if}
+    <AgentPicker />
     <div class="inputwrap">
       <textarea
         bind:this={ta}

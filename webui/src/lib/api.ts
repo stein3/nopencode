@@ -80,10 +80,21 @@ export const oc = {
   // The blocking POST /message used here before held the connection for the
   // whole run, which Cloudflare's ~100s edge timeout killed with a 524 on any
   // long turn.
-  prompt: (sessionId: string, text: string, model?: { providerID: string; modelID: string }) =>
+  // `agent` (top-level body field, engine OpenAPI-confirmed) runs this one
+  // turn under the named agent; omitted = session default.
+  prompt: (
+    sessionId: string,
+    text: string,
+    model?: { providerID: string; modelID: string },
+    agent?: string,
+  ) =>
     req<unknown>(`/oc/session/${sessionId}/prompt_async`, {
       method: 'POST',
-      body: JSON.stringify({ parts: [{ type: 'text', text }], ...(model ? { model } : {}) }),
+      body: JSON.stringify({
+        parts: [{ type: 'text', text }],
+        ...(model ? { model } : {}),
+        ...(agent ? { agent } : {}),
+      }),
     }),
   abort: (sessionId: string) =>
     req<unknown>(`/oc/session/${sessionId}/abort`, { method: 'POST', body: '{}' }),
@@ -121,7 +132,13 @@ export const oc = {
       body: JSON.stringify({ command, arguments: args }),
     }),
   path: () => req<{ directory?: string }>('/oc/path').catch(() => ({ directory: undefined })),
-  agents: () => req<{ name: string; mode?: string; description?: string }[]>('/oc/agent'),
+  // merged agent registry (built-ins + config + plugin agents), engine order:
+  // configured/default first, then alphabetical. Includes hidden/system
+  // entries and subagents — consumers filter `mode !== 'subagent' && !hidden`.
+  agents: () =>
+    req<{ name: string; mode?: string; description?: string; color?: string | null; hidden?: boolean | null }[]>(
+      '/oc/agent',
+    ),
   setAgent: (sessionId: string, agent: string) =>
     req<unknown>(`/oc/api/session/${sessionId}/agent`, {
       method: 'POST',
