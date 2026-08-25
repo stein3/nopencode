@@ -1,10 +1,45 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { oc } from '../lib/api'
-  import { selectedModel, modelPickerOpen, tabs, preferredDefaultModel } from '../lib/stores'
+  import { selectedModel, modelPickerOpen, tabs, preferredDefaultModel, recentModels, recordRecent } from '../lib/stores'
 
   let providers: { id: string; name?: string; models: Record<string, any> }[] = []
   let open = false
+
+  interface FlatModel {
+    pid: string
+    pname: string
+    mid: string
+    mname: string
+    recentIdx: number
+  }
+
+  // flat across providers: most recently used first (in recency order), then
+  // never-used models alphabetically. stale recents sink into the alpha tail.
+  // reads $recentModels (a store) so the list re-sorts immediately after each pick —
+  // a plain localStorage read here would be invisible to the compiler (frozen-label bug)
+  $: flat = (() => {
+    const items: FlatModel[] = providers.flatMap((p) =>
+      Object.values(p.models ?? {}).map((m) => ({
+        pid: p.id,
+        pname: p.name ?? p.id,
+        mid: m.id,
+        mname: m.name ?? m.id,
+        recentIdx: -1,
+      })),
+    )
+    const rank = new Map<string, number>()
+    $recentModels.forEach((r, i) => rank.set(r.providerID + '/' + r.modelID, i))
+    for (const it of items) {
+      const r = rank.get(it.pid + '/' + it.mid)
+      if (r !== undefined) it.recentIdx = r
+    }
+    return items.sort(
+      (a, b) =>
+        (a.recentIdx === -1 ? Infinity : a.recentIdx) - (b.recentIdx === -1 ? Infinity : b.recentIdx) ||
+        a.mname.localeCompare(b.mname),
+    )
+  })()
 
   onMount(async () => {
     await load()
@@ -37,6 +72,7 @@
   }
 
   function pick(pid: string, mid: string) {
+    recordRecent({ providerID: pid, modelID: mid })
     selectedModel.save({ providerID: pid, modelID: mid })
     // switch the open session right away, not just the next prompt
     const sid = tabs.getActive()
@@ -51,17 +87,15 @@
   </button>
   {#if open}
     <div class="menu">
-      {#each providers as p (p.id)}
-        <div class="prov">{p.name ?? p.id}</div>
-        {#each Object.values(p.models ?? {}) as m (p.id + '/' + m.id)}
-          <button
-            class="m"
-            class:on={$selectedModel?.providerID === p.id && $selectedModel?.modelID === m.id}
-            on:click={() => pick(p.id, m.id)}
-          >
-            {m.name ?? m.id}
-          </button>
-        {/each}
+      {#each flat as m (m.pid + '/' + m.mid)}
+        <button
+          class="m"
+          class:on={$selectedModel?.providerID === m.pid && $selectedModel?.modelID === m.mid}
+          on:click={() => pick(m.pid, m.mid)}
+        >
+          <span class="nm">{m.mname}</span>
+          <span class="pv">{m.pname}</span>
+        </button>
       {:else}
         <div class="none">engine unreachable</div>
       {/each}
@@ -104,15 +138,11 @@
     box-shadow: 0 14px 40px rgba(0, 0, 0, 0.5);
     padding: 4px;
   }
-  .prov {
-    font-size: 10.5px;
-    color: var(--fg-dim);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    padding: 7px 10px 3px;
-  }
   .m {
-    display: block;
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
     width: 100%;
     text-align: left;
     background: transparent;
@@ -123,9 +153,18 @@
     font-size: 12.5px;
     padding: 6px 10px;
     cursor: pointer;
+  }
+  .nm {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    min-width: 0;
+  }
+  .pv {
+    font-size: 10px;
+    color: var(--fg-dim);
+    white-space: nowrap;
+    flex-shrink: 0;
   }
   .m:hover {
     background: var(--bg-hover);
