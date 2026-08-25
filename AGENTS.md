@@ -190,6 +190,13 @@ Facts about the opencode container stack in this directory.
 - Live engine (1.18.18 + omo-slim) eligible roster = Orchestrator, Build, Plan — filter `mode !== 'subagent' && !hidden` works as intended.
 - Verify: `.webtest/verify-agent-picker.mjs` — 13 checks: expected-set equality vs live `/oc/agent` (catches subagent/hidden leakage AND missing agents), Auto default label, route-mocked prompt_async payload capture (`agent:"plan"` present, then absent for Auto), label + payload stickiness across reload. Shots: `.webtest/shots/agent-picker-{menu,collapsed}.png`.
 
+## Linked Sessions in InfoPanel (webui, 2026-08, issue #4)
+
+- InfoPanel lists DIRECT children of the active session (`hist.sessions()` filtered on `parent === tab.id`; skipped for `pending-*` ids). Rows: solid dot resolved by precedence perm > ask > busy > unread, `@agent` label (#ec7ba4), suffix-stripped title in a `.ttext` ellipsis wrapper, `relTime`. Click → `onOpen` prop wired to App's `openHistory`. Section hidden entirely when no kids; independent of `$hideSubagents`.
+- Data path follows panel convention: refetch on sid change (`linkId` reactive) + the EXISTING 30s safety poll — no new fast poll; stale-response guard compares tab id after each await. No tabs-store writes. `kidRows` derivation reads all stores inline (reactivity gotcha).
+- Unread gotcha: SSE `session.idle` only marks unread when `tabs.isopen(sid)` — non-open subs get unread via Sidebar's busy-poll diff instead. In tests, dispatching `visibilitychange` fires Sidebar's `onVis` handler instantly (headless doc is always "visible") — no 10s wait needed. InfoPanel busy state is up to 30s stale (cadence constraint), so a just-idled sub can show busy until its next refetch (sid switch forces one).
+- Verify: `.webtest/verify-linked.mjs` (embedded fake engine :8133, `/__ctl`+`/__state`; 19 checks: rows/dots/labels/titles, click-through activation, childless + pending absence, live unread flip). Svelte scoping hash lands in `className` ("dot perm svelte-xxxx") — assert via classList membership, not equality.
+
 ## Question tool picker + sidebar ask-dot (webui, fixed 2026-08)
 
 - Engine facts (verified v1.18.18 source): `question.asked` fires exactly ONCE per request — no heartbeat/re-ask; SSE reconnect does NOT replay pending questions (clients must re-`GET /question`). Session stays `busy` the whole time a question pends. Reply validation is lax: outer `answers` length NOT checked vs question count (missing → "Unanswered"), empty inner arrays allowed, unknown/already-answered id → 404 `QuestionNotFoundError`. Events broadcast to ALL connected clients; first reply wins, second gets 404. Registry is in-memory per instance — lost on engine restart.
