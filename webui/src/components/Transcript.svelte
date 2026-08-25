@@ -279,6 +279,20 @@
     return typeof o === 'string' ? o : ''
   }
 
+  function isGrepTool(p: any): boolean {
+    return /grep|find|search/.test(String(p.tool ?? '').toLowerCase())
+  }
+
+  // Match count for a grep-style output. The engine's own "Found N matches"
+  // header is authoritative; fall back to counting its per-hit "Line N:" rows
+  // (content mode). Returns null when nothing countable is present.
+  function grepMatchCount(out: string): number | null {
+    const m = out.match(/^Found (\d+) matches?/m)
+    if (m) return Number(m[1])
+    const hits = out.match(/^\s+Line \d+:/gm)
+    return hits ? hits.length : null
+  }
+
   function outFirstLine(s: string): string {
     return (s.split('\n').find((l) => l.trim()) ?? '').trim()
   }
@@ -722,7 +736,7 @@
                   <!-- missing/unreadable: the plain tool card says enough -->
                 {/await}
               {/if}
-              {#if isShellTool(p)}
+              {#if isShellTool(p) || isGrepTool(p)}
                 {@const out = toolOutputText(p)}
                 {#if out}
                   <details class="outbox">
@@ -731,6 +745,10 @@
                       {#if outLineCount(out) > 1}<span class="ocount">{outLineCount(out)} lines</span>{/if}
                     </summary>
                     <pre class="out">{out}</pre>
+                    {#if isGrepTool(p)}
+                      {@const n = grepMatchCount(out)}
+                      {#if n !== null}<div class="matchcount">({n} {n === 1 ? 'match' : 'matches'})</div>{/if}
+                    {/if}
                   </details>
                 {:else}
                   <pre class="out">{p.state?.status === 'running' ? '…' : '(no output)'}</pre>
@@ -1152,6 +1170,14 @@
     white-space: pre-wrap;
     word-break: break-word;
     color: var(--fg-dim);
+  }
+  /* grep-tool match tally, pinned under the output text */
+  .matchcount {
+    padding: 0 10px 8px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--fg-dim);
+    opacity: 0.75;
   }
   /* read-tool image thumbnail — visible without expanding the card; click
      opens the full-size lightbox */
