@@ -385,3 +385,39 @@ function makeModel() {
 }
 
 export const selectedModel = makeModel()
+
+// ---- recently used models (persisted, most recent first) ----
+const RECENTS_KEY = 'opencode.modelRecents'
+const RECENTS_CAP = 12
+
+function loadRecentsRaw(): ModelRef[] {
+  try {
+    const raw = localStorage.getItem(RECENTS_KEY)
+    const arr = raw ? JSON.parse(raw) : []
+    return Array.isArray(arr)
+      ? arr.filter((m) => m && typeof m.providerID === 'string' && typeof m.modelID === 'string')
+      : []
+  } catch {
+    return []
+  }
+}
+
+// store (not a plain localStorage read) so consumers' reactive statements re-run
+// on recordRecent — functions reading localStorage are invisible to the Svelte compiler
+export const recentModels = writable<ModelRef[]>(loadRecentsRaw())
+
+// call only from user actions (same invariant as selectedModel) — never from SSE echoes
+export function recordRecent(m: ModelRef) {
+  recentModels.update((list) => {
+    const next = [m, ...list.filter((r) => r.providerID !== m.providerID || r.modelID !== m.modelID)].slice(
+      0,
+      RECENTS_CAP,
+    )
+    try {
+      localStorage.setItem(RECENTS_KEY, JSON.stringify(next))
+    } catch {
+      /* private mode */
+    }
+    return next
+  })
+}
