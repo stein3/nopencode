@@ -14,6 +14,7 @@
   import ModelPicker from './components/ModelPicker.svelte'
   import InfoPanel from './components/InfoPanel.svelte'
   import { startEvents, applyMessages, backfill, loadOlder, RECENT_PAGE, JUMP_CAP } from './lib/sse'
+  import { cancelRetry } from './lib/retries'
   import { answerPermission, refreshPermissions } from './lib/permissions'
   import { initHotkeys } from './lib/hotkeys'
   import { installVisualViewportFix } from './lib/visualViewport'
@@ -182,6 +183,7 @@
   }
 
   function closeTab(id: string) {
+    cancelRetry(id) // no orphan retry timers for closed sessions
     tabs.close(id)
   }
 

@@ -3,6 +3,7 @@ import { oc, hist } from './api'
 import { refreshPermissions } from './permissions'
 import { refreshQuestions } from './questions'
 import { msgModel } from './util'
+import { isRetryableError, scheduleRetry, onTurnIdle } from './retries'
 
 const timers = new Map<string, ReturnType<typeof setTimeout>>()
 
@@ -191,6 +192,8 @@ export function startEvents() {
     if (!tabs.isopen(sid)) return
     if (type === 'session.idle') {
       tabs.patch(sid, { busy: false })
+      // turn ended without a fresh error → a pending retry loop is done
+      onTurnIdle(sid)
       // finished while another tab is being viewed → flag done/unread
       if (tabs.getActive() !== sid) markSessionUnread(sid)
     } else if (type === 'session.error') {
@@ -208,6 +211,9 @@ export function startEvents() {
       if (!aborted && !errors.some((e) => e.message === msg)) errors.push({ message: msg, t: Date.now() })
       tabs.patch(sid, { busy: false, errors })
       if (!aborted) hist.addSessionError(sid, msg) // persist fire-and-forget
+      // transient provider failure (APIError + isRetryable) → auto-retry the
+      // failed turn's prompt with backoff (5s → 15s → 30s → 60s → 2m → 5m)
+      if (isRetryableError(em)) scheduleRetry(sid)
       if (tabs.getActive() !== sid) markSessionUnread(sid)
     }
 

@@ -5,6 +5,7 @@
   import { refetchNow } from '../lib/sse'
   import { md } from '../lib/markdown'
   import { isImagePath, imageDataUrl } from '../lib/images'
+  import { retryState, cancelRetry } from '../lib/retries'
   import ModelSelect from './ModelSelect.svelte'
   import QuestionPicker from './QuestionPicker.svelte'
 
@@ -337,6 +338,11 @@
   // sidecar tiles whose text already renders inline on a message are dropped
   $: inlineErrTexts = new Set(msgs.filter((m) => m.error && !isAborted(m.error)).map((m) => errText(m.error)))
   $: sidecarErrors = (tab.errors ?? []).filter((e) => !inlineErrTexts.has(e.message))
+
+  // pending auto-retry countdown (lib/retries); hidden while a dispatch is
+  // in flight (secondsLeft 0) — the busy spinner covers that window
+  $: retry = $retryState[tab.id]?.secondsLeft > 0 ? $retryState[tab.id] : undefined
+  const mmss = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
 
   // ---- summary-line badges ------------------------------------------------
   function isTruncated(p: any): boolean {
@@ -778,6 +784,13 @@
         <div class="body">{e.message}</div>
       </div>
     {/each}
+    {#if retry}
+      <div class="retryline">
+        <span class="rglyph">↻</span>
+        <span>retrying in {mmss(retry.secondsLeft)} · attempt {retry.attempt}</span>
+        <button class="rcancel" title="Stop auto-retrying" on:click={() => cancelRetry(tab.id)}>cancel</button>
+      </div>
+    {/if}
     {/if}
   </div>
 </div>
@@ -892,6 +905,34 @@
     color: var(--fg-dim);
     font-size: 12px;
     font-style: italic;
+  }
+  /* pending auto-retry countdown under the error tiles */
+  .retryline {
+    display: flex;
+    gap: 8px;
+    align-items: baseline;
+    max-width: 860px;
+    margin: 0 auto;
+    padding: 4px 18px;
+    color: var(--err);
+    font-size: 12px;
+  }
+  .retryline .rglyph {
+    flex: none;
+  }
+  .retryline .rcancel {
+    margin-left: auto;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--fg-dim);
+    font-size: 10.5px;
+    padding: 1px 8px;
+    cursor: pointer;
+  }
+  .retryline .rcancel:hover {
+    color: var(--fg);
+    border-color: var(--err);
   }
   /* errored tool calls stay panel-colored — red border + left accent + the ✗
      glyph, but normal text colors (full red is for turn-failure tiles) */
