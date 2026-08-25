@@ -191,10 +191,11 @@
     window.addEventListener('oc:new-chat', onNewChatEvent)
     document.addEventListener('oc:focus-sidebar', onFocusSidebar)
     ;(async () => {
-      // auto-open the most recent session
+      // auto-open the most recent ROOT session — never a subagent (@explore
+      // etc. have parentID set); with no root sessions at all, open nothing
       try {
         const all = await hist.sessions()
-        const latest = all.sort((a, b) => b.updated - a.updated)[0]
+        const latest = all.filter((s) => !s.parent).sort((a, b) => b.updated - a.updated)[0]
         if (latest) {
           openTab({ id: latest.id, title: latest.title || latest.id.slice(0, 12), messages: [], live: true })
           await openLive(latest.id, latest.title)
