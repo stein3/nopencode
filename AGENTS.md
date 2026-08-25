@@ -63,6 +63,15 @@ Deployment topology & procedures: see private ops notes (not tracked here).
 - Human-readable detail builder lives in `webui/src/lib/permissions.ts` (`permDetail`); display in App.svelte header bar shows kind + detail with full text in `title`.
 - Schema source of truth: engine `/doc` OpenAPI (`components.schemas.PermissionRequest`). Inspect a running engine's schema via `opencode serve --port <p>` + `curl /doc`; don't guess from TUI strings.
 
+## Token/context tracking (webui)
+
+- Engine reality: aborted turns, step-start/step-finish-only turns, and provider-silent responses permanently leave an **all-zero `tokens` object** on the newest assistant message (~28 sessions in opencode.db, 2026-08). An all-zero object is truthy, so "newest assistant message wins" logic read it as 0 context → sessions showed `—` tokens / `0% used` indefinitely.
+- Fix pattern: `tokenTally()` (stores.ts) sums input+output+reasoning+cache and returns **undefined unless > 0**; `metricsFromMessages()` walks newest→oldest and OMITS the `tokens` key when nothing reported, so `patchMetrics` keeps the last good value. sse.ts guards its live `message.updated` patch with the same helper.
+- Footer/InfoPanel now derive `usedTokens` from `$sessionMetrics[tab.id]` (SSE-live DURING a turn) with their busy-keyed fetch only seeding values — previously they fetched once at busy-flip = turn start, when the newest message is always a zero-tally in-flight one, and never updated until idle.
+- chatserver `load_sessions()` computes a per-session context estimate via correlated subquery over `message_session_time_created_id_idx` DESC with a `TOKEN_SUM_SQL > 0` predicate — stops at first hit, ~1–2 ms for ~150 sessions. The naive window-function full scan costs ~105 ms (json_extract parses every blob) — don't use it.
+- Engine session-level `tokens` on `GET /session/{id}` are CUMULATIVE all-turn totals (cache.read in the millions), NOT context size — never use them for "% used".
+- Verified headless: `.webtest/verify-tokens.mjs` (sidebar 140/156 rows show tk badges; InfoPanel 93K / 9% on ses…D0hlIGZU which previously rendered `—` / 0%).
+
 ## Session status lights (webui sidebar)
 
 - Each sidebar session row has a 7px dot with three states (source order in Sidebar.svelte matters — later rules win): `.perm` red solid (pending permission), `.busy` yellow pulsing, `.unread` accent green slow-pulse (finished while unviewed). Idle = transparent.

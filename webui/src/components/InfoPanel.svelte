@@ -2,13 +2,16 @@
   import { onMount } from 'svelte'
   import { oc } from '../lib/api'
   import { RECENT_PAGE } from '../lib/sse'
-  import { selectedModel, sessionTodos } from '../lib/stores'
+  import { selectedModel, sessionTodos, sessionMetrics, metricsFromMessages } from '../lib/stores'
   import type { Tab } from '../lib/stores'
 
   export let tab: Tab | null
 
   let cost = 0
-  let usedTokens = 0
+  // live SSE tallies (sessionMetrics) take precedence; fetchedTokens seeds
+  // sessions with no SSE traffic yet. See tokenTally for why zero tallies are
+  // skipped instead of shown as "0 context".
+  let fetchedTokens = 0
   let limit = 0
   let fetchedTodos: any[] = []
 
@@ -20,7 +23,7 @@
 
   function clearVals() {
     cost = 0
-    usedTokens = 0
+    fetchedTokens = 0
     fetchedTodos = []
   }
 
@@ -44,13 +47,7 @@
       if (keyOf(tab) !== myKey) return
       cost = sess?.cost ?? 0
       fetchedTodos = Array.isArray(td) ? td : []
-      const withTok = [...(msgs ?? [])]
-        .reverse()
-        .find((m: any) => ((m.info ?? m)?.role ?? 'assistant') === 'assistant' && (m.info ?? m)?.tokens)
-      const tk = withTok ? ((withTok.info ?? withTok).tokens ?? {}) : {}
-      usedTokens =
-        (tk.input ?? 0) + (tk.output ?? 0) + (tk.reasoning ?? 0) +
-        ((tk.cache?.read ?? 0) + (tk.cache?.write ?? 0))
+      fetchedTokens = metricsFromMessages(msgs ?? []).tokens ?? 0
     } catch {
       /* keep previous values */
     }
@@ -93,6 +90,10 @@
   }
   ensureProv().then(() => (limit = cachedLimit($selectedModel)))
 
+  // live tallies stream in via SSE (message.updated → sessionMetrics) and
+  // update DURING a turn; the keyed/interval refresh above only seeds values
+  $: usedTokens =
+    (tab?.live ? $sessionMetrics[tab.id]?.tokens : undefined) ?? fetchedTokens
   $: pct = limit ? Math.min(100, (usedTokens / limit) * 100) : 0
 
   const statusIcon: Record<string, string> = {

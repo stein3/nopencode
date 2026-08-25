@@ -112,7 +112,9 @@
           updated: m.updated ?? s.updated,
           cost: m.cost ?? s.cost,
           message_count: m.messages ?? s.message_count,
-          tokens: m.tokens,
+          // live SSE tally wins; fall back to the sqlite snapshot instead of
+          // hiding the row's tokens while no positive reading exists yet
+          tokens: m.tokens ?? s.tokens,
         }
       })
       .sort((a, b) => b.updated - a.updated)

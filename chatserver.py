@@ -41,6 +41,15 @@ SNIPPET_CTX = 70
 SEARCH_CAP = 300
 WORKTREE = "/workspace/"
 
+# Context-size estimate summed from one assistant message's engine tokens.
+TOKEN_SUM_SQL = (
+    "COALESCE(json_extract(data,'$.tokens.input'),0)"
+    "+COALESCE(json_extract(data,'$.tokens.output'),0)"
+    "+COALESCE(json_extract(data,'$.tokens.reasoning'),0)"
+    "+COALESCE(json_extract(data,'$.tokens.cache.read'),0)"
+    "+COALESCE(json_extract(data,'$.tokens.cache.write'),0)"
+)
+
 
 def num(v):
     """Best-effort epoch-ms coercion for time-ish columns."""
@@ -73,6 +82,24 @@ def _connect():
 def load_sessions():
     out = []
     with _connect() as c:
+        # Context estimate per session: newest assistant message with a
+        # NON-ZERO tally (aborted/empty/provider-silent turns leave all-zero
+        # tokens objects behind — those must read as "no data", not 0).
+        # Walks message_session_time_created_id_idx DESC and stops at the
+        # first hit; ~1-2 ms for ~150 sessions / ~11k messages.
+        tok = {
+            r["sid"]: r["tk"]
+            for r in c.execute(
+                f"""SELECT s.id sid,
+                       (SELECT {TOKEN_SUM_SQL} FROM message m
+                        WHERE m.session_id=s.id
+                          AND json_extract(m.data,'$.role')='assistant'
+                          AND {TOKEN_SUM_SQL} > 0
+                        ORDER BY m.time_created DESC LIMIT 1) tk
+                    FROM session s"""
+            )
+            if r["tk"] is not None
+        }
         rows = c.execute(
             """SELECT s.id, s.title, s.cost, s.model, s.parent_id, s.agent, s.time_created tc,
                       s.time_updated tu, COUNT(m.id) n
@@ -87,19 +114,20 @@ def load_sessions():
                 except Exception:
                     model = ""
             created = num(r["tc"])
-            out.append(
-                {
-                    "id": r["id"],
-                    "title": r["title"] or "",
-                    "cost": float(r["cost"] or 0),
-                    "model": model,
-                    "parent": r["parent_id"] or "",
-                    "agent": r["agent"] or "",
-                    "created": created,
-                    "updated": num(r["tu"]) or created,
-                    "message_count": r["n"],
-                }
-            )
+            entry = {
+                "id": r["id"],
+                "title": r["title"] or "",
+                "cost": float(r["cost"] or 0),
+                "model": model,
+                "parent": r["parent_id"] or "",
+                "agent": r["agent"] or "",
+                "created": created,
+                "updated": num(r["tu"]) or created,
+                "message_count": r["n"],
+            }
+            if r["id"] in tok:
+                entry["tokens"] = tok[r["id"]]
+            out.append(entry)
     return out
 
 

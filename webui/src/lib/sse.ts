@@ -1,4 +1,4 @@
-import { tabs, sessionTodos, patchMetrics, metricsFromMessages, markSessionUnread } from './stores'
+import { tabs, sessionTodos, patchMetrics, metricsFromMessages, tokenTally, markSessionUnread } from './stores'
 import { oc } from './api'
 import { refreshPermissions } from './permissions'
 import { refreshQuestions } from './questions'
@@ -203,15 +203,8 @@ export function startEvents() {
       // their message materialized locally
     } else if (type === 'message.updated' && p.info?.id) {
       tabs.setMeta(sid, p.info)
-      // assistant message info carries the live token tally + per-message cost
-      if (p.info.tokens)
-        patchMetrics(sid, {
-          tokens:
-            (p.info.tokens.input ?? 0) +
-            (p.info.tokens.output ?? 0) +
-            (p.info.tokens.reasoning ?? 0) +
-            ((p.info.tokens.cache?.read ?? 0) + (p.info.tokens.cache?.write ?? 0)),
-        })
+      const tally = tokenTally(p.info.tokens)
+      if (tally !== undefined) patchMetrics(sid, { tokens: tally })
       scheduleRefetch(sid)
     } else if (type === 'session.updated' && p.info) {
       // carries authoritative revert state: set by a revert, cleared when the
