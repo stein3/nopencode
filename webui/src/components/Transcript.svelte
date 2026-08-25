@@ -650,7 +650,7 @@
     <div class="msg" class:user={m.role === 'user'} id={`m-${m.id}`}>
         <div class="head" title={m.role}>
         <span class="role" class:errole={m.error && m.role !== 'user' && !isAborted(m.error)}>{roleLabel(m)}</span>
-        {#if m.modelID}<span class="model-id" title={m.modelID}>{m.modelID}</span>{/if}
+        {#if m.modelID}<span class="model-id" title={m.providerID ? `${m.providerID}/${m.modelID}` : m.modelID}>{m.modelID}</span>{/if}
         {#if $showTimestamps}
           <span class="time">{timeStr(m.time?.created)}</span>
         {/if}

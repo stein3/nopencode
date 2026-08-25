@@ -40,6 +40,7 @@ export interface OcMessage {
   role?: string
   agent?: string
   modelID?: string
+  providerID?: string
   time?: { created?: number }
   tokens?: Record<string, any>
   parts?: OcPart[]
@@ -187,6 +188,9 @@ export interface HistMsg {
   time: number
   agent?: string
   modelID?: string
+  // chatserver currently emits this only if its projection adds it; the
+  // client copies it defensively so the tooltip can show provider/model
+  providerID?: string
   parts: HistPart[]
 }
 

@@ -17,6 +17,7 @@
   import { answerPermission, refreshPermissions } from './lib/permissions'
   import { initHotkeys } from './lib/hotkeys'
   import { installVisualViewportFix } from './lib/visualViewport'
+  import { msgModel } from './lib/util'
 
   let composers: Record<string, Composer> = {}
   let diffOpen = false
@@ -105,6 +106,9 @@
             time: { created: m.time },
             parts: m.parts,
             error: (m as any).error,
+            // chatserver flattens nested model.modelID server-side; msgModel
+            // keeps this path uniform if the projection ever changes shape
+            ...msgModel(m),
           })),
         })
         loadErrors(id)
