@@ -93,6 +93,9 @@ function makeTabs() {
         all.map((t) => {
           if (t.id !== sid) return t
           const existing = t.messages.find((x) => x.id === mid)
+          // bare base: the message.part.updated event carries only the part —
+          // no agent/model info. setMeta fills those from the message.updated
+          // event that follows moments later.
           const base =
             existing ??
             { id: mid, role: 'assistant', time: { created: Date.now() }, parts: [] }

@@ -104,6 +104,7 @@
           messages: msgs.map((m) => ({
             id: m.id,
             role: m.role,
+            agent: m.agent,
             time: { created: m.time },
             parts: m.parts,
             error: (m as any).error,

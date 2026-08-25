@@ -29,3 +29,23 @@ export function relTime(ts?: number): string {
   if (days < 30) return `${days}d`
   return new Date(ms).toLocaleDateString()
 }
+
+// user aborts (MessageAbortedError) render muted, never as red error tiles —
+// same exclusion the TUI applies
+export function isAborted(e: any): boolean {
+  return e?.name === 'MessageAbortedError'
+}
+
+// head/export label for one message: user rows are "you", errored turns
+// present as "Error", everything else shows the engine-stamped agent name
+// titlecased per dash/space segment ('build' → 'Build', 'my-agent' → 'My-Agent');
+// missing agent falls back to the product name. Shared by Transcript headers
+// and the commands.ts export/copy/timeline builders so they never drift.
+export function roleLabel(m: any): string {
+  if (m.role === 'user') return 'you'
+  if (m.error && !isAborted(m.error)) return 'Error'
+  return (m.agent || 'opencode').replace(
+    /(^|[\s-])(\w)/g,
+    (_s: string, sep: string, ch: string) => sep + ch.toUpperCase(),
+  )
+}

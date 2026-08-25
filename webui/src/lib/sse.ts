@@ -134,6 +134,10 @@ export function normalizeMessages(msgs: any[]): any[] {
     return {
       id: info.id,
       role: info.role ?? 'assistant',
+      // engine stamps `agent` on every message (user + assistant) — dropping it
+      // here made Transcript's role label fall back to 'opencode' after each
+      // refetch/reload
+      agent: info.agent ?? undefined,
       modelID: mm.modelID,
       providerID: mm.providerID,
       error: info.error,
