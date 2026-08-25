@@ -1,4 +1,4 @@
-compose.homelab.yaml
+compose.override.yaml
 .env
 __pycache__/
 webui/node_modules/
