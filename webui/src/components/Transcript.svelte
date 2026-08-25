@@ -5,6 +5,7 @@
   import { refetchNow } from '../lib/sse'
   import { md } from '../lib/markdown'
   import { isImagePath, imageDataUrl } from '../lib/images'
+  import { isAborted, roleLabel } from '../lib/util'
   import { retryState, cancelRetry } from '../lib/retries'
   import ModelSelect from './ModelSelect.svelte'
   import QuestionPicker from './QuestionPicker.svelte'
@@ -320,20 +321,12 @@
     return e.data?.message ?? e.message ?? e.name ?? 'error'
   }
 
-  function isAborted(e: any): boolean {
-    return e?.name === 'MessageAbortedError'
-  }
-
   function isToolErr(p: any): boolean {
     return p.state?.status === 'error'
   }
 
-  // head role label: errored turns present as "Error" instead of the agent name
-  function roleLabel(m: any): string {
-    if (m.role === 'user') return 'you'
-    if (m.error && !isAborted(m.error)) return 'Error'
-    return m.agent || 'opencode'
-  }
+  // roleLabel/isAborted live in lib/util — shared with the commands.ts
+  // export/copy/timeline header builders so they match these row labels
 
   // sidecar tiles whose text already renders inline on a message are dropped
   $: inlineErrTexts = new Set(msgs.filter((m) => m.error && !isAborted(m.error)).map((m) => errText(m.error)))

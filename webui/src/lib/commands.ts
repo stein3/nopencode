@@ -17,6 +17,7 @@ import {
   type DialogSpec,
 } from './stores'
 import { refetchNow } from './sse'
+import { roleLabel } from './util'
 
 export type CmdSource = 'builtin' | 'command' | 'skill'
 
@@ -114,7 +115,8 @@ function transcriptMarkdown(sid: string): string {
   if (!t) return ''
   const lines: string[] = [`# ${t.title || 'session'}\n`]
   for (const m of t.messages) {
-    const who = m.role === 'user' ? 'you' : m.agent || 'opencode'
+    // same label the transcript headers show (agent titlecased / Error)
+    const who = roleLabel(m)
     lines.push(`## ${who}`)
     for (const p of m.parts ?? []) {
       if (p.type === 'text' && (p.text ?? '').trim()) lines.push(p.text ?? '')
@@ -421,7 +423,7 @@ registry.builtins = [
           const text =
             (m.parts ?? []).find((p) => p.type === 'text' && (p.text ?? '').trim())?.text ?? ''
           return {
-            label: (m.role === 'user' ? 'you' : m.agent || 'opencode') + ' · ' + new Date(
+            label: roleLabel(m) + ' · ' + new Date(
               (m.time?.created ?? 0) < 1e12 ? (m.time?.created ?? 0) * 1000 : m.time?.created ?? 0,
             ).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
             desc: text.replace(/\s+/g, ' ').slice(0, 90),
