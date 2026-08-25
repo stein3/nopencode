@@ -254,7 +254,12 @@ export function startEvents() {
     }
   }
   es.onerror = () => {
-    // EventSource auto-reconnects; re-pull permissions on reconnect
-    setTimeout(refreshPermissions, 1500)
+    // EventSource auto-reconnects; re-pull permissions AND pending questions —
+    // a question.asked during a dropout is otherwise lost until reload
+    // (GET /question is not replayed on reconnect)
+    setTimeout(() => {
+      refreshPermissions()
+      refreshQuestions()
+    }, 1500)
   }
 }

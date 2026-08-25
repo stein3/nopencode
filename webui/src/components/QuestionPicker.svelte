@@ -11,10 +11,16 @@
   let picks: string[][] = []
   let custom: string[] = []
   let busy = false
+  let lastId: string | null = null
 
   $: qs = req.questions ?? []
-  // reset per-question state when a different request arrives
-  $: if (req) {
+  // Reset per-question state only when a DIFFERENT request arrives. The req
+  // prop is an object, so Svelte invalidates it on every parent re-render
+  // (safe_not_equal treats objects as always-changed) — keying the reset on
+  // prop identity wiped user selections mid-interaction whenever a transcript
+  // refetch or a global question refresh replaced the store array.
+  $: if (req && req.id !== lastId) {
+    lastId = req.id
     picks = qs.map(() => [] as string[])
     custom = qs.map(() => '')
   }
@@ -24,13 +30,14 @@
     picks[i] = cur.includes(label) ? cur.filter((x) => x !== label) : [...cur, label]
   }
 
-  function ready(): boolean {
-    return qs.every((q: any, i: number) => picks[i]?.length > 0 || (custom[i] ?? '').trim().length > 0)
-  }
-
-  function needsSubmit(): boolean {
-    return qs.length > 1 || qs.some((q: any) => q.custom || q.multiple)
-  }
+  // Reactive declarations, NOT template function calls: the compiler can't see
+  // deps read inside a function body, so `disabled={busy || !ready()}` only
+  // ever re-evaluated on busy flips — the submit button stayed disabled even
+  // with every question answered.
+  $: allReady = qs.every(
+    (q: any, i: number) => picks[i]?.length > 0 || (custom[i] ?? '').trim().length > 0,
+  )
+  $: showSubmit = qs.length > 1 || qs.some((q: any) => q.custom || q.multiple)
 
   function answerAt(i: number, label: string) {
     const answers = qs.map((_: any, k: number) => (k === i ? [label] : picks[k]?.length ? picks[k] : (custom[k] ?? '').trim() ? [custom[k].trim()] : []))
@@ -76,9 +83,10 @@
         <input
           class="custom"
           placeholder="Other…"
+          bind:value={custom[i]}
           disabled={busy}
           on:keydown={(e) => {
-            if (e.key === 'Enter' && ready()) submit()
+            if (e.key === 'Enter' && allReady) submit()
             e.stopPropagation()
           }}
         />
@@ -86,8 +94,8 @@
     </div>
   {/each}
   <div class="qacts">
-    {#if needsSubmit()}
-      <button type="button" class="send" disabled={busy || !ready()} on:click={() => submit()}>
+    {#if showSubmit}
+      <button type="button" class="send" disabled={busy || !allReady} on:click={() => submit()}>
         {busy ? 'sending…' : 'submit'}
       </button>
     {/if}

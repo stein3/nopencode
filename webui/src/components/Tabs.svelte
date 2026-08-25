@@ -1,8 +1,12 @@
 <script lang="ts">
-  import { tabs } from '../lib/stores'
+  import { tabs, pendingQuestions } from '../lib/stores'
 
   export let onClose: (id: string) => void
   export let onNewChat: () => void
+
+  // sessions with a pending engine question-tool request — red dot, wins over
+  // busy/dirty (same signal as the sidebar .ask dot)
+  $: askSet = new Set($pendingQuestions.map((q) => q.sessionID).filter((x): x is string => !!x))
 
   const active = tabs.active
 
@@ -25,7 +29,7 @@
       on:auxclick={(e) => e.button === 1 && onClose(t.id)}
       title={t.title}
     >
-      <span class="dot" class:busy={t.busy} class:dirty={t.dirty && !t.busy}></span>
+      <span class="dot" class:busy={t.busy} class:dirty={t.dirty && !t.busy} class:ask={askSet.has(t.id)}></span>
       <span class="label">{t.title || t.id.slice(0, 12)}</span>
       <button class="x" title="Close (Ctrl+W)" on:click|stopPropagation={() => onClose(t.id)}
         >×</button
@@ -74,6 +78,10 @@
   }
   .dot.dirty {
     background: var(--ok);
+  }
+  /* source order = precedence: ask > busy > dirty */
+  .dot.ask {
+    background: var(--err);
   }
   .label {
     white-space: nowrap;
