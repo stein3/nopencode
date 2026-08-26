@@ -6,7 +6,7 @@
   import { md } from '../lib/markdown'
   import { isImagePath, imageDataUrl } from '../lib/images'
   import { isAborted, roleLabel } from '../lib/util'
-  import { retryState, cancelRetry } from '../lib/retries'
+  import { retryState, cancelRetry, nextPayloadKind } from '../lib/retries'
   import ModelSelect from './ModelSelect.svelte'
   import QuestionPicker from './QuestionPicker.svelte'
 
@@ -379,6 +379,11 @@
   // in flight (secondsLeft 0) — the busy spinner covers that window
   $: retry = $retryState[tab.id]?.secondsLeft > 0 ? $retryState[tab.id] : undefined
   const mmss = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
+  // what the pending attempt will send: the short stall-nudge (original prompt
+  // already delivered to the engine) or a verbatim resend of an undelivered
+  // payload. Re-derived from $retryState each tick so it can't go stale.
+  $: payloadKind =
+    $retryState[tab.id]?.secondsLeft > 0 ? nextPayloadKind(tab.id) : undefined
 
   // ---- summary-line badges ------------------------------------------------
   function isTruncated(p: any): boolean {
@@ -823,7 +828,9 @@
     {#if retry}
       <div class="retryline">
         <span class="rglyph">↻</span>
-        <span>retrying in {mmss(retry.secondsLeft)} · attempt {retry.attempt}</span>
+        <span>
+          retrying in {mmss(retry.secondsLeft)} · attempt {retry.attempt} · {payloadKind === 'resend' ? 'resend' : 'continue-nudge'}
+        </span>
         <button class="rcancel" title="Stop auto-retrying" on:click={() => cancelRetry(tab.id)}>cancel</button>
       </div>
     {/if}

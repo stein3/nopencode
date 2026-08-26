@@ -3,7 +3,7 @@ import { oc, hist } from './api'
 import { refreshPermissions } from './permissions'
 import { refreshQuestions } from './questions'
 import { msgModel } from './util'
-import { isRetryableError, scheduleRetry, onTurnIdle } from './retries'
+import { isRetryableError, onRetryableError, onTurnIdle } from './retries'
 
 const timers = new Map<string, ReturnType<typeof setTimeout>>()
 
@@ -240,9 +240,11 @@ export function startEvents() {
       if (!aborted && !errors.some((e) => e.message === msg)) errors.push({ message: msg, t: Date.now() })
       tabs.patch(sid, { busy: false, errors })
       if (!aborted) hist.addSessionError(sid, msg) // persist fire-and-forget
-      // transient provider failure (APIError + isRetryable) → auto-retry the
-      // failed turn's prompt with backoff (5s → 15s → 30s → 60s → 2m → 5m)
-      if (isRetryableError(em)) scheduleRetry(sid)
+      // transient provider failure (APIError + isRetryable) → arm + auto-retry
+      // with backoff; the witnessed error proves the original prompt was
+      // delivered, so retries nudge ("the session stalled, continue.") instead
+      // of duplicating it — see lib/retries
+      if (isRetryableError(em)) onRetryableError(sid)
       if (tabs.getActive() !== sid) markSessionUnread(sid)
     }
 
