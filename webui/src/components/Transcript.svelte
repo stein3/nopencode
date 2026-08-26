@@ -143,6 +143,10 @@
   // follow()'s rAF gets to run (rAF callbacks run after scroll-event dispatch).
   // Guarded three ways: activation re-pins, scrolls from hidden state are
   // ignored, and only real upward input (wheel / swipe / reading keys) unsticks.
+  // Re-sticking additionally requires DOWNWARD progress (#7): a wheel notch
+  // travels ~100px, inside the old 120px positional slop, so the scroll event
+  // trailing a wheel-up re-declared "at bottom" and the next RO tick yanked
+  // the reader back mid-gesture.
   export let active = false
   // Pane dormancy (App keeps only recent panes rendered): skip the message-row
   // each-block entirely. Data lives on the Tab in the stores, so clearing this
@@ -152,7 +156,9 @@
   let stuck = true
   let wasActive = true // don't fight openHistory anchor scrolling on mount
 
-  function nearBottom(el: HTMLElement, slop = 120): boolean {
+  // Tight slop: genuine returns to the bottom end clamped at distance 0, so
+  // anything more than a couple of pixels shy is a reader parked to read.
+  function nearBottom(el: HTMLElement, slop = 24): boolean {
     return el.scrollHeight - el.scrollTop - el.clientHeight < slop
   }
 
@@ -174,10 +180,15 @@
     tabs.patch(tab.id, { jumpTo: undefined })
   }
 
+  let lastTop = 0
   function onScroll() {
     // offsetParent is null under display:none — restore/clamp noise, not user
     if (!scroller || !scroller.offsetParent) return
-    if (nearBottom(scroller)) stuck = true
+    const goingUp = scroller.scrollTop < lastTop
+    lastTop = scroller.scrollTop
+    // Upward motion never re-arms the pin (#7); downward motion re-arms only
+    // by landing in the bottom corner (scroll clamped at the end of content).
+    if (!goingUp && nearBottom(scroller)) stuck = true
     void maybeLoadOlder()
   }
 
