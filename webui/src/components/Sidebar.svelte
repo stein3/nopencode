@@ -4,6 +4,8 @@
   import { searchQuery, sessionMetrics, permissions, pendingQuestions, tabs, sessionUnread, markSessionUnread, hideSubagents, subExpanded } from '../lib/stores'
   import { relTime } from '../lib/util'
 
+  const activeStore = tabs.active
+
   export let onOpenHistory: (id: string, anchor?: string) => void
   export let onNewChat: () => void
 
@@ -306,7 +308,7 @@
       {:else}
         <div class="section">Results ({hits.length} in {groups.length} chats)</div>
         {#each groups as g (g.session_id)}
-          <div class="grphead">
+          <div class="grphead" class:current={g.session_id === $activeStore}>
             <span class="title">{g.title}</span>
             <span class="meta">{relTime(g.latest)}</span>
           </div>
@@ -339,6 +341,7 @@
           class="item"
           class:sub-row={isSub(d.s)}
           class:child={d.depth > 0}
+          class:current={d.s.id === $activeStore}
           style="--depth: {d.depth}"
           on:click={() => onOpenHistory(d.s.id)}
           title={d.s.title}
@@ -516,6 +519,17 @@
   .item:hover {
     background: var(--bg-hover);
     border-left-color: var(--accent);
+  }
+  /* row whose session is the currently-viewed tab */
+  .item.current {
+    border-left-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 7%, transparent);
+  }
+  .item.current:hover {
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+  }
+  .grphead.current .title {
+    color: var(--accent);
   }
   /* tree guide line for nested rows, drawn in the parent's indent gutter */
   .item.child::before {
