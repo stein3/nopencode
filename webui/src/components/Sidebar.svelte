@@ -310,7 +310,7 @@
     />
   </div>
 
-  <div class="list">
+  <div class="list" class:flat={$hideSubagents}>
     {#if q.length >= 2}
       {#if searching}
         <div class="hint">searching…</div>
@@ -357,13 +357,6 @@
         >
           <span class="row1">
             <span class="title">
-                <span
-                  class="dot"
-                  class:unread={$sessionUnread.has(d.s.id)}
-                  class:busy={busyMap[d.s.id]}
-                  class:ask={qSet.has(d.s.id)}
-                  class:perm={permSet.has(d.s.id)}
-                ></span>
               {#if d.kids && d.depth < MAX_DEPTH && !d.subsHidden}
                 <span
                   class="chev"
@@ -383,25 +376,41 @@
                     <path d="M2 1 L6.5 4 L2 7 Z" fill="currentColor" />
                   </svg>
                 </span>
+              {:else}
+                <!-- reserved chevron column: rows without an expander keep the
+                     same left rhythm, so status lights align down the list -->
+                <span class="chevslot"></span>
               {/if}
+              <span
+                class="dot"
+                class:unread={$sessionUnread.has(d.s.id)}
+                class:busy={busyMap[d.s.id]}
+                class:ask={qSet.has(d.s.id)}
+                class:perm={permSet.has(d.s.id)}
+              ></span>
               <span class="ttext">{displayTitle(d.s)}</span>
               {#if d.kids && !d.subsHidden}<span class="kidcount">{d.kids}</span>{/if}
-              {#if d.kids && (d.subsHidden || !d.expanded)}
-                {#if d.agg.perm}<span class="aggdot perm" title="a subagent needs permission"></span>
-                {:else if d.agg.ask}<span class="aggdot ask" title="a subagent needs an answer"></span>
-                {:else if d.agg.busy}<span class="aggdot busy" title="a subagent is running"></span>
-                {:else if d.agg.unread}<span class="aggdot unread" title="a subagent finished"></span>{/if}
-              {/if}
             </span>
-            <span class="meta">{relTime(d.s.updated)}</span>
           </span>
+          <!-- aggregate light lives in line 2's LEFT GUTTER: absolutely
+               positioned under the line-1 status dot's column, vertically
+               centered on the meta/time row. Out-of-flow, so .smeta's x is
+              untouched and the two-row compound indicator reads clearly -->
           <span class="sub"
-            >{#if isSub(d.s)}<span class="subagent">{subLabel(d.s)}</span> · {/if}{d.s.message_count} msgs{fmtK(
-                d.s.tokens
-              )
+            >{#if d.kids && (d.subsHidden || !d.expanded)}
+              {#if d.agg.perm}<span class="aggdot perm" title="a subagent needs permission"></span>
+              {:else if d.agg.ask}<span class="aggdot ask" title="a subagent needs an answer"></span>
+              {:else if d.agg.busy}<span class="aggdot busy" title="a subagent is running"></span>
+              {:else if d.agg.unread}<span class="aggdot unread" title="a subagent finished"></span>{/if}{/if}<span
+                class="smeta"
+              >{#if isSub(d.s)}<span class="subagent">{subLabel(d.s)}</span> · {/if}{d.s.message_count} msgs{fmtK(
+                  d.s.tokens
+                )
                 ? ` · ${fmtK(d.s.tokens)} tk`
                 : ''}{d.s.model ? ` · ${d.s.model}` : ''}</span
-          >
+            >
+            <span class="stime">{relTime(d.s.updated)}</span>
+          </span>
         </button>
       {:else}
         <div class="hint">loading…</div>
@@ -424,6 +433,12 @@
     min-width: 260px;
     max-width: 320px;
     height: 100vh;
+    /* session-row column tokens — line 1's leading prefix AND line 2's meta
+       indent are built from these same values so the two lines cannot drift */
+    --chevw: 16px; /* chevron / reserved-slot column */
+    --dotw: 7px;   /* status light */
+    --aggw: 6px;   /* aggregated-subagent light */
+    --rowgap: 6px; /* gap between the leading columns */
   }
   @supports (height: 100dvh) {
     .sidebar {
@@ -578,7 +593,7 @@
   }
   .chev {
     flex: none;
-    width: 16px;
+    width: var(--chevw);
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -592,6 +607,12 @@
   .chev:hover {
     color: var(--fg);
   }
+  /* reserved empty chevron column — rows without an expander keep the same
+     left rhythm so the status-light gutter lines up across the whole list */
+  .chevslot {
+    flex: none;
+    width: var(--chevw);
+  }
   .kidcount {
     flex: none;
     font-size: 9.5px;
@@ -602,11 +623,20 @@
     padding: 0 5px;
     line-height: 1.5;
   }
-  /* aggregated descendant status on a collapsed parent — solid, no animation */
+  /* aggregated descendant status on a collapsed parent — solid, no animation.
+     Lives in LINE 2's left gutter: absolutely positioned inside .sub, sharing
+     the status dot's x column but vertically centered on the meta/time row,
+     clearly separated from line 1. Out-of-flow → .smeta's x is untouched */
   .aggdot {
-    flex: none;
-    width: 6px;
-    height: 6px;
+    position: absolute;
+    /* center the 6px light under the 7px dot column: chevron + gap, then
+       half the dot/agg size difference */
+    left: calc(var(--chevw) + var(--rowgap) + (var(--dotw) - var(--aggw)) / 2);
+    top: 50%;
+    transform: translateY(-50%);
+    pointer-events: none;
+    width: var(--aggw);
+    height: var(--aggw);
     border-radius: 50%;
   }
   .aggdot.busy {
@@ -624,13 +654,17 @@
   }
   .row1 {
     display: flex;
-    justify-content: space-between;
-    gap: 8px;
+  }
+  /* title fills the row so trailing line-1 elements (kidcount) pin to the
+     SAME content-box right edge .stime reaches on line 2 via margin-left:auto
+     — the chip sits directly above the time by construction, not coincidence */
+  .row1 .title {
+    flex: 1;
   }
   .title {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: var(--rowgap);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -638,16 +672,19 @@
   /* the bare title text is its own flex item — without min-width:0 its
      min-content width pins the whole one-line title and pushes the trailing
      kidcount/aggdot past the clip edge; give the TEXT the overflow instead so
-     it ellipsizes and dot/chev/badge/light always stay visible */
+     it ellipsizes and dot/chev/badge/light always stay visible. flex:1 grows
+     short titles too, pushing kidcount out to the row's right edge (above
+     .stime) instead of letting it hug the text */
   .ttext {
+    flex: 1;
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
   .dot {
-    width: 7px;
-    height: 7px;
+    width: var(--dotw);
+    height: var(--dotw);
     border-radius: 50%;
     flex-shrink: 0;
     background: transparent;
@@ -665,18 +702,55 @@
   .dot.perm {
     background: var(--err);
   }
-  .meta,
-  .sub {
+  .meta {
     color: var(--fg-dim);
     font-size: 11.5px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  /* row timestamp never shrinks — the title text absorbs overflow instead
-     (same precedent as .grphead .meta below) */
-  .row1 .meta {
+  /* line 2: meta starts at line 1's title column, relative time pinned to
+     the far end. The meta content gets its own .smeta wrapper (anonymous
+     flex items can't be styled) so long meta ellipsizes while the time stays
+     fully visible */
+  .sub {
+    display: flex;
+    /* containing block for the absolutely-positioned gutter aggdot */
+    position: relative;
+    align-items: baseline;
+    gap: var(--rowgap);
+    /* meta starts where line 1's title text starts: chevron column + dot
+       column, mirrored from the same tokens the title prefix is built from
+       (the aggregate light stacks INSIDE the dot column — no extra term) */
+    padding-left: calc(var(--chevw) + var(--rowgap) + var(--dotw) + var(--rowgap));
+    color: var(--fg-dim);
+    font-size: 11.5px;
+    white-space: nowrap;
+  }
+  /* hide-subagents mode: chevrons never render, so the reserved chevron
+     column is reclaimed and line 1's prefix shrinks to just the dot column.
+     .flat is set on the list container from $hideSubagents — no per-row
+     conditionals; search-result rows contain neither .chevslot nor .sub */
+  .list.flat .chevslot {
+    display: none;
+  }
+  .list.flat .sub {
+    padding-left: calc(var(--dotw) + var(--rowgap));
+  }
+  .list.flat .aggdot {
+    /* no chevron column in flat mode — the gutter starts at the row edge */
+    left: calc((var(--dotw) - var(--aggw)) / 2);
+  }
+  .smeta {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .stime {
     flex: none;
+    margin-left: auto;
   }
   .item.sub-row .title {
     opacity: 0.85;
