@@ -332,6 +332,8 @@ export const pendingQuestions = writable<PendingQuestion[]>([])
 export const sidebarOpen = writable(true)
 export const searchQuery = writable('')
 export const paletteOpen = writable(false)
+// true while a ctrl+x leader chord is armed (drives the WhichKey hint strip)
+export const chordPending = writable(false)
 export const sessionTodos = writable<Record<string, any[]>>({})
 
 // ---- display preferences (persisted) ----

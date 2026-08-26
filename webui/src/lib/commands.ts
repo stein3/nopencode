@@ -28,6 +28,11 @@ export interface Cmd {
   source: CmdSource
   // true when the command takes free-form arguments after the name
   args?: boolean
+  // palette display fields (TUI parity): human title, grouping category,
+  // shortcut hint. Engine commands/skills leave them unset.
+  title?: string
+  category?: string
+  keybind?: string
   run: (ctx: CmdCtx, args: string) => void | Promise<void>
 }
 
@@ -94,6 +99,43 @@ export const registry = {
     const n = name.toLowerCase()
     return this.builtins.find((c) => c.name === n) ?? this.all().find((c) => c.name === n)
   },
+}
+
+// ---- palette-only suggestions + shared run plumbing ---------------------
+
+// shown under the "Suggested" header when the palette opens with an empty
+// query (TUI parity); everything else groups by category below it
+export const SUGGESTED = ['new', 'sessions', 'models', 'agents', 'timeline']
+
+// Resolve the active session at COMMAND RUN time — a value computed at
+// component mount has no reactive deps and freezes (the frozen-sessionId
+// regression). Pending tabs (`pending-*`, not yet realized) resolve to null.
+export function resolveActiveSid(): string | null {
+  const id = tabs.getActive()
+  const t = id ? tabs.snapshot(id) : null
+  return t?.pending ? null : id
+}
+
+function ctxFor(sid: string | null): CmdCtx {
+  return {
+    sessionId: () => sid,
+    newChat: () => window.dispatchEvent(new CustomEvent('oc:new-chat')),
+    focusComposer: () => document.getElementById('composer-input')?.focus(),
+    focusSidebar: () => document.dispatchEvent(new CustomEvent('oc:focus-sidebar')),
+  }
+}
+
+// Run a built-in by name with a freshly-resolved session context. Used by the
+// ctrl+p palette, the ctrl+x chord handlers in App.svelte, and anywhere else
+// that wants TUI-command semantics without owning the ctx wiring.
+export async function runBuiltin(name: string, args = ''): Promise<void> {
+  const cmd = registry.builtins.find((c) => c.name === name)
+  if (!cmd) return
+  try {
+    await cmd.run(ctxFor(resolveActiveSid()), args)
+  } catch (e) {
+    console.error('command failed', e)
+  }
 }
 
 // ---- helpers ----------------------------------------------------------
@@ -170,6 +212,9 @@ registry.builtins = [
     name: 'agents',
     description: 'Switch agent',
     source: 'builtin',
+    title: 'Switch agent',
+    category: 'Agent',
+    keybind: 'ctrl+x a',
     run: async (ctx) => {
       const sid = needSession(ctx)
       if (!sid) return
@@ -201,6 +246,9 @@ registry.builtins = [
     name: 'compact',
     description: 'Compact session',
     source: 'builtin',
+    title: 'Compact session',
+    category: 'Session',
+    keybind: 'ctrl+x c',
     run: async (ctx) => {
       const sid = needSession(ctx)
       if (!sid) return
@@ -218,6 +266,8 @@ registry.builtins = [
     name: 'copy',
     description: 'Copy session transcript',
     source: 'builtin',
+    title: 'Copy transcript',
+    category: 'Session',
     run: async (ctx) => {
       const sid = needSession(ctx)
       if (!sid) return
@@ -227,9 +277,37 @@ registry.builtins = [
     },
   },
   {
+    name: 'copylast',
+    description: 'Copy last assistant message',
+    source: 'builtin',
+    title: 'Copy last assistant message',
+    category: 'Session',
+    keybind: 'ctrl+x y',
+    run: async () => {
+      const sid = resolveActiveSid()
+      if (!sid) return toast('no session yet — send a message first')
+      const t = tabs.snapshot(sid)
+      let text = ''
+      const msgs = [...(t?.messages ?? [])].reverse()
+      for (const m of msgs) {
+        if (m.role !== 'assistant') continue
+        const part = (m.parts ?? []).find((p) => p.type === 'text' && (p.text ?? '').trim())
+        if (part) {
+          text = part.text ?? ''
+          break
+        }
+      }
+      if (!text) return toast('no assistant message yet')
+      const ok = await copyText(text)
+      toast(ok ? 'assistant message copied' : 'clipboard unavailable')
+    },
+  },
+  {
     name: 'diff',
     description: 'Show working-tree diff',
     source: 'builtin',
+    title: 'Show working-tree diff',
+    category: 'Session',
     run: async () => {
       const raw = await oc.diffRaw()
       openDialog({ title: 'git diff', pre: raw || '(no changes)' })
@@ -239,6 +317,9 @@ registry.builtins = [
     name: 'export',
     description: 'Export session transcript',
     source: 'builtin',
+    title: 'Export transcript',
+    category: 'Session',
+    keybind: 'ctrl+x x',
     run: async (ctx) => {
       const sid = needSession(ctx)
       if (!sid) return
@@ -250,6 +331,8 @@ registry.builtins = [
     name: 'fork',
     description: 'Fork session',
     source: 'builtin',
+    title: 'Fork session',
+    category: 'Session',
     run: async (ctx) => {
       const sid = needSession(ctx)
       if (!sid) return
@@ -268,6 +351,8 @@ registry.builtins = [
     name: 'help',
     description: 'Help',
     source: 'builtin',
+    title: 'Help',
+    category: 'System',
     run: async () => {
       openDialog({
         title: 'opencode web help',
@@ -276,6 +361,9 @@ registry.builtins = [
           'ctrl+t   new chat               ctrl+w   close tab',
           'ctrl+k   search history         alt+←/→  cycle tabs',
           'alt+1..9 jump to tab            enter    send · shift+enter newline',
+          '',
+          'ctrl+x <key> chords: n new · l sessions · b sidebar · m models ·',
+          'a agents · g timeline · c compact · x export · y copy last · u undo · s status',
           '',
           'slash commands work inline while typing; arrow keys navigate,',
           'enter/tab selects, esc dismisses the menu.',
@@ -287,6 +375,8 @@ registry.builtins = [
     name: 'mcps',
     description: 'Toggle MCPs',
     source: 'builtin',
+    title: 'Toggle MCPs',
+    category: 'System',
     run: async () => {
       const mcps = (await oc.mcps()) as Record<string, any>
       const names = Object.keys(mcps ?? {})
@@ -312,6 +402,9 @@ registry.builtins = [
     name: 'models',
     description: 'Switch model',
     source: 'builtin',
+    title: 'Switch model',
+    category: 'Model',
+    keybind: 'ctrl+x m',
     run: async () => {
       modelPickerOpen.set(true)
     },
@@ -320,12 +413,17 @@ registry.builtins = [
     name: 'new',
     description: 'New session',
     source: 'builtin',
+    title: 'New session',
+    category: 'Session',
+    keybind: 'ctrl+t · ctrl+x n',
     run: (ctx) => ctx.newChat(),
   },
   {
     name: 'rename',
     description: 'Rename session',
     source: 'builtin',
+    title: 'Rename session',
+    category: 'Session',
     run: async (ctx) => {
       const sid = needSession(ctx)
       if (!sid) return
@@ -336,12 +434,17 @@ registry.builtins = [
     name: 'sessions',
     description: 'Switch session',
     source: 'builtin',
+    title: 'Switch session',
+    category: 'Session',
+    keybind: 'ctrl+k · ctrl+x l',
     run: (ctx) => ctx.focusSidebar(),
   },
   {
     name: 'settings',
     description: 'Open settings',
     source: 'builtin',
+    title: 'Open settings',
+    category: 'System',
     run: () => {
       settingsOpen.set(true)
     },
@@ -350,6 +453,8 @@ registry.builtins = [
     name: 'share',
     description: 'Share session link',
     source: 'builtin',
+    title: 'Share session link',
+    category: 'Session',
     run: async (ctx) => {
       const sid = needSession(ctx)
       if (!sid) return
@@ -368,6 +473,8 @@ registry.builtins = [
     name: 'skills',
     description: 'Skills',
     source: 'builtin',
+    title: 'Skills',
+    category: 'System',
     run: async () => {
       await registry.load()
       const skills = [...registry.engine.values()].filter((c) => c.source === 'skill')
@@ -391,6 +498,9 @@ registry.builtins = [
     name: 'status',
     description: 'View status',
     source: 'builtin',
+    title: 'View status',
+    category: 'System',
+    keybind: 'ctrl+x s',
     run: async () => {
       const [pathInfo, provs, mcps] = await Promise.all([
         oc.path() as Promise<{ directory?: string }>,
@@ -409,6 +519,8 @@ registry.builtins = [
     name: 'thinking',
     description: 'Toggle expanded thinking',
     source: 'builtin',
+    title: 'Toggle expanded thinking',
+    category: 'View',
     run: () => {
       showThinking.toggle()
       let v = true
@@ -420,6 +532,9 @@ registry.builtins = [
     name: 'timeline',
     description: 'Jump to message',
     source: 'builtin',
+    title: 'Jump to message',
+    category: 'Session',
+    keybind: 'ctrl+x g',
     run: async (ctx) => {
       const sid = needSession(ctx)
       if (!sid) return
@@ -452,6 +567,8 @@ registry.builtins = [
     name: 'timestamps',
     description: 'Show timestamps',
     source: 'builtin',
+    title: 'Show timestamps',
+    category: 'View',
     run: () => {
       showTimestamps.toggle()
       let v = true
@@ -463,6 +580,9 @@ registry.builtins = [
     name: 'undo',
     description: 'Undo previous message',
     source: 'builtin',
+    title: 'Undo previous message',
+    category: 'Session',
+    keybind: 'ctrl+x u',
     run: async (ctx) => {
       const sid = needSession(ctx)
       if (!sid) return

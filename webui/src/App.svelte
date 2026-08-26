@@ -7,10 +7,11 @@
   import QuestionBanner from './components/QuestionBanner.svelte'
   import Footer from './components/Footer.svelte'
   import { hist, oc } from './lib/api'
-  import { tabs, permissions, sidebarOpen, selectedModel, paletteOpen, infoOpen, toggleInfo, toastMsg, patchMetrics, clearSessionUnread, loadOpenTabs, rekeySessionAgent, type Tab } from './lib/stores'
+  import { tabs, permissions, sidebarOpen, selectedModel, paletteOpen, infoOpen, toggleInfo, toastMsg, patchMetrics, clearSessionUnread, loadOpenTabs, rekeySessionAgent, modelPickerOpen, type Tab } from './lib/stores'
   import CommandPalette from './components/CommandPalette.svelte'
   import CommandDialog from './components/CommandDialog.svelte'
   import RenameDialog from './components/RenameDialog.svelte'
+  import WhichKey from './components/WhichKey.svelte'
   import Settings from './components/Settings.svelte'
   import ImageLightbox from './components/ImageLightbox.svelte'
   import ModelPicker from './components/ModelPicker.svelte'
@@ -19,6 +20,7 @@
   import { cancelRetry } from './lib/retries'
   import { answerPermission, refreshPermissions } from './lib/permissions'
   import { initHotkeys } from './lib/hotkeys'
+  import { runBuiltin } from './lib/commands'
   import { installVisualViewportFix } from './lib/visualViewport'
   import { focusMode, initKbdLock, enableFocusMode, disableFocusMode } from './lib/kbdlock'
   import { msgModel } from './lib/util'
@@ -238,6 +240,20 @@
       jumpTab: (n) => jump(n),
       openPalette: () => paletteOpen.set(true),
       toggleDiff: () => (diffOpen = !diffOpen),
+      // ctrl+x leader chords (TUI parity); which-key strip shows the map
+      chords: {
+        n: newChat,
+        l: () => document.getElementById('sidebar-search')?.focus(),
+        b: () => sidebarOpen.update((v) => !v),
+        m: () => modelPickerOpen.set(true),
+        a: () => runBuiltin('agents'),
+        g: () => runBuiltin('timeline'),
+        c: () => runBuiltin('compact'),
+        x: () => runBuiltin('export'),
+        y: () => runBuiltin('copylast'),
+        u: () => runBuiltin('undo'),
+        s: () => runBuiltin('status'),
+      },
     })
     const removeKbdLock = initKbdLock()
     window.addEventListener('touchstart', swipeStart, { passive: true })
@@ -446,6 +462,7 @@
     <CommandPalette onDone={() => focusActiveComposer()} />
     <CommandDialog />
     <RenameDialog />
+    <WhichKey />
     <Settings />
     <ImageLightbox />
     {#if $toastMsg}

@@ -59,6 +59,10 @@
     load().then(() => (open = true))
   }
 
+  function onKey(e: KeyboardEvent) {
+    if (e.key === 'Escape' && open) open = false
+  }
+
   // must be a reactive statement, NOT a function called in the template —
   // `{label()}` never re-runs because the compiler can't see the stores/vars
   // read inside the function body (label stayed frozen on "model…"/raw id)
@@ -80,6 +84,8 @@
     open = false
   }
 </script>
+
+<svelte:window on:keydown={onKey} />
 
 <div class="wrap">
   <button class="cur" title="Select model" on:click={() => (open = !open)}>
