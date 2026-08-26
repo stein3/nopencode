@@ -12,7 +12,7 @@
 
   const titles: Record<string, string> = {
     'Ctrl+T': 'new chat',
-    'Ctrl+W': 'close tab',
+    'Alt+W': 'close tab',
   }
 
   // keep the newest opened tab and the active tab visible in the horizontal
@@ -56,7 +56,7 @@
     >
       <span class="dot" class:busy={t.busy} class:dirty={t.dirty && !t.busy} class:ask={askSet.has(t.id)}></span>
       <span class="label">{t.title || t.id.slice(0, 12)}</span>
-      <button class="x" title="Close (Ctrl+W)" on:click|stopPropagation={() => onClose(t.id)}
+      <button class="x" title="Close (Alt+W)" on:click|stopPropagation={() => onClose(t.id)}
         >×</button
       >
     </div>

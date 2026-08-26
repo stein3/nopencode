@@ -193,10 +193,23 @@
   }
 
   function onKey(e: KeyboardEvent) {
-    // reading keys unstick unless typed into a field (ArrowUp recalls history)
+    // reading keys act on the transcript unless typed into a field
     const t = e.target as HTMLElement | null
     if (t?.closest?.('input, textarea, select') || t?.isContentEditable) return
-    if (e.key === 'ArrowUp' || e.key === 'PageUp' || e.key === 'Home') stuck = false
+    if (!active || dormant) return // hidden/kept panes must not react
+    if (e.key === 'Home') {
+      e.preventDefault()
+      stuck = false // else RO/follow yanks back to bottom
+      if (tab.jumpTo) tabs.patch(tab.id, { jumpTo: undefined }) // cancel pending anchor jump
+      if (scroller) scroller.scrollTop = 0
+    } else if (e.key === 'End') {
+      e.preventDefault()
+      stuck = true // stay pinned for streaming after the jump
+      if (tab.jumpTo) tabs.patch(tab.id, { jumpTo: undefined })
+      follow(true)
+    } else if (e.key === 'ArrowUp' || e.key === 'PageUp') {
+      stuck = false
+    }
   }
 
   function follow(force = false) {

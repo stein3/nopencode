@@ -20,6 +20,7 @@
   import { answerPermission, refreshPermissions } from './lib/permissions'
   import { initHotkeys } from './lib/hotkeys'
   import { installVisualViewportFix } from './lib/visualViewport'
+  import { focusMode, initKbdLock, enableFocusMode, disableFocusMode } from './lib/kbdlock'
   import { msgModel } from './lib/util'
 
   let composers: Record<string, Composer> = {}
@@ -238,12 +239,14 @@
       openPalette: () => paletteOpen.set(true),
       toggleDiff: () => (diffOpen = !diffOpen),
     })
+    const removeKbdLock = initKbdLock()
     window.addEventListener('touchstart', swipeStart, { passive: true })
     window.addEventListener('touchmove', swipeMove, { passive: true })
     window.addEventListener('touchend', swipeEnd)
     window.addEventListener('touchcancel', swipeEnd)
     return () => {
       removeHotkeys()
+      removeKbdLock()
       window.removeEventListener('oc:new-chat', onNewChatEvent)
       document.removeEventListener('oc:focus-sidebar', onFocusSidebar)
       window.removeEventListener('touchstart', swipeStart)
@@ -371,6 +374,14 @@
         ☰
       </button>
       <div class="spacer"></div>
+      <button
+        class="burger"
+        class:pressed={$focusMode.on}
+        title="Focus mode: fullscreen + capture Ctrl+W"
+        on:click={() => ($focusMode.on ? disableFocusMode() : enableFocusMode())}
+      >
+        ⌨
+      </button>
       <ModelPicker />
       <button
         class="burger"
@@ -504,6 +515,10 @@
     color: var(--fg);
   }
   .burger.on {
+    color: var(--accent);
+  }
+  /* focus-mode toggle pressed state — same accent treatment as .burger.on */
+  .burger.pressed {
     color: var(--accent);
   }
   .diffwrap {
