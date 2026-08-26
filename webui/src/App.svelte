@@ -422,7 +422,10 @@
     {/if}
   </main>
   {#if $infoOpen}
-    <InfoPanel tab={$tabs.find((t) => t.id === $active) ?? null} />
+    <InfoPanel
+      tab={$tabs.find((t) => t.id === $active) ?? null}
+      onOpen={(id) => openHistory(id)}
+    />
   {/if}
   {#if diffOpen}
     <div class="diffwrap">
