@@ -32,11 +32,55 @@ export interface Tab {
   prefill?: string
 }
 
+// ---- open-tab persistence (issue #1) --------------------------------------
+// Restores the previously-open session tabs (order + active) after a reload.
+// pending-* tabs are deliberately excluded (not engine sessions yet); the
+// list is capped to bound startup cost (each restore fetches ~80 messages).
+const OPEN_TABS_KEY = 'opencode.openTabs'
+const OPEN_TABS_CAP = 20
+
+export interface OpenTabsState {
+  ids: string[]
+  active: string
+}
+
+export function loadOpenTabs(): OpenTabsState | null {
+  try {
+    const raw = localStorage.getItem(OPEN_TABS_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw)
+    if (!Array.isArray(parsed?.ids)) return null
+    const ids = parsed.ids.filter((x: unknown) => typeof x === 'string' && !x.startsWith('pending-'))
+    return { ids: ids.slice(0, OPEN_TABS_CAP), active: typeof parsed.active === 'string' ? parsed.active : '' }
+  } catch {
+    return null
+  }
+}
+
 function makeTabs() {
   const { subscribe, update, set } = writable<Tab[]>([])
   const { subscribe: subActive, set: setActiveStore } = writable('')
   const openIds = new Set<string>()
   let activeId = ''
+
+  // debounced localStorage write — only the open-set/order/active mutators
+  // (open/close/rekey/setActive) call this, never the streaming ones
+  let persistTimer: ReturnType<typeof setTimeout> | undefined
+  function persistSoon() {
+    clearTimeout(persistTimer)
+    persistTimer = setTimeout(persistNow, 250)
+  }
+  function persistNow() {
+    let ids: string[] = []
+    subscribe((all) => {
+      ids = all.map((t) => t.id).filter((id) => !id.startsWith('pending-')).slice(0, OPEN_TABS_CAP)
+    })()
+    try {
+      localStorage.setItem(OPEN_TABS_KEY, JSON.stringify({ v: 1, ids, active: activeId }))
+    } catch {
+      /* private mode */
+    }
+  }
 
   return {
     subscribe,
@@ -54,6 +98,7 @@ function makeTabs() {
         activeId = t.id
         setActiveStore(t.id)
       }
+      persistSoon()
     },
     close(id: string) {
       openIds.delete(id)
@@ -66,6 +111,7 @@ function makeTabs() {
         }
         return next
       })
+      persistSoon()
     },
     patch(id: string, p: Partial<Tab>) {
       update((tabs) => tabs.map((t) => (t.id === id ? { ...t, ...p } : t)))
@@ -79,6 +125,7 @@ function makeTabs() {
         activeId = next.id
         setActiveStore(next.id)
       }
+      persistSoon()
     },
     // synchronous read of one tab (for command handlers outside reactivity)
     snapshot(id: string): Tab | undefined {
@@ -154,10 +201,13 @@ function makeTabs() {
     setActive(id: string) {
       activeId = id
       setActiveStore(id)
+      persistSoon()
     },
     getActive(): string {
       return activeId
     },
+    // immediate flush for the restore path (App prunes dead ids after restoring)
+    persist: persistNow,
   }
 }
 

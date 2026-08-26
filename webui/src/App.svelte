@@ -7,7 +7,7 @@
   import QuestionBanner from './components/QuestionBanner.svelte'
   import Footer from './components/Footer.svelte'
   import { hist, oc } from './lib/api'
-  import { tabs, permissions, sidebarOpen, selectedModel, paletteOpen, infoOpen, toggleInfo, toastMsg, patchMetrics, clearSessionUnread, type Tab } from './lib/stores'
+  import { tabs, permissions, sidebarOpen, selectedModel, paletteOpen, infoOpen, toggleInfo, toastMsg, patchMetrics, clearSessionUnread, loadOpenTabs, type Tab } from './lib/stores'
   import CommandPalette from './components/CommandPalette.svelte'
   import CommandDialog from './components/CommandDialog.svelte'
   import RenameDialog from './components/RenameDialog.svelte'
@@ -79,7 +79,7 @@
     })
   }
 
-  async function openHistory(id: string, anchor?: string, allowLive = true) {
+  async function openHistory(id: string, anchor?: string, allowLive = true, silent = false) {
     // Prefer the engine-backed (live) view so the info panel can populate
     // cost/tokens/todos; fall back to the pure-history snapshot only when the
     // engine doesn't know the session or is down.
@@ -116,7 +116,8 @@
         })
         loadErrors(id)
       } catch (e: any) {
-        alert(`open failed: ${e.message}`)
+        if (!silent) alert(`open failed: ${e.message}`)
+        return false
       }
     }
     if (anchor) {
@@ -130,6 +131,7 @@
       }
       tabs.patch(id, { jumpTo: anchor })
     }
+    return true
   }
 
   async function openLive(id: string, title?: string) {
@@ -195,8 +197,22 @@
     window.addEventListener('oc:new-chat', onNewChatEvent)
     document.addEventListener('oc:focus-sidebar', onFocusSidebar)
     ;(async () => {
-      // auto-open the most recent ROOT session — never a subagent (@explore
-      // etc. have parentID set); with no root sessions at all, open nothing
+      // restore previously-open session tabs (issue #1); fall back to the old
+      // "open most recent root session" behavior when nothing was stored or
+      // every stored id failed to open (deleted sessions, engine+history down)
+      const saved = loadOpenTabs()
+      if (saved && saved.ids.length) {
+        for (const id of saved.ids) {
+          try {
+            await openHistory(id, undefined, true, true)
+          } catch {
+            /* silent mode already swallowed; skip */
+          }
+        }
+        if (saved.active && tabs.isopen(saved.active)) tabs.setActive(saved.active)
+        tabs.persist() // prune ids that failed to open from the stored list
+        return
+      }
       try {
         const all = await hist.sessions()
         const latest = all.filter((s) => !s.parent).sort((a, b) => b.updated - a.updated)[0]
