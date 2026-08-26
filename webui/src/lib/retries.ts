@@ -1,5 +1,5 @@
 import { writable, get } from 'svelte/store'
-import { tabs, selectedModel, selectedAgent } from './stores'
+import { tabs, selectedModel, sessionAgent } from './stores'
 import { oc } from './api'
 
 // Auto-retry for retryable turn failures. The engine stamps isRetryable on
@@ -116,9 +116,9 @@ function fire(sid: string) {
   }
   lastDispatchAt.set(sid, Date.now())
   tabs.patch(sid, { busy: true }) // spinner while the retried turn runs
-  // same prefs as a manual send (picker model + per-message agent) so a
-  // retried turn doesn't silently fall back to the session default agent
-  oc.prompt(sid, text, get(selectedModel) ?? undefined, get(selectedAgent) ?? undefined).catch(() => {
+  // same prefs as a manual send (picker model + that session's agent pick) so
+  // a retried turn doesn't silently fall back to the session default agent
+  oc.prompt(sid, text, get(selectedModel) ?? undefined, sessionAgent(sid)).catch(() => {
     // dispatch itself died (network/proxy) — counts as another failure
     tabs.patch(sid, { busy: false })
     scheduleRetry(sid)

@@ -1,8 +1,11 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { oc } from '../lib/api'
-  import { selectedAgent } from '../lib/stores'
+  import { sessionAgents, setSessionAgent } from '../lib/stores'
   import { titleName } from '../lib/util'
+
+  // scoped to THIS pane's tab/session — a pick here never touches other tabs
+  export let sid: string
 
   interface AgentInfo {
     name: string
@@ -34,13 +37,12 @@
   // reactive statements, NOT functions called in the template — stores/vars
   // read inside a function body are invisible to the compiler and the label
   // freezes (the ModelPicker `{label()}` bug)
-  $: curLabel = $selectedAgent ? titleName($selectedAgent) : 'Auto'
-  $: curColor = $selectedAgent
-    ? (agents.find((a) => a.name === $selectedAgent)?.color ?? null)
-    : null
+  $: cur = $sessionAgents[sid]
+  $: curLabel = cur ? titleName(cur) : 'Auto'
+  $: curColor = cur ? (agents.find((a) => a.name === cur)?.color ?? null) : null
 
   function pick(name: string | undefined) {
-    selectedAgent.save(name) // undefined = back to session/engine default
+    setSessionAgent(sid, name) // undefined = back to session/engine default
     open = false
   }
 
@@ -67,11 +69,11 @@
       class:open={open}
       aria-haspopup="listbox"
       aria-expanded={open}
-      aria-label={'Agent: ' + curLabel}
-      title={$selectedAgent ? 'Agent for new messages: ' + curLabel : 'Agent for new messages: Auto (session default)'}
+      aria-label={'Agent for new messages in this session: ' + curLabel}
+      title={cur ? 'Agent for new messages (this session): ' + curLabel : 'Agent for new messages (this session): Auto (session default)'}
       on:click={() => (open = !open)}
     >
-      {#if $selectedAgent && curColor}
+      {#if cur && curColor}
         <span class="dot" style="background:{curColor}"></span>
       {/if}
       <span class="lbl">{curLabel}</span>
@@ -81,9 +83,9 @@
       <div class="menu" role="listbox" aria-label="Agent">
         <button
           class="m auto"
-          class:on={!$selectedAgent}
+          class:on={!cur}
           role="option"
-          aria-selected={!$selectedAgent}
+          aria-selected={!cur}
           title="Use the session's default agent"
           on:click={() => pick(undefined)}
         >
@@ -93,9 +95,9 @@
         {#each agents as a (a.name)}
           <button
             class="m"
-            class:on={$selectedAgent === a.name}
+            class:on={cur === a.name}
             role="option"
-            aria-selected={$selectedAgent === a.name}
+            aria-selected={cur === a.name}
             title={a.description || titleName(a.name)}
             on:click={() => pick(a.name)}
           >

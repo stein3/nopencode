@@ -481,38 +481,74 @@ function makeModel() {
 
 export const selectedModel = makeModel()
 
-// ---- selected per-message agent (persisted) ----
-// Mirrors selectedModel. `undefined` = follow the session/engine default
-// (the `agent` field is omitted from the prompt payload). Written ONLY by
-// explicit user picks in AgentPicker — never echo session.agent / SSE
-// session.updated data back into it (same invariant as selectedModel).
-const AGENT_KEY = 'opencode.agent'
-function makeAgent() {
-  const { subscribe, set } = writable<string | undefined>(
-    (() => {
-      try {
-        const raw = localStorage.getItem(AGENT_KEY)
-        return raw ? (JSON.parse(raw) as string) : undefined
-      } catch {
-        return undefined
-      }
-    })(),
-  )
-  return {
-    subscribe,
-    save(a: string | undefined) {
-      set(a)
-      try {
-        if (a) localStorage.setItem(AGENT_KEY, JSON.stringify(a))
-        else localStorage.removeItem(AGENT_KEY)
-      } catch {
-        /* private mode */
-      }
-    },
+// ---- per-session agent pick (composer "agent for new messages") ----
+// Scoped to ONE session on purpose: a pick must never leak into other tabs or
+// new sessions. Keyed by tab/session id; a missing key = Auto = omit the
+// `agent` field from the prompt payload so the engine uses that session's
+// default. Written ONLY by explicit user picks in AgentPicker — never echo
+// session.agent / SSE session.updated data back into it. Persisted per
+// session (recency-pruned) so reloading mid-task keeps the session's pick.
+const SESSION_AGENTS_KEY = 'opencode.sessionAgents'
+const SESSION_AGENTS_CAP = 200
+
+function loadSessionAgents(): Record<string, string> {
+  try {
+    const raw = localStorage.getItem(SESSION_AGENTS_KEY)
+    const obj = raw ? JSON.parse(raw) : null
+    if (obj && typeof obj === 'object' && !Array.isArray(obj)) {
+      const out: Record<string, string> = {}
+      for (const [k, v] of Object.entries(obj)) if (k && typeof v === 'string') out[k] = v
+      return out
+    }
+  } catch {
+    /* private mode */
+  }
+  return {}
+}
+
+function persistSessionAgents(all: Record<string, string>) {
+  try {
+    localStorage.setItem(SESSION_AGENTS_KEY, JSON.stringify(all))
+  } catch {
+    /* private mode */
   }
 }
 
-export const selectedAgent = makeAgent()
+export const sessionAgents = writable<Record<string, string>>(loadSessionAgents())
+
+// Sync read for send paths outside Svelte reactivity (Composer.submit,
+// retries.fire). Always keyed by the REAL session id being prompted.
+export function sessionAgent(sid: string): string | undefined {
+  if (!sid) return undefined
+  let v: string | undefined
+  sessionAgents.subscribe((all) => (v = all[sid]))()
+  return v
+}
+
+// Insertion order doubles as recency order: the picked sid is re-appended
+// last and the oldest entries past the cap fall off.
+export function setSessionAgent(sid: string, agent: string | undefined) {
+  if (!sid) return
+  sessionAgents.update((all) => {
+    const next: Record<string, string> = {}
+    for (const [k, v] of Object.entries(all)) if (k !== sid) next[k] = v
+    if (agent) next[sid] = agent
+    const keys = Object.keys(next)
+    for (const k of keys.slice(0, Math.max(0, keys.length - SESSION_AGENTS_CAP))) delete next[k]
+    persistSessionAgents(next)
+    return next
+  })
+}
+
+// A pending-* tab realized into a real session: carry its pick across the id
+// swap (call right after tabs.rekey).
+export function rekeySessionAgent(oldId: string, newId: string) {
+  if (!oldId || oldId === newId) return
+  const cur = sessionAgent(oldId)
+  if (cur === undefined) return
+  setSessionAgent(newId, cur)
+  setSessionAgent(oldId, undefined)
+}
 
 // ---- recently used models (persisted, most recent first) ----
 const RECENTS_KEY = 'opencode.modelRecents'

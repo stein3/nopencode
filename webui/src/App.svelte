@@ -7,7 +7,7 @@
   import QuestionBanner from './components/QuestionBanner.svelte'
   import Footer from './components/Footer.svelte'
   import { hist, oc } from './lib/api'
-  import { tabs, permissions, sidebarOpen, selectedModel, paletteOpen, infoOpen, toggleInfo, toastMsg, patchMetrics, clearSessionUnread, loadOpenTabs, type Tab } from './lib/stores'
+  import { tabs, permissions, sidebarOpen, selectedModel, paletteOpen, infoOpen, toggleInfo, toastMsg, patchMetrics, clearSessionUnread, loadOpenTabs, rekeySessionAgent, type Tab } from './lib/stores'
   import CommandPalette from './components/CommandPalette.svelte'
   import CommandDialog from './components/CommandDialog.svelte'
   import RenameDialog from './components/RenameDialog.svelte'
@@ -183,6 +183,8 @@
     const m = $selectedModel
     const s = await oc.createSession(undefined, m ?? undefined)
     tabs.rekey(tabId, { ...t, id: s.id, pending: false })
+    // an agent picked on the pending tab follows the session to its real id
+    rekeySessionAgent(tabId, s.id)
     return s.id
   }
 
