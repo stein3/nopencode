@@ -179,6 +179,12 @@ export function normalizeMessages(msgs: any[]): any[] {
         // engine-injected subagent task results carry synthetic:true — kept so
         // util.taskNoticeOf() can key off the flag, not just the text prefix
         synthetic: p.synthetic,
+        // stored user-message file parts (composer attachments): the data URL
+        // + labels must survive this mapping or thumbnails/chips lose their
+        // payload on every post-send refetch
+        mime: p.mime,
+        filename: p.filename,
+        url: p.url,
       })),
     }
   })

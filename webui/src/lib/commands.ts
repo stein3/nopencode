@@ -166,6 +166,10 @@ function transcriptMarkdown(sid: string): string {
     for (const p of m.parts ?? []) {
       if (p.type === 'text' && (p.text ?? '').trim()) lines.push(p.text ?? '')
       else if (p.type === 'tool') lines.push('```\n[' + (p.tool ?? 'tool') + ']\n```\n')
+      // composer attachments: acknowledge them so attachment-only messages
+      // don't vanish from exports/copies
+      else if (p.type === 'file')
+        lines.push('[attached: ' + (p.filename ?? p.mime ?? 'file') + ']')
     }
     lines.push('')
   }

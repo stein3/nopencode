@@ -294,6 +294,48 @@
     setTimeout(() => openLive(sessionId).catch(() => {}), 150)
   }
 
+  // ---- file drag & drop over the tab pane ---------------------------------
+  // The pane forwards dropped files to ITS composer (one instance per tab).
+  // Only drags whose types include 'Files' participate: text/URL drags keep
+  // their native behavior untouched. dragover must preventDefault for the
+  // drop event to fire at all.
+  let dragPane = ''
+
+  function dragHasFiles(e: DragEvent): boolean {
+    return Array.from(e.dataTransfer?.types ?? []).includes('Files')
+  }
+  function paneDragEnter(e: DragEvent, id: string) {
+    if (!dragHasFiles(e)) return
+    e.preventDefault()
+    dragPane = id
+  }
+  function paneDragOver(e: DragEvent, id: string) {
+    if (!dragHasFiles(e)) return
+    e.preventDefault()
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'
+    dragPane = id
+  }
+  function paneDragLeave(e: DragEvent, id: string) {
+    if (dragPane !== id) return
+    // crossing child elements fires leave+enter pairs — only clear when the
+    // pointer truly left the pane (relatedTarget null = left the window)
+    const to = e.relatedTarget as Node | null
+    if (to && (e.currentTarget as HTMLElement).contains(to)) return
+    dragPane = ''
+  }
+  function paneDrop(e: DragEvent, id: string) {
+    e.preventDefault()
+    dragPane = ''
+    if (!dragHasFiles(e)) return
+    const files = Array.from(e.dataTransfer?.files ?? [])
+    if (files.length) void composers[id]?.attachFiles(files)
+  }
+  // A file drop that misses every pane would otherwise navigate the browser
+  // to the dropped file — neutralize those globally.
+  function winDragGuard(e: DragEvent) {
+    if (dragHasFiles(e)) e.preventDefault()
+  }
+
   // ---- mobile edge swipes: open/close the panels ---------------------------
   // Left edge → sidebar, right edge → info panel. Only horizontal-dominant
   // drags count, so normal vertical scrolling is untouched. Open gestures
@@ -380,6 +422,8 @@
   }
 </script>
 
+<svelte:window on:dragover={winDragGuard} on:drop={winDragGuard} />
+
 <div class="app" class:nosidebar={!$sidebarOpen}>
   {#if $sidebarOpen}
     <Sidebar onOpenHistory={openHistory} onNewChat={newChat} />
@@ -425,7 +469,14 @@
     </div>
     <TabsBar onClose={closeTab} onNewChat={newChat} />
     {#each $tabs as t (t.id)}
-      <div class="tabpane" style:display={$active === t.id ? 'flex' : 'none'}>
+      <div
+        class="tabpane"
+        style:display={$active === t.id ? 'flex' : 'none'}
+        on:dragenter={(e) => paneDragEnter(e, t.id)}
+        on:dragover={(e) => paneDragOver(e, t.id)}
+        on:dragleave={(e) => paneDragLeave(e, t.id)}
+        on:drop={(e) => paneDrop(e, t.id)}
+      >
         <Transcript
           tab={t}
           active={t.id === $active}
@@ -453,6 +504,7 @@
           tab={t}
           onSent={onSent}
           realize={() => realizeSession(t.id)}
+          dropActive={dragPane === t.id}
         />
         <Footer tab={t} />
       </div>

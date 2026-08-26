@@ -60,6 +60,15 @@ export interface OcPart {
   [k: string]: any
 }
 
+// composer attachment part on prompt_async (verified against live engine:
+// stored user-message file parts come back with this same shape)
+export interface OcFilePart {
+  type: 'file'
+  mime: string
+  url: string
+  filename: string
+}
+
 export const oc = {
   sessions: () => req<OcSession[]>('/oc/session'),
   session: (id: string) => req<OcSession>(`/oc/session/${id}`),
@@ -79,16 +88,21 @@ export const oc = {
   // prompt_async returns immediately (204) — the turn streams in over SSE.
   // `agent` (top-level body field, engine OpenAPI-confirmed) runs this one
   // turn under the named agent; omitted = session default.
+  // `files` are composer attachments sent as file parts ordered AFTER the
+  // text part; `url` is a full data URL (data:<mime>;base64,<b64>). The engine
+  // inlines text/code files as synthetic Read-tool text and passes images
+  // through as image content — nothing else needed client-side.
   prompt: (
     sessionId: string,
     text: string,
     model?: { providerID: string; modelID: string },
     agent?: string,
+    files?: OcFilePart[],
   ) =>
     req<unknown>(`/oc/session/${sessionId}/prompt_async`, {
       method: 'POST',
       body: JSON.stringify({
-        parts: [{ type: 'text', text }],
+        parts: [{ type: 'text', text }, ...(files ?? [])],
         ...(model ? { model } : {}),
         ...(agent ? { agent } : {}),
       }),

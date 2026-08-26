@@ -5,6 +5,7 @@
   import { refetchNow } from '../lib/sse'
   import { md } from '../lib/markdown'
   import { isImagePath, imageDataUrl } from '../lib/images'
+  import { extLabel, isImageMime } from '../lib/attachments'
   import { isAborted, roleLabel, taskNoticeOf } from '../lib/util'
   import { retryState, cancelRetry, nextPayloadKind } from '../lib/retries'
   import ModelSelect from './ModelSelect.svelte'
@@ -82,13 +83,22 @@
 
   $: msgs = applyRevert(tab.messages, tab.revert).filter(
     // errored assistant messages can have zero renderable parts (provider died
-    // before anything streamed) — keep them so their inline tile shows
-    (m) => !!m.error || m.parts?.some((p) => p.type === 'text' || p.type === 'tool' || p.type === 'reasoning'),
+    // before anything streamed) — keep them so their inline tile shows;
+    // file parts are composer attachments — attachment-only user messages
+    // must still appear
+    (m) =>
+      !!m.error ||
+      m.parts?.some(
+        (p) => p.type === 'text' || p.type === 'tool' || p.type === 'reasoning' || p.type === 'file',
+      ),
   )
   $: lastMsg = msgs.at(-1)
   $: lastHasVisible =
     !!lastMsg?.parts?.some(
-      (p) => (p.type === 'text' && (p.text ?? '').trim()) || p.type === 'tool',
+      (p) =>
+        (p.type === 'text' && (p.text ?? '').trim()) ||
+        p.type === 'tool' ||
+        p.type === 'file',
     )
   $: liveThinking = tab.busy && (!lastMsg || lastMsg.role !== 'assistant' || !lastHasVisible)
 
@@ -868,6 +878,24 @@
                 {/if}
               {/if}
             </div>
+          {:else if p.type === 'file'}
+            <!-- stored composer attachment: images open the lightbox,
+                 everything else is a compact filename chip. Degraded shapes
+                 (pure-history projection drops url/filename) render nothing. -->
+            {#if typeof p.url === 'string' && p.url && isImageMime(p.mime)}
+              <button
+                class="msgimg"
+                title="{p.filename ?? 'image'} — click to view full size"
+                on:click={() => openLightbox(p.url, p.filename)}
+              >
+                <img src={p.url} alt={p.filename ?? 'attachment'} loading="lazy" />
+              </button>
+            {:else if p.filename}
+              <span class="msgfile" title={p.mime ?? 'file'}>
+                <span class="fext">{extLabel(p.filename)}</span>
+                <span class="fname">{p.filename}</span>
+              </span>
+            {/if}
           {/if}
         {/each}
         {#if liveThinking && m === lastMsg}
@@ -1426,6 +1454,60 @@
     height: auto;
     max-height: 220px;
     object-fit: contain;
+  }
+  /* user-message attachments (stored file parts): images open the lightbox,
+     everything else is a compact filename chip */
+  .msgimg {
+    display: block;
+    margin: 6px 0;
+    padding: 0;
+    width: min(220px, 100%);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--bg-code);
+    overflow: hidden;
+    cursor: zoom-in;
+  }
+  .msgimg:hover {
+    border-color: var(--accent);
+  }
+  .msgimg img {
+    display: block;
+    width: 100%;
+    height: auto;
+    max-height: 200px;
+    object-fit: cover;
+  }
+  .msgfile {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin: 3px 8px 3px 0;
+    padding: 3px 9px 3px 4px;
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    vertical-align: middle;
+  }
+  .msgfile .fext {
+    font-family: var(--mono);
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    color: var(--accent);
+    background: rgba(78, 201, 176, 0.08);
+    border: 1px solid rgba(78, 201, 176, 0.28);
+    border-radius: 4px;
+    padding: 2px 4px;
+  }
+  .msgfile .fname {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    color: var(--fg);
+    max-width: 260px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   details.outbox summary {
     display: flex;
