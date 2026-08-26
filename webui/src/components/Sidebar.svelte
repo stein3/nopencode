@@ -387,21 +387,37 @@
                 class:busy={busyMap[d.s.id]}
                 class:ask={qSet.has(d.s.id)}
                 class:perm={permSet.has(d.s.id)}
+                title={permSet.has(d.s.id)
+                  ? 'permission needed'
+                  : qSet.has(d.s.id)
+                    ? 'question needs an answer'
+                    : busyMap[d.s.id]
+                      ? 'running'
+                      : $sessionUnread.has(d.s.id)
+                        ? 'unread'
+                        : undefined}
               ></span>
               <span class="ttext">{displayTitle(d.s)}</span>
-              {#if d.kids && !d.subsHidden}<span class="kidcount">{d.kids}</span>{/if}
+              <!-- aggregated descendant status on collapsed parents (or any
+                   parent in hide mode): LINE 1's right side, immediately
+                   before the subagent counter chip -->
+              {#if d.kids && (d.subsHidden || !d.expanded)}
+                {#if d.agg.perm}<span class="aggdot perm" title="a subagent needs permission"></span>
+                {:else if d.agg.ask}<span class="aggdot ask" title="a subagent needs an answer"></span>
+                {:else if d.agg.busy}<span class="aggdot busy" title="a subagent is running"></span>
+                {:else if d.agg.unread}<span class="aggdot unread" title="a subagent finished"></span>{/if}
+              {/if}
+              <!-- counter always renders, even hide mode; only the chevron is
+                   gated off there -->
+              {#if d.kids}
+                <span class="kidcount" title={`${d.kids} subagent${d.kids === 1 ? '' : 's'}${d.subsHidden ? ' · hidden' : ''}`}
+                  >{d.kids}</span
+                >
+              {/if}
             </span>
           </span>
-          <!-- aggregate light lives in line 2's LEFT GUTTER: absolutely
-               positioned under the line-1 status dot's column, vertically
-               centered on the meta/time row. Out-of-flow, so .smeta's x is
-              untouched and the two-row compound indicator reads clearly -->
           <span class="sub"
-            >{#if d.kids && (d.subsHidden || !d.expanded)}
-              {#if d.agg.perm}<span class="aggdot perm" title="a subagent needs permission"></span>
-              {:else if d.agg.ask}<span class="aggdot ask" title="a subagent needs an answer"></span>
-              {:else if d.agg.busy}<span class="aggdot busy" title="a subagent is running"></span>
-              {:else if d.agg.unread}<span class="aggdot unread" title="a subagent finished"></span>{/if}{/if}<span
+            ><span
                 class="smeta"
               >{#if isSub(d.s)}<span class="subagent">{subLabel(d.s)}</span> · {/if}{d.s.message_count} msgs{fmtK(
                   d.s.tokens
@@ -409,7 +425,7 @@
                 ? ` · ${fmtK(d.s.tokens)} tk`
                 : ''}{d.s.model ? ` · ${d.s.model}` : ''}</span
             >
-            <span class="stime">{relTime(d.s.updated)}</span>
+            <span class="stime" title={new Date(d.s.updated).toLocaleString()}>{relTime(d.s.updated)}</span>
           </span>
         </button>
       {:else}
@@ -439,6 +455,7 @@
     --dotw: 7px;   /* status light */
     --aggw: 6px;   /* aggregated-subagent light */
     --rowgap: 6px; /* gap between the leading columns */
+    --rowpad: 6px; /* row LEFT padding (chevron x = border 2px + this) */
   }
   @supports (height: 100dvh) {
     .sidebar {
@@ -560,7 +577,7 @@
     border-left: 2px solid transparent;
     color: var(--fg);
     padding: 7px 12px;
-    padding-left: calc(12px + var(--depth, 0) * 16px);
+    padding-left: calc(var(--rowpad) + var(--depth, 0) * 16px);
     cursor: pointer;
     font-size: 12.5px;
     position: relative;
@@ -584,7 +601,7 @@
   .item.child::before {
     content: '';
     position: absolute;
-    left: calc(12px + (var(--depth) - 1) * 16px + 8px);
+    left: calc(var(--rowpad) + (var(--depth) - 1) * 16px + 8px);
     top: 0;
     bottom: 0;
     width: 1px;
@@ -624,20 +641,13 @@
     line-height: 1.5;
   }
   /* aggregated descendant status on a collapsed parent — solid, no animation.
-     Lives in LINE 2's left gutter: absolutely positioned inside .sub, sharing
-     the status dot's x column but vertically centered on the meta/time row,
-     clearly separated from line 1. Out-of-flow → .smeta's x is untouched */
+     Inline on LINE 1's right side, immediately before the subagent counter
+     chip (plain flex:none circle — no absolute positioning) */
   .aggdot {
-    position: absolute;
-    /* center the 6px light under the 7px dot column: chevron + gap, then
-       half the dot/agg size difference */
-    left: calc(var(--chevw) + var(--rowgap) + (var(--dotw) - var(--aggw)) / 2);
-    top: 50%;
-    transform: translateY(-50%);
-    pointer-events: none;
     width: var(--aggw);
     height: var(--aggw);
     border-radius: 50%;
+    flex: none;
   }
   .aggdot.busy {
     background: var(--warn);
@@ -715,8 +725,6 @@
      fully visible */
   .sub {
     display: flex;
-    /* containing block for the absolutely-positioned gutter aggdot */
-    position: relative;
     align-items: baseline;
     gap: var(--rowgap);
     /* meta starts where line 1's title text starts: chevron column + dot
@@ -736,10 +744,6 @@
   }
   .list.flat .sub {
     padding-left: calc(var(--dotw) + var(--rowgap));
-  }
-  .list.flat .aggdot {
-    /* no chevron column in flat mode — the gutter starts at the row edge */
-    left: calc((var(--dotw) - var(--aggw)) / 2);
   }
   .smeta {
     flex: 1;
