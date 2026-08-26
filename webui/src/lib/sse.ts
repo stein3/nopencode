@@ -7,6 +7,31 @@ import { isRetryableError, scheduleRetry, onTurnIdle } from './retries'
 
 const timers = new Map<string, ReturnType<typeof setTimeout>>()
 
+// Delta coalescing: the engine emits one message.part.delta per token-ish
+// chunk and appendDelta swaps the whole tabs array per call (a global notify
+// each). Buffer chunks per session|message|part|field and flush ONE
+// appendDelta per key every ~40ms — visually identical for streaming text, a
+// fraction of the store churn.
+const deltaBuf = new Map<string, { sid: string; mid: string; pid: string; field: string; chunk: string }>()
+let deltaTimer: ReturnType<typeof setTimeout> | undefined
+
+function flushDeltas() {
+  deltaTimer = undefined
+  if (!deltaBuf.size) return
+  // Map preserves insertion order → parts update in arrival order
+  const batch = [...deltaBuf.values()]
+  deltaBuf.clear()
+  for (const d of batch) tabs.appendDelta(d.sid, d.mid, d.pid, d.field, d.chunk)
+}
+
+function bufferDelta(sid: string, mid: string, pid: string, field: string, chunk: string) {
+  const key = `${sid}|${mid}|${pid}|${field}`
+  const cur = deltaBuf.get(key)
+  if (cur) cur.chunk += chunk
+  else deltaBuf.set(key, { sid, mid, pid, field, chunk })
+  if (deltaTimer === undefined) deltaTimer = setTimeout(flushDeltas, 40)
+}
+
 // Transcript loads are windowed: the newest RECENT_PAGE messages render first
 // (that's all the footer/info panel need for tokens/cost), older history is
 // fetched once on upward scroll. Engine `?before=` paging 400s server-side, so
@@ -227,9 +252,12 @@ export function startEvents() {
       return
     }
     if (type === 'message.part.delta' && p.partID && typeof p.delta === 'string') {
-      tabs.appendDelta(sid, p.messageID, p.partID, p.field, p.delta)
-      // fall through: debounced refetch covers deltas that landed before
-      // their message materialized locally
+      // Buffered + flushed on a short timer (see bufferDelta). NOTE: deltas do
+      // NOT schedule a refetch — this branch returns via the else-if chain —
+      // so a delta that lands before its message exists locally just no-ops
+      // at flush time; the later message.updated event materializes the
+      // message and its debounced refetch brings the full state.
+      bufferDelta(sid, p.messageID, p.partID, p.field, p.delta)
     } else if (type === 'message.updated' && p.info?.id) {
       tabs.setMeta(sid, p.info)
       // assistant message info carries the live token tally + per-message cost
