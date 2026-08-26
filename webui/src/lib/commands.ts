@@ -13,6 +13,7 @@ import {
   selectedModel,
   modelPickerOpen,
   renameTarget,
+  settingsOpen,
   cmdVersion,
   type DialogSpec,
 } from './stores'
@@ -334,6 +335,14 @@ registry.builtins = [
     description: 'Switch session',
     source: 'builtin',
     run: (ctx) => ctx.focusSidebar(),
+  },
+  {
+    name: 'settings',
+    description: 'Open settings',
+    source: 'builtin',
+    run: () => {
+      settingsOpen.set(true)
+    },
   },
   {
     name: 'share',

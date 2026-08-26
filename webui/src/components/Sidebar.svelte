@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { oc, hist, type HistSession, type SearchHit } from '../lib/api'
-  import { searchQuery, sessionMetrics, permissions, pendingQuestions, tabs, sessionUnread, markSessionUnread, hideSubagents, subExpanded } from '../lib/stores'
+  import { searchQuery, sessionMetrics, permissions, pendingQuestions, tabs, sessionUnread, markSessionUnread, hideSubagents, subExpanded, settingsOpen } from '../lib/stores'
   import { relTime } from '../lib/util'
 
   const activeStore = tabs.active
@@ -291,6 +291,15 @@
 
 <aside class="sidebar">
   <div class="top">
+    <button class="gear" title="Settings" aria-label="Settings" on:click={() => settingsOpen.set(true)}>
+      <!-- inline gear (no external icon assets) -->
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <circle cx="12" cy="12" r="3" />
+        <path
+          d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"
+        />
+      </svg>
+    </button>
     <button class="new" title="New chat (Ctrl+T)" on:click={onNewChat}>＋ New chat</button>
   </div>
   <div class="searchbox">
@@ -423,9 +432,12 @@
   }
   .top {
     padding: 10px;
+    display: flex;
+    gap: 8px;
   }
   .new {
-    width: 100%;
+    flex: 1;
+    min-width: 0;
     background: var(--accent);
     color: #fff;
     border: none;
@@ -436,6 +448,28 @@
   }
   .new:hover {
     filter: brightness(1.15);
+  }
+  /* square icon button, same tokens as the topbar's burger buttons */
+  .gear {
+    flex: none;
+    width: 34px;
+    align-self: stretch;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--fg-dim);
+    cursor: pointer;
+    padding: 0;
+  }
+  .gear:hover {
+    color: var(--fg);
+    border-color: var(--accent);
+  }
+  .gear svg {
+    display: block;
   }
   .searchbox {
     padding: 0 10px;

@@ -394,6 +394,9 @@ export const subExpanded = (() => {
 // ---- externally-triggered model picker ----
 export const modelPickerOpen = writable(false)
 
+// ---- settings page (gear button in the sidebar) ----
+export const settingsOpen = writable(false)
+
 // ---- rename-session dialog target (sid + current title); null = closed ----
 export const renameTarget = writable<{ sid: string; title: string } | null>(null)
 
@@ -584,4 +587,32 @@ export function recordRecent(m: ModelRef) {
     }
     return next
   })
+}
+
+export function clearRecentModels() {
+  recentModels.set([])
+  try {
+    localStorage.removeItem(RECENTS_KEY)
+  } catch {
+    /* private mode */
+  }
+}
+
+// ---- destructive: wipe every local preference --------------------------------
+// Every app key in localStorage is namespaced `opencode.` (prefs, model/agent
+// picks, recents, open-tab restore, expanded subagent groups), so the settings
+// page's "clear all local data" only removes those — anything else on the
+// origin is left alone. Server-side sessions are untouched. The caller should
+// location.reload() right after so stores re-seed from the clean state.
+export function clearLocalData() {
+  try {
+    const doomed: string[] = []
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i)
+      if (k && k.startsWith('opencode.')) doomed.push(k)
+    }
+    for (const k of doomed) localStorage.removeItem(k)
+  } catch {
+    /* private mode */
+  }
 }
