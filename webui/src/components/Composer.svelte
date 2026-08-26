@@ -1,23 +1,110 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte'
   import { oc } from '../lib/api'
+  import type { OcFilePart } from '../lib/api'
   import { tabs, selectedModel, sessionAgent, cmdVersion } from '../lib/stores'
   import type { Tab } from '../lib/stores'
   import { registry, type Cmd } from '../lib/commands'
   import { RECENT_PAGE, normalizeMessages } from '../lib/sse'
   import { cancelRetry } from '../lib/retries'
+  import {
+    MAX_FILE_BYTES,
+    MAX_TOTAL_BYTES,
+    formatSize,
+    extLabel,
+    midTrunc,
+    isImageMime,
+    readAttachment,
+    type Attachment,
+  } from '../lib/attachments'
   import AgentPicker from './AgentPicker.svelte'
 
   export let tab: Tab
   export let onSent: (sessionId: string) => void
   // creates the engine session on first use (pending tabs)
   export let realize: () => Promise<string> = async () => tab.id
+  // a file drag is hovering this pane (App drives it) — dashed accent affordance
+  export let dropActive = false
 
   let text = ''
   let ta: HTMLTextAreaElement
   let sending = false
   let sendError = ''
   let sel = 0
+
+  // ---- attachments -------------------------------------------------------
+  // Staged files for the NEXT message. Images keep a thumbnail data URL;
+  // everything else shows an extension badge. Sent as file parts after the
+  // text part; the tray clears once the dispatch starts.
+  let atts: Attachment[] = []
+  let attErrors: string[] = []
+  let fileInput: HTMLInputElement
+
+  export async function attachFiles(list: FileList | File[]): Promise<void> {
+    const arr = Array.from(list ?? [])
+    if (!arr.length) return
+    attErrors = []
+    const errs: string[] = []
+    const ok: Attachment[] = []
+    let total = atts.reduce((s, a) => s + a.size, 0)
+    for (const f of arr) {
+      if (f.size > MAX_FILE_BYTES) {
+        errs.push(`${f.name || 'file'} is larger than ${formatSize(MAX_FILE_BYTES)}`)
+        continue
+      }
+      if (total + f.size > MAX_TOTAL_BYTES) {
+        errs.push(
+          `adding ${f.name || 'file'} would exceed the ${formatSize(MAX_TOTAL_BYTES)} per-message limit`,
+        )
+        continue
+      }
+      try {
+        const a = await readAttachment(f)
+        ok.push(a)
+        total += a.size
+      } catch {
+        errs.push(`could not read ${f.name || 'file'}`)
+      }
+    }
+    if (ok.length) atts = [...atts, ...ok]
+    attErrors = errs
+  }
+
+  function removeAtt(id: string) {
+    atts = atts.filter((a) => a.id !== id)
+    if (!atts.length) attErrors = []
+  }
+
+  function pickFiles() {
+    fileInput?.click()
+  }
+
+  function onPick() {
+    if (fileInput?.files?.length) void attachFiles(fileInput.files)
+    fileInput.value = '' // re-picking the same file must fire change again
+  }
+
+  // Paste: image/file content on the clipboard becomes an attachment; plain
+  // text keeps the native behavior untouched.
+  function paste(e: ClipboardEvent) {
+    const items = e.clipboardData?.items
+    if (!items) return
+    const files: File[] = []
+    for (const it of items) {
+      if (it.kind === 'file') {
+        const f = it.getAsFile()
+        if (f) files.push(f)
+      }
+    }
+    if (!files.length) return
+    e.preventDefault()
+    void attachFiles(files)
+  }
+
+  function toFilePart(a: Attachment): OcFilePart {
+    return { type: 'file', mime: a.mime, url: a.dataUrl, filename: a.filename }
+  }
+
 
   registry.load()
 
@@ -120,14 +207,17 @@
   // nothing here waits on it. The flight is still detached and its errors
   // handled by failedSend() in case the dispatch connection dies mid-send.
   async function submit(body: string) {
-    if (!body || sending) return
+    const files = atts
+    if ((!body && !files.length) || sending) return
     sending = true
     sendError = ''
+    attErrors = []
     let sid = tab.id
     // clear the box right away so the next (possibly queued) message can be
     // typed while this one runs; restored on failure if it never landed
     text = ''
     autosize()
+    let trayCleared = false
     let flight: Promise<unknown> | null = null
     try {
       const isCmd = body.startsWith('/')
@@ -153,7 +243,13 @@
         flight =
           m && !registry.ready
             ? oc.runCommand(sid, m[1], m[2] ? [m[2]] : [])
-            : oc.prompt(sid, body, $selectedModel ?? undefined, sessionAgent(sid))
+            : oc.prompt(sid, body, $selectedModel ?? undefined, sessionAgent(sid), files.map(toFilePart))
+        // attachments ship inside the POST body, so once the dispatch starts
+        // they're delivered — clear the tray like the text box (handed back by
+        // failedSend if the flight dies before landing). Slash commands can't
+        // carry files, so there the tray stays staged for the next prompt.
+        atts = []
+        trayCleared = true
         onSent(sid)
       }
     } catch (e: any) {
@@ -169,7 +265,7 @@
       await flight
     } catch (e: any) {
       tabs.patch(sid, { busy: false })
-      await failedSend(sid, body, e)
+      await failedSend(sid, body, e, trayCleared ? files : undefined)
     }
   }
 
@@ -177,7 +273,7 @@
   // connection dying does NOT mean the engine missed the message, so only hand
   // it back when the transcript shows no matching user message; blindly
   // restoring made returning to a backgrounded tab "resend" the last message.
-  async function failedSend(sid: string, body: string, e: any) {
+  async function failedSend(sid: string, body: string, e: any, files?: Attachment[]) {
     toastErr(e)
     let landed = false
     try {
@@ -194,6 +290,8 @@
       // don't clobber a newer draft the user started meanwhile
       text = body
       autosize()
+      // hand the attachments back too, unless new ones were staged meanwhile
+      if (files?.length && !atts.length) atts = files
     }
   }
 
@@ -225,7 +323,8 @@
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       const body = text.trim()
-      if (body) submit(body)
+      // attachments alone (no text) are a valid send
+      if (body || atts.length) submit(body)
     }
   }
 
@@ -245,11 +344,35 @@
   }
 </script>
 
-<div class="composer">
+<div class="composer" class:dropping={dropActive}>
   {#if sendError}
     <div class="error">send failed: {sendError}</div>
   {/if}
-  <div class="box">
+  {#each attErrors as ae (ae)}
+    <div class="error">{ae}</div>
+  {/each}
+  {#if dropActive}
+    <div class="drophint">drop files to attach</div>
+  {/if}
+  {#if atts.length}
+    <div class="tray">
+      {#each atts as a (a.id)}
+        <div class="chip" title="{a.filename} · {formatSize(a.size)}">
+          {#if isImageMime(a.mime)}
+            <img class="cthumb" src={a.dataUrl} alt={a.filename} />
+          {:else}
+            <span class="cext">{extLabel(a.filename)}</span>
+          {/if}
+          <span class="cmeta">
+            <span class="cname">{midTrunc(a.filename)}</span>
+            <span class="csize">{formatSize(a.size)}</span>
+          </span>
+          <button class="crm" title="Remove attachment" on:click={() => removeAtt(a.id)}>×</button>
+        </div>
+      {/each}
+    </div>
+  {/if}
+  <div class="box" class:hastray={atts.length}>
     {#if tab.busy}
       <button class="stop" title="Abort current turn" on:click={abort}>■</button>
     {/if}
@@ -263,6 +386,7 @@
         placeholder="Message…  (Enter to send, Shift+Enter newline, / for commands)"
         on:focus={onTaFocus}
         on:keydown={key}
+        on:paste={paste}
         on:input={() => {
           autosize()
           sel = 0
@@ -292,16 +416,31 @@
         </div>
       {/if}
     </div>
+    <button class="clip" title="Attach files" on:click={pickFiles}>
+      <!-- feather "paperclip" -->
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      >
+        <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+      </svg>
+    </button>
     {#if tab.busy}
-      <button class="go queued" disabled={!text.trim() || sending} title="Queue message (runs after the current turn)" on:click={() => submit(text.trim())}>➤</button>
+      <button class="go queued" disabled={!text.trim() && !atts.length} title="Queue message (runs after the current turn)" on:click={() => submit(text.trim())}>➤</button>
     {:else}
-      <button class="go" disabled={!text.trim() || sending} title="Send" on:click={() => submit(text.trim())}>➤</button>
+      <button class="go" disabled={!text.trim() && !atts.length} title="Send" on:click={() => submit(text.trim())}>➤</button>
     {/if}
   </div>
+  <input type="file" multiple hidden bind:this={fileInput} on:change={onPick} />
 </div>
 
 <style>
   .composer {
+    position: relative;
     padding: 10px 16px 14px;
     max-width: 892px;
     margin: 0 auto;
@@ -312,6 +451,116 @@
     color: var(--err);
     font-size: 12px;
     margin-bottom: 6px;
+  }
+  /* attachment tray — flush on top of the input box, reading as one panel */
+  .tray {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 7px 8px;
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-bottom: none;
+    border-radius: 8px 8px 0 0;
+    max-height: 118px;
+    overflow-y: auto;
+  }
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    background: var(--bg-hover);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 4px 5px 4px 4px;
+    max-width: 250px;
+  }
+  .chip .cthumb {
+    width: 30px;
+    height: 30px;
+    border-radius: 4px;
+    object-fit: cover;
+    border: 1px solid var(--border);
+    background: var(--bg-code);
+    flex: none;
+  }
+  .chip .cext {
+    font-family: var(--mono);
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    color: var(--accent);
+    background: rgba(78, 201, 176, 0.08);
+    border: 1px solid rgba(78, 201, 176, 0.28);
+    border-radius: 4px;
+    padding: 9px 5px;
+    min-width: 32px;
+    text-align: center;
+    flex: none;
+  }
+  .chip .cmeta {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 0;
+    line-height: 1.25;
+  }
+  .chip .cname {
+    font-size: 12px;
+    white-space: nowrap;
+  }
+  .chip .csize {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--fg-dim);
+  }
+  .chip .crm {
+    flex: none;
+    align-self: flex-start;
+    width: 18px;
+    height: 18px;
+    line-height: 1;
+    padding: 0;
+    border: none;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--fg-dim);
+    cursor: pointer;
+    font-size: 13px;
+  }
+  .chip .crm:hover {
+    color: var(--err);
+    background: rgba(244, 135, 113, 0.12);
+  }
+  .box.hastray {
+    border-top-left-radius: 0;
+    border-top-right-radius: 0;
+  }
+  /* file-drag affordance: dashed accent outline + soft glow over the box */
+  .composer.dropping .box {
+    border-color: var(--accent);
+    border-style: dashed;
+    box-shadow:
+      0 0 0 3px rgba(78, 201, 176, 0.14),
+      0 0 22px rgba(78, 201, 176, 0.12);
+  }
+  .drophint {
+    position: absolute;
+    top: -11px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 6;
+    background: var(--accent);
+    color: #14231f;
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    padding: 3px 12px;
+    border-radius: 999px;
+    white-space: nowrap;
+    pointer-events: none;
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.45);
   }
   .box {
     display: flex;
@@ -418,7 +667,8 @@
     user-select: none;
   }
   button.go,
-  button.stop {
+  button.stop,
+  button.clip {
     width: 30px;
     height: 30px;
     border-radius: 6px;
@@ -426,6 +676,23 @@
     cursor: pointer;
     font-size: 13px;
     flex-shrink: 0;
+  }
+  .clip {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--fg-dim);
+  }
+  .clip:hover {
+    color: var(--accent);
+    border-color: var(--accent);
+  }
+  .clip svg {
+    width: 15px;
+    height: 15px;
   }
   .go {
     background: var(--accent);
