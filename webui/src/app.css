@@ -190,9 +190,9 @@ html[data-theme='night-runner'] {
   --border: #3d3d6b;
   --fg: #e0e0e0;
   --fg-dim: #8080a0;
-  --accent: #f5d020;
+  --accent: #F9FF23;
   --user-accent: #5a7ab5;
-  --warn: #f5d020;
+  --warn: #F9FF23;
   --err: #e06070;
   --ok: #70c080;
 }
