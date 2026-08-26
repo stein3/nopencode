@@ -13,6 +13,21 @@
   let hits: SearchHit[] = []
   let searching = false
   let searchTimer: ReturnType<typeof setTimeout>
+  let searchEl: HTMLInputElement
+
+  function clearSearch() {
+    searchQuery.set('')
+    hits = []
+    groups = []
+    searchEl?.blur()
+  }
+
+  function onSearchKey(e: KeyboardEvent) {
+    if (e.key === 'Escape') {
+      e.preventDefault()
+      clearSearch()
+    }
+  }
 
   // live busy state from engine /oc/session/status
   let busyMap: Record<string, boolean> = {}
@@ -50,7 +65,32 @@
 
   $: q = $searchQuery.trim()
 
-  $: if (q.length >= 2) {
+  // Parse filter tokens like "title:foo agent:bar" from the query.
+  // The remaining text (no filter prefix) becomes the free-text search term.
+  $: parsedSearch = parseSearchQuery(q)
+  $: searchText = parsedSearch.free
+  $: searchFilters = parsedSearch.filters
+
+  interface SearchFilter {
+    key: string
+    value: string
+  }
+
+  function parseSearchQuery(raw: string): { free: string; filters: SearchFilter[] } {
+    const filters: SearchFilter[] = []
+    // match key:value or key:"value with spaces"
+    const re = /\b(title|role):(?:"([^"]*)"|(\S+))/gi
+    let free = raw
+    let m: RegExpExecArray | null
+    while ((m = re.exec(raw))) {
+      filters.push({ key: m[1].toLowerCase(), value: (m[2] ?? m[3]).toLowerCase() })
+      free = free.slice(0, m.index) + free.slice(m.index + m[0].length)
+    }
+    free = free.trim()
+    return { free, filters }
+  }
+
+  $: if (searchText.length >= 2 || (searchFilters.length && q.length >= 2)) {
     clearTimeout(searchTimer)
     searchTimer = setTimeout(runSearch, 200)
   }
@@ -58,11 +98,45 @@
   async function runSearch() {
     searching = true
     try {
-      hits = await hist.search(q)
+      // When only filters are present (no free text), use the sessions API
+      // and apply filters client-side — avoids FTS highlighting filter keywords
+      if (searchFilters.length && !searchText) {
+        const sessions = await hist.sessions()
+        hits = sessions.map((s) => ({
+          session_id: s.id,
+          session_title: s.title,
+          message_id: '',
+          part_id: '',
+          role: '',
+          time: s.updated,
+          snippet: '',
+          agent: s.agent,
+        }))
+        hits = applyFilters(hits, searchFilters)
+        groups = groupHits(hits)
+        return
+      }
+      // Use the free-text portion for the API call (FTS);
+      // filter tokens are applied client-side after results arrive.
+      const apiQuery = searchText || q
+      const raw = apiQuery.length >= 2 ? await hist.search(apiQuery) : []
+      hits = applyFilters(raw, searchFilters)
       groups = groupHits(hits)
     } finally {
       searching = false
     }
+  }
+
+  function applyFilters(raw: SearchHit[], filters: SearchFilter[]): SearchHit[] {
+    if (!filters.length) return raw
+    return raw.filter((h) => {
+      for (const f of filters) {
+        if (f.key === 'title' && !h.session_title.toLowerCase().includes(f.value)) return false
+        if (f.key === 'role' && h.role?.toLowerCase() !== f.value) return false
+        if (f.key === 'agent' && h.agent?.toLowerCase() !== f.value) return false
+      }
+      return true
+    })
   }
 
   // search results grouped per session; sessions ordered by their most recent
@@ -303,11 +377,23 @@
     <button class="new" title="New chat (Ctrl+T)" on:click={onNewChat}>＋ New chat</button>
   </div>
   <div class="searchbox">
-    <input
-      id="sidebar-search"
-      placeholder="Search all chats…  (Ctrl+K)"
-      bind:value={$searchQuery}
-    />
+    <div class="searchwrap">
+      <input
+        id="sidebar-search"
+        placeholder="Search all chats…  (Ctrl+K)"
+        bind:value={$searchQuery}
+        bind:this={searchEl}
+        on:keydown={onSearchKey}
+      />
+      {#if $searchQuery}
+        <button class="searchclear" title="Clear search (Esc)" on:click={clearSearch}>×</button>
+      {/if}
+    </div>
+    {#if $searchQuery}
+      <div class="searchhint">
+        <span class="fhint">Filters: title: role:</span>
+      </div>
+    {/if}
   </div>
 
   <div class="list" class:flat={$hideSubagents}>
@@ -506,6 +592,9 @@
   .searchbox {
     padding: 0 10px;
   }
+  .searchwrap {
+    position: relative;
+  }
   #sidebar-search {
     width: 100%;
     box-sizing: border-box;
@@ -514,11 +603,41 @@
     border: 1px solid var(--border);
     border-radius: 6px;
     padding: 6px 9px;
+    padding-right: 28px;
     font-size: 12.5px;
     outline: none;
   }
   #sidebar-search:focus {
     border-color: var(--accent);
+  }
+  .searchclear {
+    position: absolute;
+    right: 4px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 22px;
+    height: 22px;
+    border: none;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--fg-dim);
+    font-size: 14px;
+    line-height: 1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+  }
+  .searchclear:hover {
+    background: var(--bg-hover);
+    color: var(--fg);
+  }
+  .searchhint {
+    padding: 3px 0 0;
+    font-size: 10.5px;
+    color: var(--fg-dim);
+    opacity: 0.7;
   }
   .list {
     flex: 1;

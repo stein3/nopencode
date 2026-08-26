@@ -240,6 +240,7 @@ export interface SearchHit {
   role: string
   time: number
   snippet: string
+  agent?: string
 }
 
 // persisted turn-failure tile (chatserver sidecar webui.db — the engine
