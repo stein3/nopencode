@@ -361,12 +361,12 @@ registry.builtins = [
       openDialog({
         title: 'opencode web help',
         pre: [
-          'ctrl+p   command palette        /        slash commands in composer',
-          'ctrl+t   new chat               ctrl+w   close tab',
-          'ctrl+k   search history         alt+←/→  cycle tabs',
-          'alt+1..9 jump to tab            enter    send · shift+enter newline',
-          '',
-          'ctrl+x <key> chords: n new · l sessions · b sidebar · m models ·',
+          'ctrl + p   command palette        /        slash commands in composer',
+          'ctrl + t   new chat               ctrl + w close tab',
+          'ctrl + k   search history         alt + tab  close tab',
+          'alt + 1..9 jump to tab            alt + ←/→ cycle tabs',
+          'enter    send                     shift + enter newline',
+          'ctrl + x <key> chords: n new · l sessions · b sidebar · m models ·',
           'a agents · g timeline · c compact · x export · y copy last · u undo · s status',
           '',
           'slash commands work inline while typing; arrow keys navigate,',
