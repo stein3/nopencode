@@ -242,7 +242,7 @@
         // of the failed turn), not a transient banner. A resend that fails
         // again dedupes server-side (UNIQUE sid,msg).
         flight =
-          m && !registry.ready
+          m
             ? oc.runCommand(sid, m[1], m[2] ? [m[2]] : [])
             : oc.prompt(sid, body, $selectedModel ?? undefined, sessionAgent(sid), files.map(toFilePart))
         // attachments ship inside the POST body, so once the dispatch starts
