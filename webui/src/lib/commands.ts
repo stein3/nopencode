@@ -18,7 +18,7 @@ import {
   type DialogSpec,
 } from './stores'
 import { refetchNow } from './sse'
-import { roleLabel } from './util'
+import { roleLabel, taskNoticeOf } from './util'
 
 export type CmdSource = 'builtin' | 'command' | 'skill'
 
@@ -116,9 +116,11 @@ function transcriptMarkdown(sid: string): string {
   if (!t) return ''
   const lines: string[] = [`# ${t.title || 'session'}\n`]
   for (const m of t.messages) {
-    // same label the transcript headers show (agent titlecased / Error)
+    // same label the transcript headers show (agent titlecased / Error /
+    // subagent for engine-injected task results)
     const who = roleLabel(m)
-    lines.push(`## ${who}`)
+    const tn = taskNoticeOf(m)
+    lines.push(tn?.desc ? `## ${who} — ${tn.desc}` : `## ${who}`)
     for (const p of m.parts ?? []) {
       if (p.type === 'text' && (p.text ?? '').trim()) lines.push(p.text ?? '')
       else if (p.type === 'tool') lines.push('```\n[' + (p.tool ?? 'tool') + ']\n```\n')

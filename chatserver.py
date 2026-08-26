@@ -278,6 +278,8 @@ def load_messages(sid, limit=None):
                     "text": pd.get("text"),
                     "tool": tool or None,
                     "state_summary": summary[:120],
+                    # engine-injected subagent task results (synthetic user msgs)
+                    "synthetic": True if pd.get("synthetic") else None,
                 }
             )
     return msgs

@@ -5,7 +5,7 @@
   import { refetchNow } from '../lib/sse'
   import { md } from '../lib/markdown'
   import { isImagePath, imageDataUrl } from '../lib/images'
-  import { isAborted, roleLabel } from '../lib/util'
+  import { isAborted, roleLabel, taskNoticeOf } from '../lib/util'
   import { retryState, cancelRetry, nextPayloadKind } from '../lib/retries'
   import ModelSelect from './ModelSelect.svelte'
   import QuestionPicker from './QuestionPicker.svelte'
@@ -107,6 +107,9 @@
     let seenHead = false
     for (let i = lastAssistant + 1; i < list.length; i++) {
       if (list[i].role !== 'user') continue
+      // engine-injected subagent task results aren't pending prompts — never
+      // badge them "queued" and don't let them consume the head slot
+      if (taskNoticeOf(list[i])) continue
       if (!seenHead) seenHead = true
       else out.add(list[i].id)
     }
@@ -547,6 +550,21 @@
     return one.length > n ? one.slice(0, n - 1) + '…' : one
   }
 
+  // First content line inside <task_result>/<task_error> of an engine-injected
+  // subagent result — preview for the collapsed row.
+  function taskPreview(text: string): string {
+    return outFirstLine(text.split(/<task_result>|<task_error>/)[1] ?? '')
+  }
+
+  // Inner content of <task_result>/<task_error>. The envelope must never go
+  // through markdown: marked passes <summary> through DOMPurify as a LIVE
+  // element, so the unstripped text would re-render its own header line
+  // inside the expanded body.
+  function taskBody(text: string): string {
+    const m = /<task_(?:result|error)>\n?([\s\S]*?)\n?<\/task_(?:result|error)>/.exec(text)
+    return m ? m[1] : text
+  }
+
   // One-line summary per tool: read → file, glob → pattern, bash → command…
   // Falls back to the engine's own title, then any string argument.
   function toolStatusGlyph(p: any): string {
@@ -707,9 +725,22 @@
       </div>
     {/if}
   {#each msgs as m (m.id)}
-    <div class="msg" class:user={m.role === 'user'} id={`m-${m.id}`}>
+    {@const tn = taskNoticeOf(m)}
+    <div
+      class="msg"
+      class:user={m.role === 'user' && !tn}
+      class:subres={!!tn}
+      class:suberr={tn?.state === 'error'}
+      id={`m-${m.id}`}
+    >
         <div class="head" title={m.role}>
-        <span class="role" class:errole={m.error && m.role !== 'user' && !isAborted(m.error)}>{roleLabel(m)}</span>
+        {#if tn}
+          <!-- engine-injected subagent result — never styled as "You" -->
+          <span class="role subrole">{tn.state === 'error' ? '✗' : '✓'} subagent</span>
+          {#if tn.desc}<span class="tnote-desc" title={tn.desc}>{tn.desc}</span>{/if}
+        {:else}
+          <span class="role" class:errole={m.error && m.role !== 'user' && !isAborted(m.error)}>{roleLabel(m)}</span>
+        {/if}
         {#if m.modelID}<span class="model-id" title={m.providerID ? `${m.providerID}/${m.modelID}` : m.modelID}>{m.modelID}</span>{/if}
         {#if $showTimestamps}
           <span class="time">{timeStr(m.time?.created)}</span>
@@ -717,7 +748,7 @@
         {#if queuedIds.has(m.id)}
           <span class="qbadge" title="waiting for the current reply to finish">queued</span>
         {/if}
-        {#if m.role === 'user'}
+        {#if m.role === 'user' && !tn}
           <span class="acts">
             <button class="act" title="Revert session to before this message" on:click={() => revertTo(m.id)}>↩</button>
             <button class="act" title="Fork a new session from before this message" on:click={() => forkFrom(m.id)}>⑂</button>
@@ -728,7 +759,18 @@
       <div class="body">
         {#each partsOf(m) as p (p.id)}
           {#if p.type === 'text' && (p.text ?? '').trim()}
-            {@html html(p, tab.busy && m === lastMsg)}
+            {#if tn}
+              <!-- subagent result body: collapsed by default, full markdown inside -->
+              <details class="tnote">
+                <summary>
+                  <span class="tsum">{clip(taskPreview(p.text ?? ''), 120)}</span>
+                  <span class="tcount">{(p.text ?? '').length.toLocaleString()} chars</span>
+                </summary>
+                <div class="tnote-body">{@html html({ ...p, text: taskBody(p.text ?? '') }, tab.busy && m === lastMsg)}</div>
+              </details>
+            {:else}
+              {@html html(p, tab.busy && m === lastMsg)}
+            {/if}
           {:else if p.type === 'reasoning' && (p.text ?? '').trim()}
             <details class="thinking" open={$showThinking || p.id === liveReasoningId || undefined}>
               <summary>💭 Thinking</summary>
@@ -915,6 +957,81 @@
     background: var(--bg-user);
     border-left: 2px solid var(--user-accent);
     border-radius: 6px;
+  }
+  /* engine-injected subagent task results — agent-pink identity (same #ec7ba4
+     as @agent labels in Sidebar/InfoPanel/tool cards), never the blue user
+     bubble. Failed tasks go red. */
+  .msg.subres {
+    background: rgba(236, 123, 164, 0.06);
+    border-left: 2px solid #ec7ba4;
+    border-radius: 6px;
+  }
+  .msg.subres.suberr {
+    background: rgba(244, 135, 113, 0.07);
+    border-left-color: var(--err);
+  }
+  .tnote-desc {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--fg-dim);
+  }
+  /* extra .msg/.head qualifiers out-rank the :global(.msg:not(.user)) .role
+     accent rule that sits later in this stylesheet (same trick as .errole) */
+  .msg .head .role.subrole {
+    color: #ec7ba4;
+  }
+  .msg.suberr .head .role.subrole {
+    color: var(--err);
+  }
+  /* collapsed result body */
+  .tnote {
+    margin: 2px 0;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--bg-code);
+  }
+  .tnote > summary {
+    display: flex;
+    gap: 8px;
+    align-items: baseline;
+    padding: 5px 10px;
+    cursor: pointer;
+    color: var(--fg-dim);
+    font-size: 12px;
+    user-select: none;
+    list-style: none;
+  }
+  .tnote > summary::-webkit-details-marker {
+    display: none;
+  }
+  .tnote > summary::before {
+    content: '▸';
+    flex: none;
+    transition: transform 0.12s ease;
+  }
+  .tnote[open] > summary::before {
+    transform: rotate(90deg);
+  }
+  .tnote > summary:hover {
+    color: var(--fg);
+  }
+  .tnote .tsum {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .tnote .tcount {
+    flex: none;
+    margin-left: auto;
+    font-size: 10.5px;
+    opacity: 0.7;
+  }
+  .tnote-body {
+    padding: 2px 10px 8px;
   }
   /* turn-failure tiles — the whole tile reads red (faint red wash, not just
      the side chip). Sources: engine-stamped message errors (inline) and the

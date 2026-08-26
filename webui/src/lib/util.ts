@@ -45,11 +45,45 @@ export function titleName(s: string): string {
   )
 }
 
+// Engine-injected subagent task results arrive as USER-role messages whose
+// text part is `synthetic:true` and shaped:
+//   <task id="ses_…" state="completed|error">
+//   <summary>Background task completed|failed: DESCRIPTION</summary>
+//   <task_result>…reply…</task_result>   (errors use <task_error>)
+// The text prefix is unique and survives every data path (live REST, SSE
+// upsert, chatserver history projection — which doesn't emit `synthetic`),
+// so the prefix alone is the discriminator. Returns undefined for real
+// user messages.
+const TASK_NOTICE_RE = /^<task id="(ses_[^"]+)" state="(completed|error)">/
+
+export interface TaskNotice {
+  id: string
+  state: 'completed' | 'error'
+  desc: string
+}
+
+export function taskNoticeOf(m: any): TaskNotice | undefined {
+  if (m?.role !== 'user') return undefined
+  for (const p of m.parts ?? []) {
+    if (p.type !== 'text') continue
+    const hit = TASK_NOTICE_RE.exec(p.text ?? '')
+    if (!hit) continue
+    // description from the <summary> line; engine wording varies only in
+    // completed|failed — strip either prefix
+    const desc = /<summary>Background task (?:completed|failed):\s*(.*?)<\/summary>\s*\n/.exec(
+      p.text ?? '',
+    )?.[1]
+    return { id: hit[1], state: hit[2] as TaskNotice['state'], desc: (desc ?? '').trim() }
+  }
+  return undefined
+}
+
 // head/export label for one message: user rows are "you", errored turns
 // present as "Error", everything else shows the engine-stamped agent name
 // titlecased; missing agent falls back to the product name. Shared by
 // Transcript headers and the commands.ts export/copy/timeline builders.
 export function roleLabel(m: any): string {
+  if (taskNoticeOf(m)) return 'subagent'
   if (m.role === 'user') return 'you'
   if (m.error && !isAborted(m.error)) return 'Error'
   return titleName(m.agent || 'opencode')

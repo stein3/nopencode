@@ -176,6 +176,9 @@ export function normalizeMessages(msgs: any[]): any[] {
         tool: p.tool ?? p.toolName,
         state: p.state,
         callID: p.callID, // question picker matches pending requests by callID
+        // engine-injected subagent task results carry synthetic:true — kept so
+        // util.taskNoticeOf() can key off the flag, not just the text prefix
+        synthetic: p.synthetic,
       })),
     }
   })

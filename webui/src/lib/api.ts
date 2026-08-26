@@ -214,6 +214,8 @@ export interface HistPart {
   text?: string
   tool?: string
   state_summary?: string
+  // engine-injected subagent task results (synthetic user messages)
+  synthetic?: boolean | null
 }
 
 export interface SearchHit {
