@@ -30,6 +30,17 @@ Deployment topology & procedures: see private ops notes (not tracked here).
 - **Dockerfile**: no `build-essential`/pip/venv — image assumes prebuilt npm binaries and stdlib-only python3. Don't add compiling deps without restoring build tooling.
 - Deploy changes: `sudo docker compose up -d --build` (image rebuild required for Dockerfile/chatserver/webui/inject edits); inject.py additionally needs the cached `/app/index.html` removed (see ttyd-web-terminal skill).
 
+## Streaming render cost (webui, 2026-08)
+
+- Symptom: browser CPU pegged ~100% during long streaming "thinking" blocks (one tab suffices). Root cause: every `message.part.delta` re-parsed the ENTIRE accumulated part text — `html()`'s cache key is `${id}:${len}` so each delta missed cache — through marked+DOMPurify+`hljs.highlightAuto` (unlabeled fences = language detection across all bundled langs) → O(L²); plus an unguarded `afterUpdate` think-pin doing `scrollHeight` read + `scrollTop` write per update; deltas applied uncoalesced.
+- Fix architecture (invariants — don't regress):
+  - `markdown.ts md(src, live=false)`: module-level `liveParse` flag set around the synchronous parse. Fence caps: live unlabeled >4k chars / labeled >50k → escaped plaintext; final mode cap 100k; at/below cap → original hljs path. **Transcript's `renderCache` is written ONLY by the non-live path** — live renders may contain plaintext-fallback fences and must never satisfy a later final-quality lookup at the same length.
+  - `Transcript.svelte streamThrottle`: live path stale-serves up to 120ms (`STREAM_THROTTLE_MS`) + exact-length fast path (deltas are append-only); entries pruned on non-live render. Non-live bypasses throttle → guaranteed full-quality final render at busy-flip (the color pop on big fences is intentional).
+  - `sse.ts deltaBuf`: `message.part.delta` chunks coalesced per `${sid}|${mid}|${pid}|${field}` key with a single ~40ms flush timer; unmaterialized messages no-op at flush (unchanged semantics).
+  - Think-pin `afterUpdate`: rAF-coalesced (`thinkPinPending`), gated on `tab.busy && thinkStuck && !document.hidden`.
+- Bench: `webui/.webtest/bench-thinking.mjs` + `bench-engine.py` (:8138, spawns/kills its own engine by PID). Requires dist built from the tree under test; prints a `BENCH_RESULT:` JSON line and writes `shots/bench-thinking-baseline.json`. Baseline (pre-fix): max long task **31.6s**, main thread ~98% busy over the 32.8s stream window, peak 129k nodes. Fixed: max long task **122ms**, 172ms total work / 13.5s window, peak 2.4k nodes. Pre-fix numbers preserved at `shots/bench-thinking-baseline-pre.json`.
+- Gotchas: the LSP reports stale "Expected 1 arguments" errors on two-arg `md()` calls after signature changes — `npm run build` is the arbiter. `.webtest/verify-retry.mjs` does NOT spawn its engine: start `python3 .webtest/fake-engine.py` (:8124 hardcoded) first and kill by PID after.
+
 ## Transcript scroll behavior (webui)
 
 - Tab panes stay mounted under `display:none` (App.svelte), which silences their ResizeObserver (box stays 0×0) and makes the browser restore stale scrollTop on re-show — that synthetic scroll fires *after* RO delivery but *before* rAF, so pure position-based stick-to-bottom loses the pin on every tab return. Fix (Transcript.svelte): `active` prop force-snaps to bottom on activation, `onScroll` ignores events while `offsetParent` is null, and only real upward input (wheel-up / downward swipe / ArrowUp·PageUp·Home outside inputs) clears `stuck`.

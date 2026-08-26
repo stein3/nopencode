@@ -25,13 +25,43 @@
   // name → description for labeling `skill` tool calls; loaded once per mount
   let skillsIndex: Record<string, string> = {}
 
-  function html(part: any): string {
+  // Streaming throttle: while a part is actively growing, serve the last
+  // rendered HTML for up to ~120ms instead of re-parsing the whole
+  // accumulated text on every delta (marked+DOMPurify+hljs over N chars × N
+  // deltas is quadratic). live=false bypasses this entirely, so the final,
+  // full-quality render (real hljs colors) always lands when the turn
+  // finishes.
+  const streamThrottle = new Map<string, { len: number; html: string; at: number }>()
+  const STREAM_THROTTLE_MS = 120
+
+  function html(part: any, live?: boolean): string {
     if (part.type !== 'text' && part.type !== 'reasoning') return ''
+    const id = String(part.id ?? 'x')
+    const text = part.text ?? ''
     // length in key so streaming appends invalidate the cached render
-    const key = `${part.id ?? 'x'}:${(part.text ?? '').length}`
+    const key = `${id}:${text.length}`
+    if (live) {
+      const th = streamThrottle.get(id)
+      // unchanged since the last live render (completed sibling part of the
+      // streaming message) → serve as-is; deltas are append-only, so equal
+      // length means equal text
+      if (th && text.length === th.len) return th.html
+      // grew inside the throttle window → keep the stale HTML; expiry (or the
+      // turn ending) triggers a fresh parse of the full text
+      if (th && text.length > th.len && Date.now() - th.at < STREAM_THROTTLE_MS) return th.html
+      // live renders go into streamThrottle ONLY: they may contain the cheap
+      // plaintext-fallback fences, so they must never satisfy a later
+      // final-quality renderCache lookup at the same length
+      const safe = md(text, true)
+      streamThrottle.set(id, { len: text.length, html: safe, at: Date.now() })
+      return safe
+    }
+    // part stopped streaming → its throttle entry is dead weight
+    streamThrottle.delete(id)
     const hit = renderCache.get(key)
     if (hit) return hit
-    const safe = md(part.text ?? '')
+    // final render: full-quality parse (real hljs colors), cached for reloads
+    const safe = md(text, false)
     if (renderCache.size > 400) renderCache.clear()
     renderCache.set(key, safe)
     return safe
@@ -229,8 +259,21 @@
   // ResizeObserver can't do this: max-height caps the box size, so the box
   // stops changing while content keeps growing. Reader scroll-up inside the
   // block (thinkStuck=false) is respected until they return to its bottom.
+  //
+  // Every delta triggers an update, and reading scrollHeight forces layout —
+  // so gate on busy/pin/visibility and coalesce to one rAF write per frame
+  // instead of a synchronous read+write per delta. A pin already scheduled
+  // still lands even if busy flips mid-frame (finishing turns end scrolled).
+  let thinkPinPending = false
   afterUpdate(() => {
-    if (liveThinkEl && thinkStuck) liveThinkEl.scrollTop = liveThinkEl.scrollHeight
+    if (!(tab.busy && liveThinkEl && thinkStuck && !document.hidden)) return
+    if (thinkPinPending) return
+    thinkPinPending = true
+    requestAnimationFrame(() => {
+      thinkPinPending = false
+      if (!liveThinkEl || !thinkStuck || document.hidden) return
+      liveThinkEl.scrollTop = liveThinkEl.scrollHeight
+    })
   })
 
   function partsOf(m: any): any[] {
@@ -667,12 +710,12 @@
       <div class="body">
         {#each partsOf(m) as p (p.id)}
           {#if p.type === 'text' && (p.text ?? '').trim()}
-            {@html html(p)}
+            {@html html(p, tab.busy && m === lastMsg)}
           {:else if p.type === 'reasoning' && (p.text ?? '').trim()}
             <details class="thinking" open={$showThinking || p.id === liveReasoningId || undefined}>
               <summary>💭 Thinking</summary>
               {#if p.id === liveReasoningId}
-                <div class="think-body" bind:this={liveThinkEl} on:scroll={onThinkScroll}>{@html html(p)}</div>
+                <div class="think-body" bind:this={liveThinkEl} on:scroll={onThinkScroll}>{@html html(p, tab.busy && p.id === liveReasoningId)}</div>
               {:else}
                 <div class="think-body">{@html html(p)}</div>
               {/if}
