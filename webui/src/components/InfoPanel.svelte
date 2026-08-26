@@ -191,6 +191,9 @@
 <aside class="info">
   <div class="head">
     <span class="ttl" title={tab?.title}>{tab?.title ?? 'no session'}</span>
+    {#if tab?.id}
+      <span class="sid">{tab.id}</span>
+    {/if}
   </div>
 
   <div class="sec">Context</div>
@@ -254,6 +257,15 @@
     display: block;
     overflow-wrap: anywhere;
     white-space: normal;
+  }
+  .head .sid {
+    font-size: 10px;
+    font-family: var(--mono);
+    color: var(--fg-dim);
+    display: block;
+    margin-top: 2px;
+    overflow-wrap: anywhere;
+    word-break: break-all;
   }
   .sec {
     margin: 16px 0 6px;
