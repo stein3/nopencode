@@ -800,7 +800,6 @@
   }
   /* match highlight inside search snippets — quiet accent tint */
   .snippet .hl {
-    background: rgba(78, 201, 176, 0.28);
     background: color-mix(in srgb, var(--accent) 28%, transparent);
     border-radius: 2px;
     color: inherit;

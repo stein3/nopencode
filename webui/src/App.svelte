@@ -7,7 +7,7 @@
   import QuestionBanner from './components/QuestionBanner.svelte'
   import Footer from './components/Footer.svelte'
   import { hist, oc } from './lib/api'
-  import { tabs, permissions, sidebarOpen, selectedModel, paletteOpen, infoOpen, toggleInfo, toastMsg, patchMetrics, clearSessionUnread, loadOpenTabs, rekeySessionAgent, modelPickerOpen, type Tab } from './lib/stores'
+  import { tabs, permissions, sidebarOpen, selectedModel, paletteOpen, infoOpen, toggleInfo, toastMsg, patchMetrics, clearSessionUnread, loadOpenTabs, rekeySessionAgent, modelPickerOpen, theme, type Tab } from './lib/stores'
   import CommandPalette from './components/CommandPalette.svelte'
   import CommandDialog from './components/CommandDialog.svelte'
   import RenameDialog from './components/RenameDialog.svelte'
@@ -27,6 +27,9 @@
 
   let composers: Record<string, Composer> = {}
   let diffOpen = false
+
+  // apply theme to <html> on store change
+  $: document.documentElement.setAttribute('data-theme', $theme)
 
   // ---- pane dormancy -------------------------------------------------------
   // Transcript DOM is the app's heaviest asset (~20–70 nodes/message), and

@@ -364,6 +364,23 @@ export const showThinking = makePref('showThinking', false) // /thinking expands
 export const showTimestamps = makePref('showTimestamps', true)
 export const hideSubagents = makePref('hideSubagents', true) // sidebar: hide @agent sessions by default
 
+// ---- theme store (string-valued, not boolean) ----
+const THEME_KEY = 'opencode.theme'
+export const theme = writable<string>(
+  (() => {
+    try {
+      return localStorage.getItem(THEME_KEY) || 'graphite'
+    } catch {
+      return 'graphite'
+    }
+  })(),
+)
+theme.subscribe((v) => {
+  try {
+    localStorage.setItem(THEME_KEY, v)
+  } catch {}
+})
+
 // ---- sidebar: EXPANDED subagent groups (persisted set of parent sessionIDs) ----
 // Inverted on purpose: an empty set = every group collapsed (the default), and
 // unknown/new parents collapse automatically without any migration.

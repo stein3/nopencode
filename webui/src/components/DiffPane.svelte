@@ -16,6 +16,7 @@
     type DiffFile,
     type ParsedDiff,
   } from '../lib/diffs'
+  import { theme } from '../lib/stores'
 
   export let sessionId: string
   export let visible = false
@@ -60,6 +61,26 @@
       'diffEditor.removedTextBackground': '#f8514926',
     },
   })
+
+  monaco.editor.defineTheme('oc-light', {
+    base: 'vs',
+    inherit: true,
+    rules: [],
+    colors: {
+      'editor.background': '#f6f8fa',
+      'editor.foreground': '#1f2328',
+      'editor.lineHighlightBackground': '#eaeef280',
+      'editorLineNumber.foreground': '#656d76',
+      'editor.selectionBackground': '#0969da33',
+      'diffEditor.insertedTextBackground': '#1e725c26',
+      'diffEditor.removedTextBackground': '#cf222e26',
+    },
+  })
+
+  $: {
+    const isLight = $theme === 'solarized-light' || $theme === 'github-light' || $theme === 'catppuccin-latte'
+    if (editor) monaco.editor.setTheme(isLight ? 'oc-light' : 'oc-dark')
+  }
 
   let editor: monaco.editor.IStandaloneDiffEditor | null = null
 

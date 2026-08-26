@@ -14,6 +14,7 @@
     clearRecentModels,
     clearLocalData,
     toast,
+    theme,
   } from '../lib/stores'
 
   const activeStore = tabs.active
@@ -79,6 +80,22 @@
     ? `${$selectedModel.providerID} / ${$selectedModel.modelID}`
     : 'engine default'
   $: agentPick = $sessionAgents[$activeStore]
+
+  // theme definitions
+  const themes = [
+    { id: 'graphite', label: 'Graphite', bg: '#1e1e1e', panel: '#252526', accent: '#4ec9b0', fg: '#cccccc' },
+    { id: 'opencode', label: 'OpenCode', bg: '#0a0a0a', panel: '#141414', accent: '#fab283', fg: '#eeeeee' },
+    { id: 'indigo', label: 'Indigo', bg: '#1e1e1e', panel: '#252526', accent: '#5648ff', fg: '#cccccc' },
+    { id: 'night-runner', label: 'Night Runner', bg: '#1a1a2e', panel: '#242440', accent: '#f5d020', fg: '#e0e0e0' },
+    { id: 'catppuccin-mocha', label: 'Catppuccin Mocha', bg: '#1e1e2e', panel: '#181825', accent: '#cba6f7', fg: '#cdd6f4' },
+    { id: 'catppuccin-frappe', label: 'Catppuccin Frappé', bg: '#303446', panel: '#292c3c', accent: '#ca9ee6', fg: '#c6d0f5' },
+    { id: 'catppuccin-latte', label: 'Catppuccin Latte', bg: '#eff1f5', panel: '#e6e9ef', accent: '#8839ef', fg: '#4c4f69' },
+    { id: 'dracula', label: 'Dracula', bg: '#282a36', panel: '#21222c', accent: '#ff79c6', fg: '#f8f8f2' },
+    { id: 'nord', label: 'Nord', bg: '#2e3440', panel: '#3b4252', accent: '#88c0d0', fg: '#eceff4' },
+    { id: 'tokyo-night', label: 'Tokyo Night', bg: '#1a1b26', panel: '#1f2335', accent: '#7aa2f7', fg: '#c0caf5' },
+    { id: 'solarized-light', label: 'Solarized Light', bg: '#fdf6e3', panel: '#eee8d5', accent: '#268bd2', fg: '#657b83' },
+    { id: 'github-light', label: 'GitHub Light', bg: '#ffffff', panel: '#f6f8fa', accent: '#0969da', fg: '#1f2328' },
+  ]
 </script>
 
 <svelte:window on:keydown={onKey} />
@@ -101,6 +118,27 @@
 
     <div class="body">
       <div class="col">
+        <section>
+          <div class="sec">Theme</div>
+          <div class="themegrid">
+            {#each themes as t (t.id)}
+              <button
+                class="themecard"
+                class:active={$theme === t.id}
+                style:background={t.bg}
+                style:color={t.fg}
+                style:border-color={$theme === t.id ? t.accent : 'transparent'}
+                on:click={() => theme.set(t.id)}
+              >
+                <span class="tpreview" style:background={t.panel}>
+                  <span class="taccent" style:background={t.accent}></span>
+                </span>
+                <span class="tlabel">{t.label}</span>
+              </button>
+            {/each}
+          </div>
+        </section>
+
         <section>
           <div class="sec">Display</div>
           <label class="row">
@@ -487,6 +525,54 @@
     border-top: 1px solid var(--border);
     font-size: 11px;
     color: var(--fg-dim);
+  }
+
+  /* theme picker grid */
+  .themegrid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+    gap: 8px;
+    padding: 2px 0;
+  }
+  .themecard {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 6px 10px;
+    border-radius: 8px;
+    border: 2px solid transparent;
+    cursor: pointer;
+    transition: border-color 0.12s ease-out, box-shadow 0.12s ease-out;
+    font-size: 12px;
+    font-weight: 500;
+    font-family: inherit;
+    text-align: center;
+  }
+  .themecard:hover {
+    box-shadow: 0 0 0 1px var(--border);
+  }
+  .themecard.active {
+    box-shadow: 0 0 0 1px currentColor;
+  }
+  .tpreview {
+    width: 100%;
+    height: 28px;
+    border-radius: 5px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .taccent {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+  }
+  .tlabel {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
   }
 
   @media (max-width: 480px) {

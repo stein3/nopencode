@@ -15,6 +15,218 @@
   --mono: 'SF Mono', 'Cascadia Code', Consolas, 'Liberation Mono', monospace;
 }
 
+/* ===== Themes ===== */
+/* Graphite is the :root default (teal accent, VS Dark+ inspired) */
+
+html[data-theme='opencode'] {
+  --bg: #0a0a0a;
+  --bg-panel: #141414;
+  --bg-hover: #1e1e1e;
+  --bg-user: #141414;
+  --bg-code: #0f0f0f;
+  --border: #484848;
+  --fg: #eeeeee;
+  --fg-dim: #808080;
+  --accent: #fab283;
+  --user-accent: #5c9cf5;
+  --warn: #f5a742;
+  --err: #e06c75;
+  --ok: #7fd88f;
+}
+
+html[data-theme='indigo'] {
+  --bg: #1e1e1e;
+  --bg-panel: #252526;
+  --bg-hover: #2a2d2e;
+  --bg-user: #23272e;
+  --bg-code: #1a1b1e;
+  --border: #333;
+  --fg: #cccccc;
+  --fg-dim: #858585;
+  --accent: #5648ff;
+  --user-accent: #569cd6;
+  --warn: #cca700;
+  --err: #f48771;
+  --ok: #6a9955;
+}
+
+html[data-theme='dracula'] {
+  --bg: #282a36;
+  --bg-panel: #21222c;
+  --bg-hover: #343746;
+  --bg-user: #21222c;
+  --bg-code: #21222c;
+  --border: #44475a;
+  --fg: #f8f8f2;
+  --fg-dim: #6272a4;
+  --accent: #ff79c6;
+  --user-accent: #8be9fd;
+  --warn: #f1fa8c;
+  --err: #ff5555;
+  --ok: #50fa7b;
+}
+
+html[data-theme='nord'] {
+  --bg: #2e3440;
+  --bg-panel: #3b4252;
+  --bg-hover: #434c5e;
+  --bg-user: #3b4252;
+  --bg-code: #2e3440;
+  --border: #4c566a;
+  --fg: #eceff4;
+  --fg-dim: #7b88a1;
+  --accent: #88c0d0;
+  --user-accent: #81a1c1;
+  --warn: #ebcb8b;
+  --err: #bf616a;
+  --ok: #a3be8c;
+}
+
+html[data-theme='tokyo-night'] {
+  --bg: #1a1b26;
+  --bg-panel: #1f2335;
+  --bg-hover: #292e42;
+  --bg-user: #1f2335;
+  --bg-code: #1a1b26;
+  --border: #3b4261;
+  --fg: #c0caf5;
+  --fg-dim: #565f89;
+  --accent: #7aa2f7;
+  --user-accent: #2ac3de;
+  --warn: #e0af68;
+  --err: #f7768e;
+  --ok: #9ece6a;
+}
+
+html[data-theme='solarized-light'] {
+  --bg: #fdf6e3;
+  --bg-panel: #eee8d5;
+  --bg-hover: #ddd6c1;
+  --bg-user: #eee8d5;
+  --bg-code: #eee8d5;
+  --border: #d0ccc0;
+  --fg: #657b83;
+  --fg-dim: #93a1a1;
+  --accent: #268bd2;
+  --user-accent: #2aa198;
+  --warn: #b58900;
+  --err: #dc322f;
+  --ok: #859900;
+  color-scheme: light;
+}
+
+html[data-theme='github-light'] {
+  --bg: #ffffff;
+  --bg-panel: #f6f8fa;
+  --bg-hover: #eaeef2;
+  --bg-user: #f6f8fa;
+  --bg-code: #f6f8fa;
+  --border: #d0d7de;
+  --fg: #1f2328;
+  --fg-dim: #656d76;
+  --accent: #0969da;
+  --user-accent: #8250df;
+  --warn: #9a6700;
+  --err: #cf222e;
+  --ok: #1a7f37;
+  color-scheme: light;
+}
+
+html[data-theme='catppuccin-mocha'] {
+  --bg: #1e1e2e;
+  --bg-panel: #181825;
+  --bg-hover: #313244;
+  --bg-user: #181825;
+  --bg-code: #11111b;
+  --border: #45475a;
+  --fg: #cdd6f4;
+  --fg-dim: #6c7086;
+  --accent: #cba6f7;
+  --user-accent: #89b4fa;
+  --warn: #f9e2af;
+  --err: #f38ba8;
+  --ok: #a6e3a1;
+}
+
+html[data-theme='catppuccin-frappe'] {
+  --bg: #303446;
+  --bg-panel: #292c3c;
+  --bg-hover: #414559;
+  --bg-user: #292c3c;
+  --bg-code: #232634;
+  --border: #51576d;
+  --fg: #c6d0f5;
+  --fg-dim: #6c7086;
+  --accent: #ca9ee6;
+  --user-accent: #8caaee;
+  --warn: #e5c890;
+  --err: #e78284;
+  --ok: #a6d189;
+}
+
+html[data-theme='catppuccin-latte'] {
+  --bg: #eff1f5;
+  --bg-panel: #e6e9ef;
+  --bg-hover: #ccd0da;
+  --bg-user: #e6e9ef;
+  --bg-code: #dce0e8;
+  --border: #ccd0da;
+  --fg: #4c4f69;
+  --fg-dim: #9ca0b0;
+  --accent: #8839ef;
+  --user-accent: #1e66f5;
+  --warn: #df8e1d;
+  --err: #d20f39;
+  --ok: #40a02b;
+  color-scheme: light;
+}
+
+html[data-theme='night-runner'] {
+  --bg: #1a1a2e;
+  --bg-panel: #242440;
+  --bg-hover: #2d2d50;
+  --bg-user: #242440;
+  --bg-code: #16162a;
+  --border: #3d3d6b;
+  --fg: #e0e0e0;
+  --fg-dim: #8080a0;
+  --accent: #f5d020;
+  --user-accent: #5a7ab5;
+  --warn: #f5d020;
+  --err: #e06070;
+  --ok: #70c080;
+}
+
+/* Light theme scrollbar overrides */
+html[data-theme='solarized-light'] ::-webkit-scrollbar-thumb {
+  background: #c9c1b5;
+}
+html[data-theme='solarized-light'] ::-webkit-scrollbar-thumb:hover {
+  background: #b8ae9e;
+}
+
+html[data-theme='github-light'] ::-webkit-scrollbar-thumb {
+  background: #d0d7de;
+}
+html[data-theme='github-light'] ::-webkit-scrollbar-thumb:hover {
+  background: #afb8c1;
+}
+
+html[data-theme='catppuccin-latte'] ::-webkit-scrollbar-thumb {
+  background: #bcc0cc;
+}
+html[data-theme='catppuccin-latte'] ::-webkit-scrollbar-thumb:hover {
+  background: #acb0be;
+}
+
+/* Light theme code block readability */
+html[data-theme='solarized-light'] .hljs,
+html[data-theme='github-light'] .hljs,
+html[data-theme='catppuccin-latte'] .hljs {
+  background: var(--bg-code);
+  color: var(--fg);
+}
+
 * {
   box-sizing: border-box;
 }
@@ -40,7 +252,7 @@ body {
 }
 
 ::selection {
-  background: rgba(78, 201, 176, 0.3);
+  background: color-mix(in srgb, var(--accent) 30%, transparent);
 }
 
 ::-webkit-scrollbar {
@@ -48,11 +260,11 @@ body {
   height: 10px;
 }
 ::-webkit-scrollbar-thumb {
-  background: #3c3c3c;
+  background: var(--border);
   border-radius: 5px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #4f4f4f;
+  background: var(--fg-dim);
 }
 ::-webkit-scrollbar-track {
   background: transparent;
