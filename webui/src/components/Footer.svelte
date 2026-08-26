@@ -88,7 +88,7 @@
     display: flex;
     align-items: center;
     gap: 14px;
-    padding: 4px 18px 7px;
+    padding: 0px 18px 1px;
     max-width: 892px;
     margin: 0 auto;
     width: 100%;

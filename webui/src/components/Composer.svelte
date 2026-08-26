@@ -144,8 +144,9 @@
   }
 
   // ---- inline slash menu -------------------------------------------------
-  // active while the box is exactly "/name" (any space closes the menu)
-  $: slashQuery = /^\/([a-z0-9_-]*)$/.exec(text)
+  // active while the box starts with "/name" (trailing space/args allowed
+  // so the menu stays open after the user picks a command and types args)
+  $: slashQuery = /^\/([a-z0-9_-]*\S*)/.exec(text)
   $: menuOpen = !!slashQuery
   $: filtered = menuOpen ? filterCmds(slashQuery![1], $cmdVersion) : []
   $: if (menuOpen && sel >= filtered.length) sel = Math.max(0, filtered.length - 1)
@@ -441,7 +442,7 @@
 <style>
   .composer {
     position: relative;
-    padding: 10px 16px 14px;
+    padding: 0 4px 0;
     max-width: 892px;
     margin: 0 auto;
     width: 100%;

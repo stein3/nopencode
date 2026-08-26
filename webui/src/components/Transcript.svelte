@@ -936,7 +936,7 @@
   .transcript {
     flex: 1;
     overflow-y: auto;
-    padding: 18px 0 30px;
+    padding: 18px 0 0;
   }
   .empty {
     text-align: center;
@@ -983,7 +983,7 @@
   .msg {
     max-width: 860px;
     margin: 0 auto;
-    padding: 5px 16px;
+    padding: 5px 4px;
     user-select: text;
     cursor: text;
     /* Skip style/layout/paint for rows far outside the viewport — the bulk of
