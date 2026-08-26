@@ -6,39 +6,67 @@
   let providers: { id: string; name?: string; models: Record<string, any> }[] = []
   let open = false
 
-  interface FlatModel {
+  interface ModelItem {
     pid: string
     pname: string
     mid: string
     mname: string
-    recentIdx: number
   }
 
-  // flat across providers: most recently used first (in recency order), then
-  // never-used models alphabetically. stale recents sink into the alpha tail.
+  interface ModelSection {
+    label: string
+    items: ModelItem[]
+  }
+
+  // Sectioned list: "Recent" at the top (in recency order), then provider-grouped
+  // sections for all non-recent models (alphabetical within each group).
   // reads $recentModels (a store) so the list re-sorts immediately after each pick —
   // a plain localStorage read here would be invisible to the compiler (frozen-label bug)
-  $: flat = (() => {
-    const items: FlatModel[] = providers.flatMap((p) =>
+  $: sections = (() => {
+    const all: ModelItem[] = providers.flatMap((p) =>
       Object.values(p.models ?? {}).map((m) => ({
         pid: p.id,
         pname: p.name ?? p.id,
         mid: m.id,
         mname: m.name ?? m.id,
-        recentIdx: -1,
       })),
     )
-    const rank = new Map<string, number>()
-    $recentModels.forEach((r, i) => rank.set(r.providerID + '/' + r.modelID, i))
-    for (const it of items) {
-      const r = rank.get(it.pid + '/' + it.mid)
-      if (r !== undefined) it.recentIdx = r
+
+    // Build a set of recent model keys for fast lookup
+    const recentKeys = new Set($recentModels.map((r) => r.providerID + '/' + r.modelID))
+
+    // Recent section: models in recency order
+    const recentItems: ModelItem[] = []
+    const recentSeen = new Set<string>()
+    for (const r of $recentModels) {
+      const key = r.providerID + '/' + r.modelID
+      if (recentSeen.has(key)) continue
+      recentSeen.add(key)
+      const item = all.find((it) => it.pid === r.providerID && it.mid === r.modelID)
+      if (item) recentItems.push(item)
     }
-    return items.sort(
-      (a, b) =>
-        (a.recentIdx === -1 ? Infinity : a.recentIdx) - (b.recentIdx === -1 ? Infinity : b.recentIdx) ||
-        a.mname.localeCompare(b.mname),
-    )
+
+    // Provider-grouped sections for non-recent models
+    const providerGroups = new Map<string, ModelItem[]>()
+    for (const it of all) {
+      if (recentKeys.has(it.pid + '/' + it.mid)) continue
+      const arr = providerGroups.get(it.pid) ?? []
+      arr.push(it)
+      providerGroups.set(it.pid, arr)
+    }
+
+    const providerSections: ModelSection[] = []
+    for (const [pid, items] of providerGroups) {
+      items.sort((a, b) => a.mname.localeCompare(b.mname))
+      const pname = items[0]?.pname ?? pid
+      providerSections.push({ label: pname, items })
+    }
+    providerSections.sort((a, b) => a.label.localeCompare(b.label))
+
+    const result: ModelSection[] = []
+    if (recentItems.length) result.push({ label: 'Recent', items: recentItems })
+    result.push(...providerSections)
+    return result
   })()
 
   onMount(async () => {
@@ -93,15 +121,18 @@
   </button>
   {#if open}
     <div class="menu">
-      {#each flat as m (m.pid + '/' + m.mid)}
-        <button
-          class="m"
-          class:on={$selectedModel?.providerID === m.pid && $selectedModel?.modelID === m.mid}
-          on:click={() => pick(m.pid, m.mid)}
-        >
-          <span class="nm">{m.mname}</span>
-          <span class="pv">{m.pname}</span>
-        </button>
+      {#each sections as sec (sec.label)}
+        <div class="sec-head">{sec.label}</div>
+        {#each sec.items as m (m.pid + '/' + m.mid)}
+          <button
+            class="m"
+            class:on={$selectedModel?.providerID === m.pid && $selectedModel?.modelID === m.mid}
+            on:click={() => pick(m.pid, m.mid)}
+          >
+            <span class="nm">{m.mname}</span>
+            <span class="pv">{m.pname}</span>
+          </button>
+        {/each}
       {:else}
         <div class="none">engine unreachable</div>
       {/each}
@@ -144,6 +175,22 @@
     box-shadow: 0 14px 40px rgba(0, 0, 0, 0.5);
     padding: 4px;
   }
+  /* keep menu fully visible on narrow viewports */
+  @media (max-width: 480px) {
+    .menu {
+      right: auto;
+      left: 50%;
+      transform: translateX(-50%);
+      min-width: 0;
+      max-width: calc(100vw - 16px);
+      width: max-content;
+    }
+    .pv {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 100px;
+    }
+  }
   .m {
     display: flex;
     align-items: baseline;
@@ -183,5 +230,20 @@
     padding: 12px;
     color: var(--fg-dim);
     font-size: 12px;
+  }
+  .sec-head {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--fg-dim);
+    padding: 8px 10px 3px;
+    margin-top: 4px;
+    border-top: 1px solid var(--border);
+    user-select: none;
+  }
+  .sec-head:first-child {
+    margin-top: 0;
+    border-top: none;
   }
 </style>
