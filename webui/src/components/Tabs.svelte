@@ -14,14 +14,39 @@
     'Ctrl+T': 'new chat',
     'Ctrl+W': 'close tab',
   }
+
+  // keep the newest opened tab and the active tab visible in the horizontal
+  // scroller (issue #3): opening appends offscreen-right; Alt+←→ / Ctrl+N
+  // cycling can park the active tab outside the visible strip. scrollIntoView
+  // with block:'nearest' never jumps the page vertically and no-ops when the
+  // target is already fully visible.
+  let bar: HTMLDivElement | null = null
+  let prevLast = ''
+  let prevActive = ''
+  $: syncScroll($tabs, $active)
+  function syncScroll(list: { id: string }[], activeId: string) {
+    const last = list.length ? list[list.length - 1].id : ''
+    if (last === prevLast && activeId === prevActive) return
+    prevLast = last
+    prevActive = activeId
+    requestAnimationFrame(() => revealTab(activeId))
+  }
+  function revealTab(activeId: string) {
+    if (!bar) return
+    const el =
+      (activeId ? (bar.querySelector(`[data-sid="${CSS.escape(activeId)}"]`) as HTMLElement | null) : null) ??
+      (bar.lastElementChild as HTMLElement | null)
+    el?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+  }
 </script>
 
-<div class="tabbar" role="tablist">
+<div class="tabbar" role="tablist" bind:this={bar}>
   {#each $tabs as t (t.id)}
     <div
       role="tab"
       tabindex="0"
       aria-selected={$active === t.id}
+      data-sid={t.id}
       class="tab"
       class:active={$active === t.id}
       on:click={() => tabs.setActive(t.id)}
