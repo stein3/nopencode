@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte'
   import { oc, hist, type HistSession, type SearchHit } from '../lib/api'
-  import { searchQuery, sessionMetrics, permissions, pendingQuestions, tabs, sessionUnread, markSessionUnread, hideSubagents, subExpanded, settingsOpen, sessionListDirty } from '../lib/stores'
+  import { searchQuery, sessionMetrics, permissions, pendingQuestions, tabs, sessionUnread, markSessionUnread, hideSubagents, subExpanded, settingsOpen, sessionListDirty, sessionKidMap } from '../lib/stores'
   import { relTime } from '../lib/util'
 
   const activeStore = tabs.active
@@ -236,6 +236,29 @@
     return String(n)
   }
 
+  // ---- rolled-up token totals for parent sessions --------------------------
+  // Sums descendant session tokens from sessionMetrics so collapsed/hidden
+  // subagents' token usage is visible on the parent row.
+  $: rolledUpTokens = (() => {
+    const m: Record<string, number> = {}
+    for (const [pid, kids] of kidsMap) {
+      let sum = 0
+      for (const kid of kids) {
+        const t = $sessionMetrics[kid.id]?.tokens ?? kid.tokens ?? 0
+        sum += t
+      }
+      if (sum > 0) m[pid] = sum
+    }
+    return m
+  })()
+
+  function effTokens(s: Row): number | undefined {
+    const own = $sessionMetrics[s.id]?.tokens ?? s.tokens
+    const roll = rolledUpTokens[s.id]
+    if (roll) return (own ?? 0) + roll
+    return own
+  }
+
   // live metrics for open tabs overlay the snapshot; re-sorted so activity floats up
   $: rows = mergeRows(sessions, $sessionMetrics)
 
@@ -306,6 +329,11 @@
     }
     return m
   })()
+  // publish kidsMap to a global store so Footer/InfoPanel can compute
+  // rolled-up descendant tokens without duplicating the session fetch
+  $: sessionKidMap.set(
+    new Map([...kidsMap].map(([k, v]) => [k, v.map((r) => ({ id: r.id, tokens: r.tokens }))]))
+  )
   $: roots = rows.filter((r) => !r.parent || !idSet.has(r.parent))
   $: nestedCount = rows.length - roots.length
 
@@ -625,9 +653,9 @@
             ><span
                 class="smeta"
               >{#if isSub(d.s)}<span class="subagent">{subLabel(d.s)}</span> · {/if}{d.s.message_count} msgs{fmtK(
-                  d.s.tokens
+                  effTokens(d.s)
                 )
-                ? ` · ${fmtK(d.s.tokens)} tk`
+                ? ` · ${fmtK(effTokens(d.s))} tk`
                 : ''}{d.s.model ? ` · ${d.s.model}` : ''}</span
             >
             <span class="stime" title={new Date(d.s.updated).toLocaleString()}>{relTime(d.s.updated)}</span>

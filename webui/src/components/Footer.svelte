@@ -2,7 +2,7 @@
   import { onMount } from 'svelte'
   import { oc } from '../lib/api'
   import { RECENT_PAGE } from '../lib/sse'
-  import { selectedModel, paletteOpen, sessionMetrics, metricsFromMessages } from '../lib/stores'
+  import { selectedModel, paletteOpen, sessionMetrics, sessionKidMap, metricsFromMessages } from '../lib/stores'
   import type { Tab } from '../lib/stores'
 
   export let tab: Tab
@@ -58,9 +58,19 @@
   })
 
   // live tallies stream in via SSE (message.updated → sessionMetrics) and
-  // update DURING a turn; the busy-keyed refresh above only seeds the value
+  // update DURING a turn; the busy-keyed refresh above only seeds the value.
+  // Rolled-up tokens: sum of descendant sessions' tokens (subagents).
+  $: rolledUpTokens = (() => {
+    const kids = $sessionKidMap.get(tab.id)
+    if (!kids) return 0
+    let sum = 0
+    for (const kid of kids) {
+      sum += $sessionMetrics[kid.id]?.tokens ?? kid.tokens ?? 0
+    }
+    return sum
+  })()
   $: usedTokens =
-    (tab.live ? $sessionMetrics[tab.id]?.tokens : undefined) ?? fetchedTokens
+    ((tab.live ? $sessionMetrics[tab.id]?.tokens : undefined) ?? fetchedTokens) + rolledUpTokens
   $: pct = limit ? Math.min(100, (usedTokens / limit) * 100) : 0
 </script>
 
