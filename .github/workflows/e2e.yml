@@ -30,7 +30,14 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       - name: Run embedded tests
-        run: node e2e/embedded/*.test.mjs
+        run: |
+          failed=0
+          for f in e2e/embedded/*.test.mjs; do
+            echo "::group::$(basename "$f")"
+            node "$f" || failed=1
+            echo "::endgroup::"
+          done
+          exit $failed
 
   integration:
     name: Integration Tests (engine + chatserver)
@@ -80,7 +87,14 @@ jobs:
           curl -sf http://127.0.0.1:8123/healthz && echo "chatserver ready"
 
       - name: Run integration tests
-        run: node e2e/integration/*.test.mjs
+        run: |
+          failed=0
+          for f in e2e/integration/*.test.mjs; do
+            echo "::group::$(basename "$f")"
+            node "$f" || failed=1
+            echo "::endgroup::"
+          done
+          exit $failed
 
       - name: Cleanup
         if: always()
