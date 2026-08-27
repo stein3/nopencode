@@ -1,0 +1,83 @@
+name: E2E Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  embedded:
+    name: Embedded Tests (no engine)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        working-directory: e2e
+        run: npm ci
+
+      - name: Install Chromium
+        working-directory: e2e
+        run: npx playwright install --with-deps chromium
+
+      - name: Run embedded tests
+        run: node e2e/embedded/*.test.mjs
+
+  integration:
+    name: Integration Tests (engine + chatserver)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install webui dependencies
+        working-directory: webui
+        run: npm ci
+
+      - name: Build webui
+        working-directory: webui
+        run: npm run build
+
+      - name: Install opencode engine
+        run: npm install -g opencode-ai@1.18.18
+
+      - name: Install e2e dependencies
+        working-directory: e2e
+        run: npm ci
+
+      - name: Install Chromium
+        working-directory: e2e
+        run: npx playwright install --with-deps chromium
+
+      - name: Start opencode engine
+        run: |
+          opencode serve --port 4096 &
+          sleep 3
+          curl -sf http://127.0.0.1:4096/doc > /dev/null && echo "engine ready"
+
+      - name: Start chatserver
+        run: |
+          OC_ENGINE=http://127.0.0.1:4096 \
+          PORT=8123 HOST=127.0.0.1 \
+          python3 chatserver.py &
+          sleep 2
+          curl -sf http://127.0.0.1:8123/healthz && echo "chatserver ready"
+
+      - name: Run integration tests
+        run: node e2e/integration/*.test.mjs
+
+      - name: Cleanup
+        if: always()
+        run: pkill -f 'opencode serve' || true

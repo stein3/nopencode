@@ -1,0 +1,15 @@
+# Dependencies
+node_modules/
+
+# System libs & fonts (playwright install --with-deps handles these in CI)
+fixtures/libs/
+fixtures/fonts/
+fixtures/fonts.conf
+fixtures/fontcache/
+
+# Dev/bench utilities (not test suites)
+utilities/
+
+# Test output
+shots/
+*.png
