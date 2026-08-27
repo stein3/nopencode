@@ -6,6 +6,7 @@
     selectedModel,
     sessionTodos,
     sessionMetrics,
+    sessionKidMap,
     metricsFromMessages,
     permissions,
     pendingQuestions,
@@ -106,10 +107,22 @@
   ensureProv().then(() => (limit = cachedLimit($selectedModel)))
 
   // live tallies stream in via SSE (message.updated → sessionMetrics) and
-  // update DURING a turn; the keyed/interval refresh above only seeds values
-  $: usedTokens =
-    (tab?.live ? $sessionMetrics[tab.id]?.tokens : undefined) ?? fetchedTokens
+  // update DURING a turn; the keyed/interval refresh above only seeds values.
+  // Rolled-up tokens: sum of descendant sessions' tokens (subagents).
+  $: ownTokens = (tab?.live ? $sessionMetrics[tab.id]?.tokens : undefined) ?? fetchedTokens
+  $: rolledUpTokens = (() => {
+    const kidList = $sessionKidMap.get(tab?.id ?? '')
+    if (!kidList) return 0
+    let sum = 0
+    for (const kid of kidList) {
+      sum += $sessionMetrics[kid.id]?.tokens ?? kid.tokens ?? 0
+    }
+    return sum
+  })()
+  $: usedTokens = ownTokens + rolledUpTokens
   $: pct = limit ? Math.min(100, (usedTokens / limit) * 100) : 0
+  // rolled-up cost from linked HistSession children (fetched via refreshLinked)
+  $: rolledUpCost = kids.reduce((s, k) => s + (k.cost ?? 0), 0)
 
   // ---- linked sessions: DIRECT children of the active session --------------
   // Same title-suffix convention as the Sidebar (badge replaces "(@… subagent)").
@@ -198,7 +211,7 @@
 
   <div class="sec">Context</div>
   <div class="grid">
-    <span class="k">tokens</span><span class="v">{usedTokens ? fmtK(usedTokens) : '—'}</span>
+    <span class="k">tokens</span><span class="v">{ownTokens ? fmtK(ownTokens) : '—'}</span>
     <span class="k">used</span>
     <span class="v">
       {#if limit}
@@ -208,6 +221,11 @@
       {/if}
     </span>
     <span class="k">spent</span><span class="v">${cost.toFixed(4)}</span>
+    {#if rolledUpTokens || rolledUpCost}
+      <span class="k dim">subagents</span><span class="v dim">{fmtK(rolledUpTokens)}</span>
+      <span class="k dim">total (tokens)</span><span class="v dim">{fmtK(usedTokens)}</span>
+      <span class="k dim">total (spent)</span><span class="v dim">${(cost + rolledUpCost).toFixed(4)}</span>
+    {/if}
   </div>
 
   <div class="sec">Todo</div>
@@ -282,6 +300,15 @@
   }
   .k {
     color: var(--fg-dim);
+  }
+  .k.dim {
+    color: var(--fg-dim);
+    opacity: 0.65;
+    font-size: 11px;
+  }
+  .v.dim {
+    opacity: 0.65;
+    font-size: 11px;
   }
   .v {
     text-align: right;

@@ -244,6 +244,12 @@ export interface SessionMetrics {
 
 export const sessionMetrics = writable<Record<string, SessionMetrics>>({})
 
+// ---- session parent→children map (for token roll-up in Footer/InfoPanel) ---
+// Sidebar builds kidsMap from the full session list; this writable mirrors it
+// so other components can compute rolled-up descendant tokens without
+// duplicating the session-list fetch.
+export const sessionKidMap = writable<Map<string, { id: string; tokens?: number }[]>>(new Map())
+
 export function patchMetrics(sid: string, m: SessionMetrics) {
   if (!sid || sid.startsWith('pending-')) return
   sessionMetrics.update((all) => ({ ...all, [sid]: { ...all[sid], ...m } }))
