@@ -14,7 +14,7 @@
   import WhichKey from './components/WhichKey.svelte'
   import Settings from './components/Settings.svelte'
   import ImageLightbox from './components/ImageLightbox.svelte'
-  import ComposerModelPicker from './components/ComposerModelPicker.svelte'
+  import ComposerToolbar from './components/ComposerToolbar.svelte'
   import InfoPanel from './components/InfoPanel.svelte'
   import { startEvents, applyMessages, backfill, loadOlder, RECENT_PAGE, JUMP_CAP } from './lib/sse'
   import { cancelRetry } from './lib/retries'
@@ -518,7 +518,7 @@
           </div>
         {/if}
         <QuestionBanner sessionId={t.id} />
-        <ComposerModelPicker sid={t.id} />
+        <ComposerToolbar tab={t} />
         <Composer
           bind:this={composers[t.id]}
           tab={t}

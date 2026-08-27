@@ -143,11 +143,7 @@
   .wrap {
     position: relative;
     display: inline-flex;
-    margin: 0 auto;
-    padding: 0 4px 4px;
-    max-width: 892px;
-    width: 100%;
-    box-sizing: border-box;
+    align-self: center;
   }
   .cur {
     display: inline-flex;

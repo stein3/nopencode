@@ -93,14 +93,6 @@
       ),
   )
   $: lastMsg = msgs.at(-1)
-  $: lastHasVisible =
-    !!lastMsg?.parts?.some(
-      (p) =>
-        (p.type === 'text' && (p.text ?? '').trim()) ||
-        p.type === 'tool' ||
-        p.type === 'file',
-    )
-  $: liveThinking = tab.busy && (!lastMsg || lastMsg.role !== 'assistant' || !lastHasVisible)
 
   // User messages still awaiting their assistant turn. The engine runs
   // queued prompts strictly in order, so every user message after the last
@@ -910,9 +902,7 @@
             {/if}
           {/if}
         {/each}
-        {#if liveThinking && m === lastMsg}
-          <div class="live-thinking">💭 Thinking<span class="dots"><i>.</i><i>.</i><i>.</i></span></div>
-        {/if}
+
         {#if m.error && m.role !== 'user'}
           {#if isAborted(m.error)}
             <div class="aborted">session aborted</div>
@@ -1672,24 +1662,5 @@
     margin: 0.4em 0;
     padding-left: 0.8em;
   }
-  .live-thinking {
-    color: var(--fg-dim);
-    font-size: 12.5px;
-    padding: 4px 2px;
-    font-style: italic;
-  }
-  .dots i {
-    animation: blink 1.2s infinite;
-    font-style: normal;
-  }
-  .dots i:nth-child(2) {
-    animation-delay: 0.2s;
-  }
-  .dots i:nth-child(3) {
-    animation-delay: 0.4s;
-  }
-  @keyframes blink {
-    0%, 60% { opacity: 0.15; }
-    30% { opacity: 1; }
-  }
+
 </style>

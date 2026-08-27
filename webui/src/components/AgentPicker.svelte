@@ -119,19 +119,19 @@
   .wrap {
     position: relative;
     flex: none; /* never fight the textarea's flex: 1 */
-    align-self: flex-end;
+    align-self: center;
   }
   /* tokens mirror ModelPicker's collapsed button */
   .cur {
-    display: flex;
+    display: inline-flex;
     align-items: center;
-    gap: 5px;
-    background: var(--bg);
+    gap: 4px;
+    background: transparent;
     border: 1px solid var(--border);
     color: var(--fg-dim);
     border-radius: 6px;
-    font-size: 11.5px;
-    padding: 6px 9px;
+    font-size: 11px;
+    padding: 2px 8px;
     cursor: pointer;
     max-width: 120px;
   }
@@ -154,7 +154,8 @@
   }
   .chev {
     flex-shrink: 0;
-    opacity: 0.85;
+    opacity: 0.7;
+    font-size: 9px;
   }
   .dot {
     width: 7px;
@@ -236,7 +237,7 @@
   @media (max-width: 480px) {
     .cur {
       max-width: 78px;
-      padding: 5px 7px;
-    }
+    padding: 2px 6px;
+  }
   }
 </style>
