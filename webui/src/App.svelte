@@ -7,7 +7,7 @@
   import QuestionBanner from './components/QuestionBanner.svelte'
   import Footer from './components/Footer.svelte'
   import { hist, oc } from './lib/api'
-  import { tabs, permissions, sidebarOpen, selectedModel, paletteOpen, infoOpen, toggleInfo, toastMsg, patchMetrics, clearSessionUnread, loadOpenTabs, rekeySessionAgent, rekeySessionModel, modelPickerOpen, theme, type Tab } from './lib/stores'
+  import { tabs, permissions, sidebarOpen, selectedModel, paletteOpen, infoOpen, toggleInfo, toastMsg, patchMetrics, clearSessionUnread, loadOpenTabs, rekeySessionAgent, rekeySessionModel, modelPickerOpen, theme, markSessionListDirty, type Tab } from './lib/stores'
   import CommandPalette from './components/CommandPalette.svelte'
   import CommandDialog from './components/CommandDialog.svelte'
   import RenameDialog from './components/RenameDialog.svelte'
@@ -193,6 +193,9 @@
     // an agent picked on the pending tab follows the session to its real id
     rekeySessionAgent(tabId, s.id)
     rekeySessionModel(tabId, s.id)
+    // sidebar won't see the new session until the 60 s poll — bump the dirty
+    // signal so it reloads immediately
+    markSessionListDirty()
     return s.id
   }
 

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { tick } from 'svelte'
-  import { renameTarget, tabs, toast } from '../lib/stores'
+  import { renameTarget, tabs, toast, markSessionListDirty } from '../lib/stores'
   import { oc } from '../lib/api'
 
   let inputEl: HTMLInputElement
@@ -42,6 +42,7 @@
     try {
       const s = await oc.renameSession(sid, t)
       tabs.patch(sid, { title: s.title ?? t })
+      markSessionListDirty()
       toast('renamed')
       close()
     } catch (e: any) {

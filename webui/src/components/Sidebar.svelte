@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { oc, hist, type HistSession, type SearchHit } from '../lib/api'
-  import { searchQuery, sessionMetrics, permissions, pendingQuestions, tabs, sessionUnread, markSessionUnread, hideSubagents, subExpanded, settingsOpen } from '../lib/stores'
+  import { searchQuery, sessionMetrics, permissions, pendingQuestions, tabs, sessionUnread, markSessionUnread, hideSubagents, subExpanded, settingsOpen, sessionListDirty } from '../lib/stores'
   import { relTime } from '../lib/util'
 
   const activeStore = tabs.active
@@ -200,6 +200,10 @@
     }
   }
   load()
+
+  // instant reload when any code path bumps the dirty signal (create, rename,
+  // cross-client SSE title change) — complements the 60 s safety-net poll
+  $: if ($sessionListDirty > 0) load()
 
   // sqlite snapshot only changes on reload — poll so non-open sessions stay
   // roughly fresh too (open tabs are corrected live via sessionMetrics)

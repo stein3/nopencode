@@ -1,4 +1,4 @@
-import { tabs, sessionTodos, patchMetrics, metricsFromMessages, tokenTally, markSessionUnread, patchEngineRetry, clearEngineRetry } from './stores'
+import { tabs, sessionTodos, patchMetrics, metricsFromMessages, tokenTally, markSessionUnread, patchEngineRetry, clearEngineRetry, markSessionListDirty } from './stores'
 import { oc, hist } from './api'
 import { refreshPermissions } from './permissions'
 import { refreshQuestions } from './questions'
@@ -300,8 +300,10 @@ export function startEvents() {
       tabs.patch(sid, { revert: p.info.revert ?? null })
       patchMetrics(sid, { cost: p.info.cost, updated: p.info.time?.updated })
       // follow renames / auto-titles (e.g. "New Session" → real title)
-      if (p.info.title && tabs.snapshot(sid)?.title !== p.info.title)
+      if (p.info.title && tabs.snapshot(sid)?.title !== p.info.title) {
         tabs.patch(sid, { title: p.info.title })
+        markSessionListDirty()
+      }
       // NOTE: deliberately no selectedModel.save here — these events stream
       // all through an in-flight turn carrying its OLD model, so echoing them
       // into the picker silently reverted a fresh user pick before the next

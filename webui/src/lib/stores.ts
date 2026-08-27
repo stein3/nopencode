@@ -484,6 +484,15 @@ export const settingsOpen = writable(false)
 // ---- rename-session dialog target (sid + current title); null = closed ----
 export const renameTarget = writable<{ sid: string; title: string } | null>(null)
 
+// ---- sidebar session-list refresh signal ----
+// Bump this counter from any code path that mutates the session list
+// (create, rename, cross-client SSE title change) to trigger an immediate
+// sidebar reload instead of waiting for the 60 s poll.
+export const sessionListDirty = writable(0)
+export function markSessionListDirty() {
+  sessionListDirty.update((n) => n + 1)
+}
+
 // ---- full-size image viewer (read-tool thumbnails); null = closed ----
 export const lightbox = writable<{ src: string; caption?: string } | null>(null)
 
