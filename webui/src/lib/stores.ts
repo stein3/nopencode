@@ -364,6 +364,55 @@ export const showThinking = makePref('showThinking', false) // /thinking expands
 export const showTimestamps = makePref('showTimestamps', true)
 export const hideSubagents = makePref('hideSubagents', true) // sidebar: hide @agent sessions by default
 
+// ---- numeric preference helper (same localStorage pattern as makePref) ----
+function makePrefNum(key: string, initial: number) {
+  const KEY = 'opencode.' + key
+  const w = writable<number>(
+    (() => {
+      try {
+        const raw = localStorage.getItem(KEY)
+        return raw === null ? initial : Number(raw) || initial
+      } catch {
+        return initial
+      }
+    })(),
+  )
+  w.subscribe((v) => {
+    try {
+      localStorage.setItem(KEY, String(v))
+    } catch {}
+  })
+  return w
+}
+
+// ---- retry preferences (read by retries.ts) ----
+export const autoRetry = makePref('autoRetry', true) // enable webui auto-retry for retryable errors
+export const retryMaxAttempts = makePrefNum('retryMaxAttempts', 0) // 0 = unlimited
+export const retryMaxDelay = makePrefNum('retryMaxDelay', 300) // cap on backoff delay (seconds)
+
+// ---- engine-reported retry state (from session.next.retried SSE events) ----
+// The engine retries certain errors server-side (e.g. provider quota with
+// retry-after header). These retries are separate from the webui's own
+// auto-retry loop. This store tracks the engine's retry status per session
+// so Transcript can render a distinct countdown banner.
+export interface EngineRetryInfo {
+  attempt: number
+  error?: any
+  ts: number // event timestamp
+}
+export const engineRetries = writable<Record<string, EngineRetryInfo>>({})
+
+export function patchEngineRetry(sid: string, info: EngineRetryInfo) {
+  engineRetries.update((all) => ({ ...all, [sid]: info }))
+}
+export function clearEngineRetry(sid: string) {
+  engineRetries.update((all) => {
+    const next = { ...all }
+    delete next[sid]
+    return next
+  })
+}
+
 // ---- theme store (string-valued, not boolean) ----
 const THEME_KEY = 'opencode.theme'
 export const theme = writable<string>(
