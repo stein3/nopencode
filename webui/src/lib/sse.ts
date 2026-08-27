@@ -234,6 +234,11 @@ export function startEvents() {
       onTurnIdle(sid)
       // engine-side retry cleared — the turn succeeded or was abandoned
       clearEngineRetry(sid)
+      // session recovered — clear any stale sidecar error tiles (the error
+      // condition has resolved); persist the deletion so tiles don't reappear
+      // on reload
+      tabs.clearErrors(sid)
+      hist.clearSessionErrors(sid).catch(() => {})
       // finished while another tab is being viewed → flag done/unread
       if (tabs.getActive() !== sid) markSessionUnread(sid)
     } else if (type === 'session.error') {

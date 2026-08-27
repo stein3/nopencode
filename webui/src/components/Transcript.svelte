@@ -405,6 +405,12 @@
     return p.state?.status === 'error'
   }
 
+  // Dismiss a sidecar error tile: remove from in-memory state + persist deletion
+  function dismissSidecarError(idx: number) {
+    tabs.dismissError(tab.id, idx)
+    hist.clearSessionErrors(tab.id).catch(() => {})
+  }
+
   // roleLabel/isAborted live in lib/util — shared with the commands.ts
   // export/copy/timeline header builders so they match these row labels
 
@@ -919,7 +925,10 @@
   {/each}
     {#each sidecarErrors as e, i (i)}
       <div class="msg errtile">
-        <div class="head"><span class="role">Error</span></div>
+        <div class="head">
+          <span class="role">Error</span>
+          <button class="etile-dismiss" title="Dismiss" on:click={() => dismissSidecarError(i)}>×</button>
+        </div>
         <div class="body">{e.message}</div>
       </div>
     {/each}
@@ -1102,6 +1111,20 @@
   .errtile .body {
     white-space: pre-wrap;
     word-break: break-word;
+  }
+  .etile-dismiss {
+    margin-left: auto;
+    background: none;
+    border: none;
+    color: var(--err);
+    cursor: pointer;
+    font-size: 16px;
+    line-height: 1;
+    padding: 0 4px;
+    opacity: 0.6;
+  }
+  .etile-dismiss:hover {
+    opacity: 1;
   }
   .errtile-inline {
     display: flex;

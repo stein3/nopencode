@@ -198,6 +198,22 @@ function makeTabs() {
         }),
       )
     },
+    // Remove one sidecar error tile by index (dismiss button)
+    dismissError(id: string, idx: number) {
+      update((tabs) =>
+        tabs.map((t) => {
+          if (t.id !== id) return t
+          const errors = [...(t.errors ?? [])]
+          errors.splice(idx, 1)
+          return { ...t, errors }
+        }),
+      )
+    },
+    // Clear all sidecar errors for a session (e.g. on idle — the error
+    // condition has resolved; persisted via DELETE on the chatserver)
+    clearErrors(id: string) {
+      update((tabs) => tabs.map((t) => (t.id === id ? { ...t, errors: [] } : t)))
+    },
     setActive(id: string) {
       activeId = id
       setActiveStore(id)
