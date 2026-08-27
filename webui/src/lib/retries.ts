@@ -1,5 +1,5 @@
 import { writable, get } from 'svelte/store'
-import { tabs, selectedModel, sessionAgent } from './stores'
+import { tabs, selectedModel, sessionAgent, autoRetry, retryMaxAttempts, retryMaxDelay } from './stores'
 import { oc } from './api'
 
 // Auto-retry for retryable turn failures. The engine stamps isRetryable on
@@ -102,11 +102,18 @@ function ensureTicker() {
 export function scheduleRetry(sid: string) {
   // timing/backoff only — does NOT create loop state; arming is
   // onRetryableError's job (a bare scheduleRetry never dispatches)
+  if (!get(autoRetry)) return
   lastErrorAt.set(sid, Date.now())
   const cur = get(retryState)[sid]
   if (cur && cur.secondsLeft > 0) return // countdown already running (duplicate event)
   const attempt = (cur?.attempt ?? 0) + 1
-  const delay = DELAYS[Math.min(attempt - 1, DELAYS.length - 1)]
+  const maxAttempts = get(retryMaxAttempts)
+  if (maxAttempts > 0 && attempt > maxAttempts) {
+    clearRetry(sid)
+    return
+  }
+  const delayIdx = Math.min(attempt - 1, DELAYS.length - 1)
+  const delay = Math.min(DELAYS[delayIdx], get(retryMaxDelay))
   setState(sid, { attempt, secondsLeft: delay })
   ensureTicker()
 }
@@ -117,6 +124,7 @@ export function scheduleRetry(sid: string) {
 // (the turn ran before the provider failed) → delivered=true, so every fire()
 // nudges instead of duplicating the original prompt.
 export function onRetryableError(sid: string) {
+  if (!get(autoRetry)) return
   const cur = loops.get(sid)
   if (!cur) {
     loops.set(sid, { orig: lastUserText(sid) ?? '', attempted: '', delivered: true })
@@ -142,7 +150,7 @@ function lastUserText(sid: string): string | null {
 }
 
 function fire(sid: string) {
-  if (!tabs.isopen(sid)) {
+  if (!tabs.isopen(sid) || !get(autoRetry)) {
     clearRetry(sid)
     return
   }

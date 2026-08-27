@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount, afterUpdate } from 'svelte'
-  import { tabs, showThinking, showTimestamps, toast, type Tab, pendingQuestions, type PendingQuestion, lightbox } from '../lib/stores'
-  import { oc, type OcMessage } from '../lib/api'
+  import { tabs, showThinking, showTimestamps, toast, type Tab, pendingQuestions, type PendingQuestion, lightbox, engineRetries } from '../lib/stores'
+  import { oc, hist, type OcMessage } from '../lib/api'
   import { refetchNow } from '../lib/sse'
   import { md } from '../lib/markdown'
   import { isImagePath, imageDataUrl } from '../lib/images'
@@ -421,6 +421,10 @@
   // payload. Re-derived from $retryState each tick so it can't go stale.
   $: payloadKind =
     $retryState[tab.id]?.secondsLeft > 0 ? nextPayloadKind(tab.id) : undefined
+
+  // engine-side retry (session.next.retried SSE events) — separate from
+  // the webui's own auto-retry loop; shows the engine's server-side countdown
+  $: engineRetry = $engineRetries[tab.id]
 
   // ---- summary-line badges ------------------------------------------------
   function isTruncated(p: any): boolean {
@@ -928,6 +932,17 @@
         <button class="rcancel" title="Stop auto-retrying" on:click={() => cancelRetry(tab.id)}>cancel</button>
       </div>
     {/if}
+    {#if engineRetry}
+      <div class="retryline engineretry">
+        <span class="rglyph">⟳</span>
+        <span>
+          engine retrying · attempt {engineRetry.attempt}
+          {#if engineRetry.error?.data?.message}
+            · {engineRetry.error.data.message}
+          {/if}
+        </span>
+      </div>
+    {/if}
     {/if}
   </div>
 </div>
@@ -1145,6 +1160,11 @@
   .retryline .rcancel:hover {
     color: var(--fg);
     border-color: var(--err);
+  }
+  /* engine-side retry (session.next.retried) — amber instead of red to
+     distinguish from the webui's own auto-retry */
+  .retryline.engineretry {
+    color: #e0a030;
   }
   /* errored tool calls stay panel-colored — red border + left accent + the ✗
      glyph, but normal text colors (full red is for turn-failure tiles) */

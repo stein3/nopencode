@@ -1,4 +1,4 @@
-import { tabs, sessionTodos, patchMetrics, metricsFromMessages, tokenTally, markSessionUnread } from './stores'
+import { tabs, sessionTodos, patchMetrics, metricsFromMessages, tokenTally, markSessionUnread, patchEngineRetry, clearEngineRetry } from './stores'
 import { oc, hist } from './api'
 import { refreshPermissions } from './permissions'
 import { refreshQuestions } from './questions'
@@ -232,6 +232,8 @@ export function startEvents() {
       tabs.patch(sid, { busy: false })
       // turn ended without a fresh error → a pending retry loop is done
       onTurnIdle(sid)
+      // engine-side retry cleared — the turn succeeded or was abandoned
+      clearEngineRetry(sid)
       // finished while another tab is being viewed → flag done/unread
       if (tabs.getActive() !== sid) markSessionUnread(sid)
     } else if (type === 'session.error') {
@@ -254,6 +256,18 @@ export function startEvents() {
       // delivered, so retries nudge ("the session stalled, continue.") instead
       // of duplicating it — see lib/retries
       if (isRetryableError(em)) onRetryableError(sid)
+      if (tabs.getActive() !== sid) markSessionUnread(sid)
+    } else if (type === 'session.next.retried') {
+      // Engine-side retry (separate from the webui's auto-retry loop). The
+      // engine retries certain errors server-side (e.g. provider quota with
+      // retry-after header). This event fires on each attempt.
+      const attempt: number = p.attempt ?? 1
+      const em: any = p.error
+      const msg = String(em?.data?.message ?? em?.message ?? em?.name ?? 'error')
+      patchEngineRetry(sid, { attempt, error: em, ts: Date.now() })
+      // Persist the error to the sidecar so it's visible even if the tab
+      // wasn't open for the original session.error event
+      hist.addSessionError(sid, msg)
       if (tabs.getActive() !== sid) markSessionUnread(sid)
     }
 

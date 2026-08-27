@@ -257,6 +257,7 @@ export const hist = {
   search: (q: string) => req<SearchHit[]>(`/api/search?q=${encodeURIComponent(q)}`),
   sessionErrors: (id: string) =>
     req<HistErr[]>(`/api/history/session/${id}/errors`).catch(() => []),
+  allErrors: () => req<(HistErr & { sid: string })[]>('/api/history/errors').catch(() => []),
   // fire-and-forget by contract — callers ignore the promise
   addSessionError: (id: string, message: string, t = Date.now()) =>
     req<{ ok: boolean }>(`/api/history/session/${id}/errors`, {

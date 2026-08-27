@@ -13,8 +13,15 @@ Single-origin backend for the webui:
                       anywhere, so this is the only record. UNIQUE(sid,msg)
                       collapses duplicate inserts from multiple webui clients
                       witnessing the same SSE event.
+  /api/history/errors
+                   -> ALL persisted errors across all sessions (background
+                      collector records errors even when no webui tab is open).
   /api/search      -> case-insensitive substring search across all message parts
   /healthz         -> liveness
+
+A background SSE collector thread watches the engine's /event stream and
+persists session.error and session.next.retried events to the sidecar, so
+errors are visible to the webui even when no tab was open at the time.
 
 Pure stdlib. Stateless: every /api request runs its own read-only SQL against
 opencode.db (WAL-safe alongside a live engine/TUI) instead of materializing
@@ -34,6 +41,7 @@ import mimetypes
 import os
 import re
 import sqlite3
+import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs, urlunparse
@@ -153,6 +161,101 @@ def session_error_clear(sid):
         return {"ok": True}
     finally:
         conn.close()
+
+
+def session_errors_all():
+    """Return ALL persisted errors across all sessions (for the global endpoint)."""
+    try:
+        conn = _serr_connect()
+    except Exception:
+        return []
+    try:
+        rows = conn.execute(
+            "SELECT sid, msg, t FROM serr ORDER BY t DESC LIMIT 500"
+        ).fetchall()
+        return [{"sid": r[0], "message": r[1], "t": r[2]} for r in rows]
+    except sqlite3.OperationalError:
+        return []
+    finally:
+        conn.close()
+
+
+# ---- background SSE collector -----------------------------------------------
+# Listens to the engine's SSE stream and persists session.error and
+# session.next.retried events to the sidecar. This ensures errors are
+# recorded even when no webui tab is open.
+_collector_lock = threading.Lock()
+
+
+def _sse_collector():
+    """Background daemon thread: tail engine /event, persist error events."""
+    import http.client as _http
+
+    while True:
+        conn = None
+        try:
+            host, port = OC_ENGINE.split(":")[0], int(OC_ENGINE.split(":")[1])
+            conn = _http.HTTPConnection(host, port, timeout=300)
+            conn.request("GET", "/event", headers={"Accept": "text/event-stream"})
+            resp = conn.getresponse()
+            if resp.status != 200:
+                time.sleep(5)
+                continue
+            event_type = ""
+            data_buf = []
+            for raw_line in resp:
+                line = raw_line.decode("utf-8", errors="replace")
+                if line.startswith("event:"):
+                    event_type = line[6:].strip()
+                elif line.startswith("data:"):
+                    data_buf.append(line[5:].strip())
+                elif line.strip() == "" and data_buf:
+                    # end of SSE frame — process it
+                    _process_sse_event(event_type, "".join(data_buf))
+                    event_type = ""
+                    data_buf = []
+        except Exception:
+            time.sleep(5)
+        finally:
+            if conn:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+
+
+def _process_sse_event(event_type, data_str):
+    """Parse and persist error/retry events from the engine SSE stream."""
+    if event_type not in ("session.error", "session.next.retried"):
+        return
+    try:
+        data = json.loads(data_str)
+    except (json.JSONDecodeError, TypeError):
+        return
+    props = data.get("properties", data)
+    sid = props.get("sessionID") or props.get("info", {}).get("sessionID") or props.get("info", {}).get("id")
+    if not sid:
+        return
+    em = props.get("error")
+    if not em:
+        return
+    msg = str(em.get("data", {}).get("message") or em.get("message") or em.get("name") or "error")
+    if event_type == "session.next.retried":
+        attempt = props.get("attempt", 1)
+        msg = f"[retry attempt #{attempt}] {msg}"
+    with _collector_lock:
+        try:
+            conn = _serr_connect(create=True)
+            try:
+                conn.execute(
+                    "INSERT OR IGNORE INTO serr(sid, msg, t) VALUES(?,?,?)",
+                    (sid, msg, int(time.time() * 1000)),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+        except Exception:
+            pass
 
 
 def load_sessions():
@@ -526,6 +629,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json({"ok": True})
             if path == "/api/history/sessions":
                 return self.send_json(load_sessions())
+            if path == "/api/history/errors":
+                return self.send_json(session_errors_all())
             m = re.match(r"^/api/history/session/([^/]+)/changes$", path)
             if m:
                 changes = session_changes(m.group(1))
@@ -674,6 +779,10 @@ if __name__ == "__main__":
         _serr_connect(create=True).close()
     except Exception as e:
         print(f"webui sidecar unavailable ({e}) — error tiles won't persist", flush=True)
+    # start background SSE collector (daemon thread — dies with the process)
+    t = threading.Thread(target=_sse_collector, daemon=True, name="sse-collector")
+    t.start()
+    print(f"chatserver: sse-collector watching {OC_ENGINE}", flush=True)
     srv = ThreadingHTTPServer((HOST, PORT), Handler)
     print(f"chatserver: http://{HOST}:{PORT}  dist={WEBUI_DIST}  engine={OC_ENGINE}", flush=True)
     srv.serve_forever()

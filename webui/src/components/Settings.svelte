@@ -15,6 +15,9 @@
     clearLocalData,
     toast,
     theme,
+    autoRetry,
+    retryMaxAttempts,
+    retryMaxDelay,
   } from '../lib/stores'
 
   const activeStore = tabs.active
@@ -174,6 +177,54 @@
                 through it instead of a direct store bind -->
             <input class="native" type="checkbox" checked={$infoOpen} on:change={toggleInfo} />
             <span class="switch" aria-hidden="true"></span>
+          </label>
+        </section>
+
+        <section>
+          <div class="sec">Retry</div>
+          <label class="row">
+            <span class="txt">
+              <span class="name">Auto-retry on failure</span>
+              <span class="desc">
+                Automatically retry when the engine reports a retryable provider error (e.g. upstream
+                5xx). Uses a growing backoff and sends a stall-nudge instead of re-posting the prompt.
+              </span>
+            </span>
+            <input class="native" type="checkbox" bind:checked={$autoRetry} />
+            <span class="switch" aria-hidden="true"></span>
+          </label>
+          <label class="row" class:disabled={!$autoRetry}>
+            <span class="txt">
+              <span class="name">Max retry attempts</span>
+              <span class="desc">
+                0 = unlimited (keeps retrying until success or manual cancel). Set a number to cap
+                retries.
+              </span>
+            </span>
+            <input
+              class="numinput"
+              type="number"
+              min="0"
+              max="999"
+              bind:value={$retryMaxAttempts}
+              disabled={!$autoRetry}
+            />
+          </label>
+          <label class="row" class:disabled={!$autoRetry}>
+            <span class="txt">
+              <span class="name">Max retry delay (seconds)</span>
+              <span class="desc">
+                Cap on the backoff delay between retries. The default schedule goes up to 300s (5 min).
+              </span>
+            </span>
+            <input
+              class="numinput"
+              type="number"
+              min="1"
+              max="3600"
+              bind:value={$retryMaxDelay}
+              disabled={!$autoRetry}
+            />
           </label>
         </section>
 
@@ -393,6 +444,32 @@
   .native:focus-visible + .switch {
     outline: 1px solid var(--accent);
     outline-offset: 2px;
+  }
+
+  /* numeric input for retry settings */
+  .numinput {
+    flex: none;
+    width: 64px;
+    padding: 4px 8px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--bg-panel);
+    color: var(--fg);
+    font-family: var(--mono);
+    font-size: 12px;
+    text-align: right;
+  }
+  .numinput:focus {
+    outline: 1px solid var(--accent);
+    outline-offset: 1px;
+  }
+  .numinput:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+  .row.disabled {
+    opacity: 0.45;
+    pointer-events: none;
   }
 
   /* read-only picks — same key/value grid as the info panel */
