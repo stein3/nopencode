@@ -2,7 +2,7 @@
   import { onMount, tick } from 'svelte'
   import { oc } from '../lib/api'
   import type { OcFilePart } from '../lib/api'
-  import { tabs, selectedModel, sessionAgent, cmdVersion } from '../lib/stores'
+  import { tabs, selectedModel, sessionModel, sessionAgent, cmdVersion } from '../lib/stores'
   import type { Tab } from '../lib/stores'
   import { registry, type Cmd } from '../lib/commands'
   import { RECENT_PAGE, normalizeMessages } from '../lib/sse'
@@ -244,7 +244,7 @@
         flight =
           m
             ? oc.runCommand(sid, m[1], m[2] ? [m[2]] : [])
-            : oc.prompt(sid, body, $selectedModel ?? undefined, sessionAgent(sid), files.map(toFilePart))
+            : oc.prompt(sid, body, sessionModel(sid) ?? $selectedModel ?? undefined, sessionAgent(sid), files.map(toFilePart))
         // attachments ship inside the POST body, so once the dispatch starts
         // they're delivered — clear the tray like the text box (handed back by
         // failedSend if the flight dies before landing). Slash commands can't
@@ -384,7 +384,7 @@
         bind:value={text}
         rows="1"
         id="composer-input"
-        placeholder="Message…  (Enter to send, Shift+Enter newline, / for commands)"
+        placeholder="message / for commands"
         on:focus={onTaFocus}
         on:keydown={key}
         on:paste={paste}
@@ -593,6 +593,10 @@
     line-height: 1.45;
     min-height: 22px;
     max-height: 200px;
+    /* Prevent the flex parent from stretching the textarea beyond its
+       intrinsic height — without this, the box's align-items: flex-end
+       can compute a doubled initial height on some layouts. */
+    align-self: flex-start;
   }
   /* floats above the composer, anchored to the input */
   .menu {

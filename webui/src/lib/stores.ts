@@ -621,6 +621,75 @@ export function rekeySessionAgent(oldId: string, newId: string) {
   setSessionAgent(oldId, undefined)
 }
 
+// ---- per-session model pick (composer "model for new messages") ----
+// Same pattern as sessionAgents: scoped to ONE session, keyed by tab/session
+// id. A missing key falls back to the global `selectedModel` (or the engine
+// config default). Written ONLY by explicit user picks in ComposerModelPicker.
+// Persisted per session so reloading mid-task keeps the session's pick.
+const SESSION_MODELS_KEY = 'opencode.sessionModels'
+const SESSION_MODELS_CAP = 200
+
+function loadSessionModels(): Record<string, ModelRef> {
+  try {
+    const raw = localStorage.getItem(SESSION_MODELS_KEY)
+    const obj = raw ? JSON.parse(raw) : null
+    if (obj && typeof obj === 'object' && !Array.isArray(obj)) {
+      const out: Record<string, ModelRef> = {}
+      for (const [k, v] of Object.entries(obj))
+        if (k && typeof v === 'object' && v && typeof (v as any).providerID === 'string' && typeof (v as any).modelID === 'string')
+          out[k] = v as ModelRef
+      return out
+    }
+  } catch {
+    /* private mode */
+  }
+  return {}
+}
+
+function persistSessionModels(all: Record<string, ModelRef>) {
+  try {
+    localStorage.setItem(SESSION_MODELS_KEY, JSON.stringify(all))
+  } catch {
+    /* private mode */
+  }
+}
+
+export const sessionModels = writable<Record<string, ModelRef>>(loadSessionModels())
+
+// Sync read for send paths outside Svelte reactivity (Composer.submit,
+// retries.fire). Always keyed by the REAL session id being prompted.
+export function sessionModel(sid: string): ModelRef | undefined {
+  if (!sid) return undefined
+  let v: ModelRef | undefined
+  sessionModels.subscribe((all) => (v = all[sid]))()
+  return v
+}
+
+// Insertion order doubles as recency order: the picked sid is re-appended
+// last and the oldest entries past the cap fall off.
+export function setSessionModel(sid: string, model: ModelRef | undefined) {
+  if (!sid) return
+  sessionModels.update((all) => {
+    const next: Record<string, ModelRef> = {}
+    for (const [k, v] of Object.entries(all)) if (k !== sid) next[k] = v
+    if (model) next[sid] = model
+    const keys = Object.keys(next)
+    for (const k of keys.slice(0, Math.max(0, keys.length - SESSION_MODELS_CAP))) delete next[k]
+    persistSessionModels(next)
+    return next
+  })
+}
+
+// A pending-* tab realized into a real session: carry its pick across the id
+// swap (call right after tabs.rekey).
+export function rekeySessionModel(oldId: string, newId: string) {
+  if (!oldId || oldId === newId) return
+  const cur = sessionModel(oldId)
+  if (cur === undefined) return
+  setSessionModel(newId, cur)
+  setSessionModel(oldId, undefined)
+}
+
 // ---- recently used models (persisted, most recent first) ----
 const RECENTS_KEY = 'opencode.modelRecents'
 const RECENTS_CAP = 12

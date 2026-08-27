@@ -7,14 +7,14 @@
   import QuestionBanner from './components/QuestionBanner.svelte'
   import Footer from './components/Footer.svelte'
   import { hist, oc } from './lib/api'
-  import { tabs, permissions, sidebarOpen, selectedModel, paletteOpen, infoOpen, toggleInfo, toastMsg, patchMetrics, clearSessionUnread, loadOpenTabs, rekeySessionAgent, modelPickerOpen, theme, type Tab } from './lib/stores'
+  import { tabs, permissions, sidebarOpen, selectedModel, paletteOpen, infoOpen, toggleInfo, toastMsg, patchMetrics, clearSessionUnread, loadOpenTabs, rekeySessionAgent, rekeySessionModel, modelPickerOpen, theme, type Tab } from './lib/stores'
   import CommandPalette from './components/CommandPalette.svelte'
   import CommandDialog from './components/CommandDialog.svelte'
   import RenameDialog from './components/RenameDialog.svelte'
   import WhichKey from './components/WhichKey.svelte'
   import Settings from './components/Settings.svelte'
   import ImageLightbox from './components/ImageLightbox.svelte'
-  import ModelPicker from './components/ModelPicker.svelte'
+  import ComposerModelPicker from './components/ComposerModelPicker.svelte'
   import InfoPanel from './components/InfoPanel.svelte'
   import { startEvents, applyMessages, backfill, loadOlder, RECENT_PAGE, JUMP_CAP } from './lib/sse'
   import { cancelRetry } from './lib/retries'
@@ -192,6 +192,7 @@
     tabs.rekey(tabId, { ...t, id: s.id, pending: false })
     // an agent picked on the pending tab follows the session to its real id
     rekeySessionAgent(tabId, s.id)
+    rekeySessionModel(tabId, s.id)
     return s.id
   }
 
@@ -445,7 +446,6 @@
       >
         ⌨
       </button>
-      <ModelPicker />
       <button
         class="burger"
         class:on={diffOpen}
@@ -502,6 +502,7 @@
           </div>
         {/if}
         <QuestionBanner sessionId={t.id} />
+        <ComposerModelPicker sid={t.id} />
         <Composer
           bind:this={composers[t.id]}
           tab={t}
