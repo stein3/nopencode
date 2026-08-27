@@ -8,7 +8,7 @@ import { launchBrowser, screenshot } from '../helpers/setup.mjs';
 //  5. sidecar-only error → red tile at end of transcript
 
 const SID = 'ses_mock01';
-const PROVIDER_ERR = 'Error from provider (Console Go): Upstream request failed.';
+const PROVIDER_ERR = 'Error from provider (test-provider): Upstream request failed.';
 
 const MSGS = [
   {

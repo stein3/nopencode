@@ -7,7 +7,7 @@
 // every refetch/reload).
 //
 // Prereq (started by the caller, NOT by this script):
-//   OC_ENGINE=127.0.0.1:4096 PORT=8123 HOST=127.0.0.1 python3 /workspace/opencode/chatserver.py &
+//   OC_ENGINE=127.0.0.1:4096 PORT=8123 HOST=127.0.0.1 python3 chatserver.py &
 import { BASE, launchBrowser, createChecker } from '../helpers/setup.mjs'
 
 const { check, summary } = createChecker()

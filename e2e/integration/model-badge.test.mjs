@@ -2,7 +2,7 @@
 // assistant rows (msgModel: flat assistant fields + nested user `model`).
 //
 // Prereq (started by the caller, NOT by this script):
-//   OC_ENGINE=127.0.0.1:4096 PORT=8123 HOST=127.0.0.1 python3 /workspace/opencode/chatserver.py &
+//   OC_ENGINE=127.0.0.1:4096 PORT=8123 HOST=127.0.0.1 python3 chatserver.py &
 import { BASE, ENGINE, launchBrowser, createChecker, screenshot, SHOTS_DIR } from '../helpers/setup.mjs'
 
 const { check, summary } = createChecker()
