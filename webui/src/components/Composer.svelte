@@ -341,7 +341,11 @@
   function autosize() {
     if (!ta) return
     ta.style.height = 'auto'
-    ta.style.height = Math.min(ta.scrollHeight, 200) + 'px'
+    if (!ta.value.trim()) {
+      ta.style.height = ''
+    } else {
+      ta.style.height = Math.min(ta.scrollHeight, 200) + 'px'
+    }
   }
 </script>
 
@@ -593,10 +597,6 @@
     line-height: 1.45;
     min-height: 22px;
     max-height: 200px;
-    /* Prevent the flex parent from stretching the textarea beyond its
-       intrinsic height — without this, the box's align-items: flex-end
-       can compute a doubled initial height on some layouts. */
-    align-self: flex-start;
   }
   /* floats above the composer, anchored to the input */
   .menu {

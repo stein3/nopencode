@@ -378,6 +378,13 @@
     const visible = new Set(displayRows.map((d) => d.s.id))
     if (!visible.size) return
 
+    // break focus on the composer so Enter/Escape fall through to the
+    // nav key handler instead of typing into the input
+    const el = document.activeElement as HTMLElement | null
+    if (el && (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT' || el.isContentEditable)) {
+      el.blur()
+    }
+
     // first press: snapshot the current display order
     if (!navOrder) navOrder = displayRows.map((d) => d.s.id)
 
