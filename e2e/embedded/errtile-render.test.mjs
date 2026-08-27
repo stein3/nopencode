@@ -1,4 +1,7 @@
-import { launchBrowser, screenshot } from '../helpers/setup.mjs';
+import http from 'node:http';
+import fs from 'node:fs';
+import path from 'node:path';
+import { launchBrowser, screenshot, DIST } from '../helpers/setup.mjs';
 
 // Verifies the tier-1/tier-2 error rendering (fully mocked engine payloads):
 //  1. errored tool part → red tool card
@@ -86,8 +89,21 @@ async function handle(route) {
 await page.route('**/oc/**', handle);
 await page.route('**/api/**', handle);
 
+// Serve webui/dist via a local HTTP server
+const MIME = { '.html': 'text/html', '.js': 'application/javascript', '.css': 'text/css', '.json': 'application/json', '.svg': 'image/svg+xml', '.woff2': 'font/woff2' };
+const server = http.createServer((req, res) => {
+  const url = new URL(req.url, 'http://localhost');
+  let fp = path.join(DIST, url.pathname === '/' ? 'index.html' : url.pathname);
+  if (!fs.existsSync(fp)) fp = path.join(DIST, 'index.html'); // SPA fallback
+  const ext = path.extname(fp);
+  res.writeHead(200, { 'Content-Type': MIME[ext] || 'application/octet-stream' });
+  fs.createReadStream(fp).pipe(res);
+});
+await new Promise((r) => server.listen(0, '127.0.0.1', r));
+console.log('serving', DIST, 'on http://127.0.0.1:' + server.address().port);
+
 try {
-  await page.goto('http://127.0.0.1:8123/', { waitUntil: 'domcontentloaded', timeout: 20000 });
+  await page.goto(`http://127.0.0.1:${server.address().port}/`, { waitUntil: 'domcontentloaded', timeout: 20000 });
   const item = page.locator('.sidebar button.item', { hasText: 'errtile render mock' }).first();
   await item.waitFor({ timeout: 15000 });
   await item.click();
@@ -119,4 +135,5 @@ try {
   console.log('done PASS');
 } finally {
   await browser.close();
+  server.close();
 }
