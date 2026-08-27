@@ -84,20 +84,23 @@
     : 'engine default'
   $: agentPick = $sessionAgents[$activeStore]
 
-  // theme definitions
+  // theme definitions (sorted alphabetically)
   const themes = [
-    { id: 'graphite', label: 'Graphite', bg: '#1e1e1e', panel: '#252526', accent: '#4ec9b0', fg: '#cccccc' },
-    { id: 'opencode', label: 'OpenCode', bg: '#0a0a0a', panel: '#141414', accent: '#fab283', fg: '#eeeeee' },
-    { id: 'indigo', label: 'Indigo', bg: '#1e1e1e', panel: '#252526', accent: '#5648ff', fg: '#cccccc' },
-    { id: 'night-runner', label: 'Night Runner', bg: '#1a1a2e', panel: '#242440', accent: '#f5d020', fg: '#e0e0e0' },
-    { id: 'catppuccin-mocha', label: 'Catppuccin Mocha', bg: '#1e1e2e', panel: '#181825', accent: '#cba6f7', fg: '#cdd6f4' },
     { id: 'catppuccin-frappe', label: 'Catppuccin Frappé', bg: '#303446', panel: '#292c3c', accent: '#ca9ee6', fg: '#c6d0f5' },
     { id: 'catppuccin-latte', label: 'Catppuccin Latte', bg: '#eff1f5', panel: '#e6e9ef', accent: '#8839ef', fg: '#4c4f69' },
+    { id: 'catppuccin-mocha', label: 'Catppuccin Mocha', bg: '#1e1e2e', panel: '#181825', accent: '#cba6f7', fg: '#cdd6f4' },
     { id: 'dracula', label: 'Dracula', bg: '#282a36', panel: '#21222c', accent: '#ff79c6', fg: '#f8f8f2' },
-    { id: 'nord', label: 'Nord', bg: '#2e3440', panel: '#3b4252', accent: '#88c0d0', fg: '#eceff4' },
-    { id: 'tokyo-night', label: 'Tokyo Night', bg: '#1a1b26', panel: '#1f2335', accent: '#7aa2f7', fg: '#c0caf5' },
-    { id: 'solarized-light', label: 'Solarized Light', bg: '#fdf6e3', panel: '#eee8d5', accent: '#268bd2', fg: '#657b83' },
     { id: 'github-light', label: 'GitHub Light', bg: '#ffffff', panel: '#f6f8fa', accent: '#0969da', fg: '#1f2328' },
+    { id: 'graphite', label: 'Graphite', bg: '#1e1e1e', panel: '#252526', accent: '#4ec9b0', fg: '#cccccc' },
+    { id: 'gruvbox-dark', label: 'Gruvbox Dark', bg: '#282828', panel: '#3c3836', accent: '#d65d0e', fg: '#ebdbb2' },
+    { id: 'gruvbox-light', label: 'Gruvbox Light', bg: '#fbf1c7', panel: '#ebdbb2', accent: '#d65d0e', fg: '#3c3836' },
+    { id: 'indigo', label: 'Indigo', bg: '#1e1e1e', panel: '#252526', accent: '#5648ff', fg: '#cccccc' },
+    { id: 'night-runner', label: 'Night Runner', bg: '#1a1a2e', panel: '#242440', accent: '#F9FF23', fg: '#F9FF23' },
+    { id: 'nord', label: 'Nord', bg: '#2e3440', panel: '#3b4252', accent: '#88c0d0', fg: '#eceff4' },
+    { id: 'opencode', label: 'OpenCode', bg: '#0a0a0a', panel: '#141414', accent: '#fab283', fg: '#eeeeee' },
+    { id: 'solarized-dark', label: 'Solarized Dark', bg: '#002b36', panel: '#073642', accent: '#268bd2', fg: '#839496' },
+    { id: 'solarized-light', label: 'Solarized Light', bg: '#fdf6e3', panel: '#eee8d5', accent: '#268bd2', fg: '#657b83' },
+    { id: 'tokyo-night', label: 'Tokyo Night', bg: '#1a1b26', panel: '#1f2335', accent: '#7aa2f7', fg: '#c0caf5' },
   ]
 </script>
 
@@ -607,7 +610,7 @@
   /* theme picker grid */
   .themegrid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+    grid-template-columns: repeat(5, 1fr);
     gap: 8px;
     padding: 2px 0;
   }

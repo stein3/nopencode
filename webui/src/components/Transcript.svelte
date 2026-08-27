@@ -1310,16 +1310,16 @@
     color: var(--fg);
   }
   .tname.tc-bash {
-    color: #e8a848;
+    color: var(--warn);
   }
   .tname.tc-edit {
-    color: #7cc47c;
+    color: var(--ok);
   }
   .tname.tc-read {
-    color: #6aa9ea;
+    color: var(--user-accent);
   }
   .tname.tc-search {
-    color: #b48cea;
+    color: var(--accent);
   }
   .tname.tc-web {
     color: #56c8d8;

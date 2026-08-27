@@ -79,7 +79,7 @@
   })
 
   $: {
-    const isLight = $theme === 'solarized-light' || $theme === 'github-light' || $theme === 'catppuccin-latte'
+    const isLight = $theme === 'solarized-light' || $theme === 'github-light' || $theme === 'catppuccin-latte' || $theme === 'gruvbox-light'
     if (editor) monaco.editor.setTheme(isLight ? 'oc-light' : 'oc-dark')
   }
 
