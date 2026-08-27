@@ -351,7 +351,7 @@
     background: transparent;
   }
   .dot.unread {
-    background: var(--accent);
+    background: var(--ok);
     opacity: 0.7;
   }
   .dot.busy {
