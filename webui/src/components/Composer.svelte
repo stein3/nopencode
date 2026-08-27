@@ -17,7 +17,7 @@
     readAttachment,
     type Attachment,
   } from '../lib/attachments'
-  import AgentPicker from './AgentPicker.svelte'
+
 
   export let tab: Tab
   export let onSent: (sessionId: string) => void
@@ -302,12 +302,18 @@
   }
 
   async function key(e: KeyboardEvent) {
-    if (e.key === 'Escape' && menuOpen) {
-      // dismiss menu and clear the staged slash, like the TUI
+    if (e.key === 'Escape') {
+      if (menuOpen) {
+        // dismiss menu and clear the staged slash, like the TUI
+        e.preventDefault()
+        text = ''
+        await tick()
+        autosize()
+        return
+      }
+      // de-focus the composer
       e.preventDefault()
-      text = ''
-      await tick()
-      autosize()
+      ta?.blur()
       return
     }
     if (menuOpen && filtered.length) {
@@ -387,7 +393,6 @@
     {#if tab.busy}
       <button class="stop" title="Abort current turn" on:click={abort}>■</button>
     {/if}
-    <AgentPicker sid={tab.id} />
     <div class="inputwrap">
       <textarea
         bind:this={ta}
