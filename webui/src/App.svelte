@@ -86,7 +86,7 @@
     })
   }
 
-  async function openHistory(id: string, anchor?: string, allowLive = true, silent = false) {
+  async function openHistory(id: string, anchor?: string, allowLive = true, silent = false, activate = true) {
     // Prefer the engine-backed (live) view so the info panel can populate
     // cost/tokens/todos; fall back to the pure-history snapshot only when the
     // engine doesn't know the session or is down.
@@ -95,7 +95,7 @@
       try {
         const s = await oc.session(id)
         openTab({ id, title: s?.title || id.slice(0, 14), messages: [], live: true })
-        await openLive(id)
+        await openLive(id, s?.title, activate, silent)
         ok = true
       } catch {
         /* not an engine session / engine down — history view below */
@@ -141,7 +141,7 @@
     return true
   }
 
-  async function openLive(id: string, title?: string) {
+  async function openLive(id: string, title?: string, activate = true, silent = false) {
     try {
       const [msgs, s] = await Promise.all([
         oc.messages(id, RECENT_PAGE),
@@ -159,7 +159,7 @@
     } catch {
       // not an engine session (pure history) — fall back to history view;
       // allowLive=false prevents openHistory ↔ openLive recursion
-      return openHistory(id, undefined, false)
+      return openHistory(id, undefined, false, silent, activate)
     }
     if (title) tabs.patch(id, { title })
     const st = await oc.status().catch(
@@ -215,13 +215,11 @@
       // every stored id failed to open (deleted sessions, engine+history down)
       const saved = loadOpenTabs()
       if (saved && saved.ids.length) {
-        for (const id of saved.ids) {
-          try {
-            await openHistory(id, undefined, true, true)
-          } catch {
-            /* silent mode already swallowed; skip */
-          }
-        }
+        // Fire all tab restores in parallel — tabs appear immediately with
+        // empty messages while content loads, instead of one-at-a-time.
+        await Promise.allSettled(
+          saved.ids.map((id) => openHistory(id, undefined, true, true, false)),
+        )
         if (saved.active && tabs.isopen(saved.active)) tabs.setActive(saved.active)
         tabs.persist() // prune ids that failed to open from the stored list
         return
