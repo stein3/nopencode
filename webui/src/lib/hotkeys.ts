@@ -97,6 +97,9 @@ export function initHotkeys(h: HotkeyHandlers) {
     } else if (mod && e.key.toLowerCase() === 'w') {
       e.preventDefault()
       h.closeTab()
+    } else if (e.altKey && !mod && e.code === 'KeyT') {
+      e.preventDefault()
+      h.newChat()
     } else if (e.altKey && !mod && e.code === 'KeyW') {
       // cross-browser fallback: Ctrl+W is browser-reserved in normal tabs
       e.preventDefault()

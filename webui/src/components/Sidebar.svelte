@@ -492,13 +492,13 @@
         />
       </svg>
     </button>
-    <button class="new" title="New chat (Ctrl+T)" on:click={onNewChat}>＋ New chat</button>
+    <button class="new" title="New chat (Alt+T)" on:click={onNewChat}>＋ New chat</button>
   </div>
   <div class="searchbox">
     <div class="searchwrap">
       <input
         id="sidebar-search"
-        placeholder="Search all chats…  (Ctrl+K)"
+        placeholder="Search all chats…"
         bind:value={$searchQuery}
         bind:this={searchEl}
         on:keydown={onSearchKey}
@@ -640,7 +640,7 @@
   </div>
 
   <div class="legend">
-    <kbd>Ctrl+K</kbd> search · <kbd>/</kbd> input · <kbd>Ctrl+T/W</kbd> tabs ·
+    <kbd>Alt+T/W</kbd> tabs ·
     <kbd>Alt+←→</kbd> cycle · <kbd>Alt+↑↓</kbd> sessions
   </div>
 </aside>
