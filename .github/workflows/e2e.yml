@@ -31,13 +31,34 @@ jobs:
 
       - name: Run embedded tests
         run: |
-          failed=0
+          results=""
+          total=0; passed=0; failed_count=0
           for f in e2e/embedded/*.test.mjs; do
-            echo "::group::$(basename "$f")"
-            node "$f" || failed=1
+            name=$(basename "$f")
+            echo "::group::$name"
+            if node "$f"; then
+              results="$results | $name | ✅ pass |\n"
+              passed=$((passed + 1))
+            else
+              code=$?
+              results="$results | $name | ❌ fail (exit $code) |\n"
+              echo "::error file=$f::$name failed with exit code $code"
+              failed_count=$((failed_count + 1))
+            fi
             echo "::endgroup::"
+            total=$((total + 1))
           done
-          exit $failed
+          echo ""
+          echo "### Embedded test results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Test | Result |" >> $GITHUB_STEP_SUMMARY
+          echo "|------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo -e "$results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**$passed/$total passed, $failed_count failed**" >> $GITHUB_STEP_SUMMARY
+          echo ""
+          echo "=== SUMMARY: $passed/$total passed, $failed_count failed ==="
+          [ $failed_count -eq 0 ]
 
   integration:
     name: Integration Tests (engine + chatserver)
@@ -88,13 +109,34 @@ jobs:
 
       - name: Run integration tests
         run: |
-          failed=0
+          results=""
+          total=0; passed=0; failed_count=0
           for f in e2e/integration/*.test.mjs; do
-            echo "::group::$(basename "$f")"
-            node "$f" || failed=1
+            name=$(basename "$f")
+            echo "::group::$name"
+            if node "$f"; then
+              results="$results | $name | ✅ pass |\n"
+              passed=$((passed + 1))
+            else
+              code=$?
+              results="$results | $name | ❌ fail (exit $code) |\n"
+              echo "::error file=$f::$name failed with exit code $code"
+              failed_count=$((failed_count + 1))
+            fi
             echo "::endgroup::"
+            total=$((total + 1))
           done
-          exit $failed
+          echo ""
+          echo "### Integration test results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Test | Result |" >> $GITHUB_STEP_SUMMARY
+          echo "|------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo -e "$results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**$passed/$total passed, $failed_count failed**" >> $GITHUB_STEP_SUMMARY
+          echo ""
+          echo "=== SUMMARY: $passed/$total passed, $failed_count failed ==="
+          [ $failed_count -eq 0 ]
 
       - name: Cleanup
         if: always()
