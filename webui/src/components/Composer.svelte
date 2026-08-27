@@ -707,7 +707,7 @@
   }
   .go {
     background: var(--accent);
-    color: #fff;
+    color: var(--bg-panel);
   }
   .go.queued {
     background: transparent;

@@ -180,7 +180,7 @@
   }
   .send {
     background: var(--accent);
-    color: #fff;
+    color: var(--bg-panel);
   }
   .send:disabled {
     opacity: 0.4;

@@ -676,7 +676,7 @@
     flex: 1;
     min-width: 0;
     background: var(--accent);
-    color: #fff;
+    color: var(--bg-panel);
     border: none;
     border-radius: 6px;
     padding: 7px;
