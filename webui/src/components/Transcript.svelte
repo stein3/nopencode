@@ -1322,16 +1322,16 @@
     color: var(--accent);
   }
   .tname.tc-web {
-    color: #56c8d8;
+    color: var(--tool-web);
   }
   .tname.tc-agent {
-    color: #ec7ba4;
+    color: var(--tool-agent);
   }
   .tname.tc-question {
-    color: #e3d26f;
+    color: var(--tool-question);
   }
   .qwait {
-    color: #e3d26f;
+    color: var(--tool-question);
     animation: qpulse 1.6s ease-in-out infinite;
   }
   @keyframes qpulse {
@@ -1340,10 +1340,10 @@
     }
   }
   .tname.tc-skill {
-    color: #66d0b0;
+    color: var(--tool-skill);
   }
   .tname.tc-todo {
-    color: #a8b0bc;
+    color: var(--tool-todo);
   }
   .tsep {
     opacity: 0.5;

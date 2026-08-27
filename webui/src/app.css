@@ -34,6 +34,11 @@
   --warn: #cca700;
   --err: #f48771;
   --ok: #6a9955;
+  --tool-web: #34e2e2;
+  --tool-agent: #ad7fa8;
+  --tool-question: #fce94f;
+  --tool-skill: #66d0b0;
+  --tool-todo: #9a9a9a;
   --mono: 'SF Mono', 'Cascadia Code', Consolas, 'Liberation Mono', monospace;
 }
 
@@ -54,6 +59,11 @@ html[data-theme='opencode'] {
   --warn: #f5a742;
   --err: #e06c75;
   --ok: #7fd88f;
+  --tool-web: #56c8d8;
+  --tool-agent: #ec7ba4;
+  --tool-question: #e3d26f;
+  --tool-skill: #66d0b0;
+  --tool-todo: #a8b0bc;
 }
 
 html[data-theme='indigo'] {
@@ -70,6 +80,11 @@ html[data-theme='indigo'] {
   --warn: #cca700;
   --err: #f48771;
   --ok: #6a9955;
+  --tool-web: #34e2e2;
+  --tool-agent: #ad7fa8;
+  --tool-question: #fce94f;
+  --tool-skill: #66d0b0;
+  --tool-todo: #9a9a9a;
 }
 
 html[data-theme='dracula'] {
@@ -86,6 +101,11 @@ html[data-theme='dracula'] {
   --warn: #f1fa8c;
   --err: #ff5555;
   --ok: #50fa7b;
+  --tool-web: #8be9fd;
+  --tool-agent: #ff79c6;
+  --tool-question: #f1fa8c;
+  --tool-skill: #50fa7b;
+  --tool-todo: #6272a4;
 }
 
 html[data-theme='nord'] {
@@ -102,6 +122,11 @@ html[data-theme='nord'] {
   --warn: #ebcb8b;
   --err: #bf616a;
   --ok: #a3be8c;
+  --tool-web: #88c0d0;
+  --tool-agent: #b48ead;
+  --tool-question: #ebcb8b;
+  --tool-skill: #8fbcbb;
+  --tool-todo: #7b88a1;
 }
 
 html[data-theme='tokyo-night'] {
@@ -118,6 +143,11 @@ html[data-theme='tokyo-night'] {
   --warn: #e0af68;
   --err: #f7768e;
   --ok: #9ece6a;
+  --tool-web: #7dcfff;
+  --tool-agent: #bb9af7;
+  --tool-question: #e0af68;
+  --tool-skill: #73daca;
+  --tool-todo: #565f89;
 }
 
 html[data-theme='solarized-light'] {
@@ -134,6 +164,11 @@ html[data-theme='solarized-light'] {
   --warn: #b58900;
   --err: #dc322f;
   --ok: #859900;
+  --tool-web: #2aa198;
+  --tool-agent: #6c71c4;
+  --tool-question: #b58900;
+  --tool-skill: #268bd2;
+  --tool-todo: #93a1a1;
   color-scheme: light;
 }
 
@@ -151,6 +186,11 @@ html[data-theme='github-light'] {
   --warn: #9a6700;
   --err: #cf222e;
   --ok: #1a7f37;
+  --tool-web: #0550ae;
+  --tool-agent: #8250df;
+  --tool-question: #9a6700;
+  --tool-skill: #116329;
+  --tool-todo: #656d76;
   color-scheme: light;
 }
 
@@ -168,6 +208,11 @@ html[data-theme='catppuccin-mocha'] {
   --warn: #f9e2af;
   --err: #f38ba8;
   --ok: #a6e3a1;
+  --tool-web: #94e2d5;
+  --tool-agent: #f5c2e7;
+  --tool-question: #f9e2af;
+  --tool-skill: #a6e3a1;
+  --tool-todo: #6c7086;
 }
 
 html[data-theme='catppuccin-frappe'] {
@@ -184,6 +229,11 @@ html[data-theme='catppuccin-frappe'] {
   --warn: #e5c890;
   --err: #e78284;
   --ok: #a6d189;
+  --tool-web: #81c8be;
+  --tool-agent: #f4b8e4;
+  --tool-question: #e5c890;
+  --tool-skill: #a6d189;
+  --tool-todo: #6c7086;
 }
 
 html[data-theme='catppuccin-latte'] {
@@ -200,6 +250,11 @@ html[data-theme='catppuccin-latte'] {
   --warn: #df8e1d;
   --err: #d20f39;
   --ok: #40a02b;
+  --tool-web: #179299;
+  --tool-agent: #ea76cb;
+  --tool-question: #df8e1d;
+  --tool-skill: #40a02b;
+  --tool-todo: #9ca0b0;
   color-scheme: light;
 }
 
@@ -217,6 +272,11 @@ html[data-theme='night-runner'] {
   --warn: #F9FF23;
   --err: #e06070;
   --ok: #70c080;
+  --tool-web: #6ec6ff;
+  --tool-agent: #ec7ba4;
+  --tool-question: #F9FF23;
+  --tool-skill: #70c080;
+  --tool-todo: #8080a0;
 }
 
 html[data-theme='solarized-dark'] {
@@ -233,6 +293,11 @@ html[data-theme='solarized-dark'] {
   --warn: #b58900;
   --err: #dc322f;
   --ok: #859900;
+  --tool-web: #2aa198;
+  --tool-agent: #6c71c4;
+  --tool-question: #b58900;
+  --tool-skill: #268bd2;
+  --tool-todo: #586e75;
 }
 
 html[data-theme='gruvbox-dark'] {
@@ -249,6 +314,11 @@ html[data-theme='gruvbox-dark'] {
   --warn: #d79921;
   --err: #cc241d;
   --ok: #98971a;
+  --tool-web: #689d6a;
+  --tool-agent: #d3869b;
+  --tool-question: #d79921;
+  --tool-skill: #83a598;
+  --tool-todo: #928374;
 }
 
 html[data-theme='gruvbox-light'] {
@@ -265,6 +335,11 @@ html[data-theme='gruvbox-light'] {
   --warn: #d79921;
   --err: #cc241d;
   --ok: #98971a;
+  --tool-web: #427b58;
+  --tool-agent: #8c354f;
+  --tool-question: #b57614;
+  --tool-skill: #076678;
+  --tool-todo: #7c6f64;
   color-scheme: light;
 }
 
