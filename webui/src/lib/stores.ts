@@ -91,8 +91,9 @@ function makeTabs() {
     open(t: Tab, activate = true) {
       openIds.add(t.id)
       update((tabs) => {
-        if (!tabs.find((x) => x.id === t.id)) tabs = [...tabs, t]
-        return tabs
+        const i = tabs.findIndex((x) => x.id === t.id)
+        if (i >= 0) return tabs.map((tab, idx) => (idx === i ? { ...tab, ...t } : tab))
+        return [...tabs, t]
       })
       if (activate) {
         activeId = t.id

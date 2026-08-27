@@ -215,12 +215,24 @@
       // every stored id failed to open (deleted sessions, engine+history down)
       const saved = loadOpenTabs()
       if (saved && saved.ids.length) {
-        // Fire all tab restores in parallel — tabs appear immediately with
-        // empty messages while content loads, instead of one-at-a-time.
-        await Promise.allSettled(
-          saved.ids.map((id) => openHistory(id, undefined, true, true, false)),
-        )
+        // Pre-create placeholder tabs from localStorage so the tab bar
+        // renders instantly — content loads in the background.
+        for (const id of saved.ids) {
+          if (!tabs.isopen(id)) {
+            tabs.open({ id, title: id.slice(0, 14), messages: [], live: false }, false)
+          }
+        }
         if (saved.active && tabs.isopen(saved.active)) tabs.setActive(saved.active)
+        // Fetch all tab content in parallel — each openHistory patches
+        // the existing placeholder with real title/messages/status.
+        // Tabs that fail to open (deleted session, engine+history down)
+        // get their placeholder removed.
+        await Promise.allSettled(
+          saved.ids.map(async (id) => {
+            const ok = await openHistory(id, undefined, true, true, false)
+            if (!ok) tabs.close(id)
+          }),
+        )
         tabs.persist() // prune ids that failed to open from the stored list
         return
       }
