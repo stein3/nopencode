@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
+  import { onMount, tick } from 'svelte'
   import { oc, hist, type HistSession, type SearchHit } from '../lib/api'
   import { searchQuery, sessionMetrics, permissions, pendingQuestions, tabs, sessionUnread, markSessionUnread, hideSubagents, subExpanded, settingsOpen, sessionListDirty } from '../lib/stores'
   import { relTime } from '../lib/util'
@@ -365,7 +365,114 @@
         .filter((d) => d.depth === 0)
         .map((d) => ({ ...d, subsHidden: true }))
     : flattenTree(roots, kidsMap, $subExpanded, busyMap, permSet, qSet, $sessionUnread)
+
+  // ---- session list keyboard navigation (Alt+Up/Down) ----------------------
+  // navOrder is a snapshot of session IDs taken on the first Alt+press; it
+  // freezes the sort order so the focus row doesn't jump while navigating.
+  // Cleared after 3 s of inactivity (auto-unlock) or on Escape / click.
+  let focusedId: string | null = null
+  let navOrder: string[] | null = null
+  let navTimer: ReturnType<typeof setTimeout> | undefined
+
+  export function navSession(dir: 1 | -1) {
+    const visible = new Set(displayRows.map((d) => d.s.id))
+    if (!visible.size) return
+
+    // first press: snapshot the current display order
+    if (!navOrder) navOrder = displayRows.map((d) => d.s.id)
+
+    // if the previously focused session disappeared (deleted / filtered out),
+    // re-anchor at the same positional index (clamped to nearest visible)
+    if (focusedId && !visible.has(focusedId)) {
+      const oldIdx = navOrder.indexOf(focusedId)
+      if (oldIdx >= 0) {
+        focusedId = scanVisible(navOrder, oldIdx, dir, visible)
+      } else {
+        focusedId = null
+      }
+    }
+
+    if (!focusedId) {
+      // initialise from the active tab's position (most recent anchor),
+      // or its parent if it's a hidden subagent, or top/bottom as last resort
+      let anchor: string | null = $activeStore
+      if (anchor && !visible.has(anchor)) {
+        const s = sessions.find((x) => x.id === anchor)
+        if (s?.parent && visible.has(s.parent)) anchor = s.parent
+        else anchor = null
+      }
+      const start = anchor != null ? navOrder.indexOf(anchor) : dir === 1 ? 0 : navOrder.length - 1
+      focusedId = scanVisible(navOrder, start, dir, visible)
+    } else {
+      const cur = navOrder.indexOf(focusedId)
+      const next = ((cur + dir) % navOrder.length + navOrder.length) % navOrder.length
+      focusedId = scanVisible(navOrder, next, dir, visible)
+    }
+
+    if (!focusedId) {
+      navClear()
+      return
+    }
+
+    // reset auto-unlock timer
+    clearTimeout(navTimer)
+    navTimer = setTimeout(() => {
+      navOrder = null
+      focusedId = null
+    }, 3000)
+
+    // scroll the focused row into view after the DOM updates
+    tick().then(() => {
+      document.querySelector('.item.nav-focused')?.scrollIntoView({ block: 'nearest' })
+    })
+  }
+
+  // walk forward (or backward) through `order` from `start`, returning the
+  // first entry that exists in `visible`.  Stops after a full revolution.
+  function scanVisible(
+    order: string[],
+    start: number,
+    dir: 1 | -1,
+    visible: Set<string>,
+  ): string | null {
+    const len = order.length
+    let idx = ((start % len) + len) % len
+    for (let i = 0; i < len; i++) {
+      if (visible.has(order[idx])) return order[idx]
+      idx = ((idx + dir) % len + len) % len
+    }
+    return null
+  }
+
+  export function navOpen() {
+    if (focusedId) {
+      onOpenHistory(focusedId)
+      navClear()
+    }
+  }
+
+  export function navClear() {
+    focusedId = null
+    navOrder = null
+    clearTimeout(navTimer)
+  }
+
+  function onNavKey(e: KeyboardEvent) {
+    if (!focusedId) return
+    // don't hijack keys while the user is typing in an input
+    const el = e.target as HTMLElement | null
+    if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      navOpen()
+    } else if (e.key === 'Escape') {
+      e.preventDefault()
+      navClear()
+    }
+  }
 </script>
+
+<svelte:window on:keydown={onNavKey} />
 
 <aside class="sidebar">
   <div class="top">
@@ -441,8 +548,9 @@
           class:sub-row={isSub(d.s)}
           class:child={d.depth > 0}
           class:current={d.s.id === $activeStore}
+          class:nav-focused={d.s.id === focusedId}
           style="--depth: {d.depth}"
-          on:click={() => onOpenHistory(d.s.id)}
+          on:click={() => { navClear(); onOpenHistory(d.s.id) }}
           title={d.s.title}
         >
           <span class="row1">
@@ -526,7 +634,7 @@
 
   <div class="legend">
     <kbd>Ctrl+K</kbd> search · <kbd>/</kbd> input · <kbd>Ctrl+T/W</kbd> tabs ·
-    <kbd>Alt+←→</kbd> cycle
+    <kbd>Alt+←→</kbd> cycle · <kbd>Alt+↑↓</kbd> sessions
   </div>
 </aside>
 
@@ -716,6 +824,12 @@
   }
   .item.current:hover {
     background: color-mix(in srgb, var(--accent) 12%, transparent);
+  }
+  /* keyboard-focused row (Alt+Up/Down navigation) — dashed outline
+     distinguishes from the solid left-border used by .current and :hover */
+  .item.nav-focused {
+    outline: 1px dashed var(--accent);
+    outline-offset: -1px;
   }
   .grphead.current .title {
     color: var(--accent);

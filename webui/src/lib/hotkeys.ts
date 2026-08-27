@@ -7,6 +7,7 @@ export interface HotkeyHandlers {
   closeTab: () => void
   cycleTabs: (dir: 1 | -1) => void
   jumpTab: (n: number) => void
+  navSession?: (dir: 1 | -1) => void
   toggleDiff?: () => void
   openPalette?: () => void
   // ctrl+x leader chords (TUI parity): plain key → action, resolved while a
@@ -117,6 +118,12 @@ export function initHotkeys(h: HotkeyHandlers) {
     } else if (e.altKey && /^[1-9]$/.test(e.key)) {
       e.preventDefault()
       h.jumpTab(Number(e.key))
+    } else if (e.altKey && e.key === 'ArrowUp') {
+      e.preventDefault()
+      h.navSession?.(-1)
+    } else if (e.altKey && e.key === 'ArrowDown') {
+      e.preventDefault()
+      h.navSession?.(1)
     } else if (e.key === '/' && !typing(e.target)) {
       e.preventDefault()
       h.focusComposer()

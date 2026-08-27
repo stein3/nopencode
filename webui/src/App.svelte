@@ -26,6 +26,7 @@
   import { msgModel } from './lib/util'
 
   let composers: Record<string, Composer> = {}
+  let sidebarEl: Sidebar | undefined
   let diffOpen = false
 
   // apply theme to <html> on store change
@@ -256,6 +257,7 @@
       closeTab: () => closeTab(tabs.getActive()),
       cycleTabs: (dir) => cycle(dir),
       jumpTab: (n) => jump(n),
+      navSession: (dir) => sidebarEl?.navSession(dir),
       openPalette: () => paletteOpen.set(true),
       toggleDiff: () => (diffOpen = !diffOpen),
       // ctrl+x leader chords (TUI parity); which-key strip shows the map
@@ -444,7 +446,7 @@
 
 <div class="app" class:nosidebar={!$sidebarOpen}>
   {#if $sidebarOpen}
-    <Sidebar onOpenHistory={openHistory} onNewChat={newChat} />
+    <Sidebar bind:this={sidebarEl} onOpenHistory={openHistory} onNewChat={newChat} />
   {/if}
   <main>
     <div class="topbar">
