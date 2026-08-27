@@ -187,9 +187,9 @@ try {
     console.log('\nCASE C4 — ctrl+x then m opens the model picker; Escape closes');
     await page.keyboard.press('Control+x');
     await page.keyboard.press('m');
-    check('C4', 'model picker menu opened', await poll(() => page.locator('.topbar .menu').isVisible()));
+    check('C4', 'model picker menu opened', await poll(() => page.locator('.toolbar .menu').isVisible()));
     await page.keyboard.press('Escape');
-    check('C4', 'model picker closed by Escape', await poll(async () => !(await page.locator('.topbar .menu').isVisible())));
+    check('C4', 'model picker closed by Escape', await poll(async () => !(await page.locator('.toolbar .menu').isVisible())));
 
     // ---- C5. Escape disarms; stray plain key does nothing --------------------
     console.log('\nCASE C5 — ctrl+x then Escape disarms; plain n is inert');
