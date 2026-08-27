@@ -17,6 +17,10 @@ jobs:
         with:
           node-version: 22
 
+      - name: Build webui
+        working-directory: webui
+        run: npm ci && npm run build
+
       - name: Install dependencies
         working-directory: e2e
         run: npm ci
