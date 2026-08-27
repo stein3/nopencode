@@ -20,6 +20,7 @@
 
   export let sessionId: string
   export let visible = false
+  export let onClose: () => void = () => {}
 
   let container: HTMLElement
   let files: DiffFile[] = []
@@ -260,6 +261,7 @@
       </button>
     {/if}
     <button title="reload diffs" on:click={() => { files = []; load(true) }}>↻</button>
+    <button class="close" title="Close diff pane" on:click={onClose}>✕</button>
   </div>
   <div class="meta">
     {#if source}<span class="src">{source}</span>{/if}
@@ -338,6 +340,11 @@
   button.active {
     color: var(--accent);
     border-color: var(--accent);
+  }
+  button.close {
+    margin-left: auto;
+    font-size: 13px;
+    padding: 3px 8px;
   }
   .meta {
     display: flex;

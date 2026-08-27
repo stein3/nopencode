@@ -537,6 +537,7 @@
         <DiffPane.default
           sessionId={tabs.snapshot(tabs.getActive())?.pending ? '' : tabs.getActive()}
           visible={diffOpen}
+          onClose={() => (diffOpen = false)}
         />
       {/await}
     </div>
