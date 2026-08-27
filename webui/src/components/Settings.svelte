@@ -122,27 +122,6 @@
     <div class="body">
       <div class="col">
         <section>
-          <div class="sec">Theme</div>
-          <div class="themegrid">
-            {#each themes as t (t.id)}
-              <button
-                class="themecard"
-                class:active={$theme === t.id}
-                style:background={t.bg}
-                style:color={t.fg}
-                style:border-color={$theme === t.id ? t.accent : 'transparent'}
-                on:click={() => theme.set(t.id)}
-              >
-                <span class="tpreview" style:background={t.panel}>
-                  <span class="taccent" style:background={t.accent}></span>
-                </span>
-                <span class="tlabel">{t.label}</span>
-              </button>
-            {/each}
-          </div>
-        </section>
-
-        <section>
           <div class="sec">Display</div>
           <label class="row">
             <span class="txt">
@@ -226,6 +205,27 @@
               disabled={!$autoRetry}
             />
           </label>
+        </section>
+
+        <section>
+          <div class="sec">Theme</div>
+          <div class="themegrid">
+            {#each themes as t (t.id)}
+              <button
+                class="themecard"
+                class:active={$theme === t.id}
+                style:background={t.bg}
+                style:color={t.fg}
+                style:border-color={$theme === t.id ? t.accent : 'transparent'}
+                on:click={() => theme.set(t.id)}
+              >
+                <span class="tpreview" style:background={t.panel}>
+                  <span class="taccent" style:background={t.accent}></span>
+                </span>
+                <span class="tlabel">{t.label}</span>
+              </button>
+            {/each}
+          </div>
         </section>
 
         <section>
