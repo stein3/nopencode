@@ -136,9 +136,10 @@
 
   // Revert-refill: drop a reverted message's text back into the box so it can
   // be edited and resent. Never clobbers a draft the user already started.
-  export function prefill(t: string) {
+  export async function prefill(t: string) {
     if (!t || text.trim()) return
     text = t
+    await tick()
     autosize()
     focus()
   }
@@ -161,6 +162,7 @@
   async function pickFromMenu(c: Cmd): Promise<void> {
     if (c.source === 'builtin') {
       text = ''
+      await tick()
       autosize()
       try {
         await c.run(ctx(), '')
@@ -170,8 +172,8 @@
     } else {
       // engine command/skill: stage it in the box so arguments can be added
       text = '/' + c.name + ' '
-      autosize()
       await tick()
+      autosize()
       focusAtEnd()
     }
     ta?.focus()
@@ -217,6 +219,7 @@
     // clear the box right away so the next (possibly queued) message can be
     // typed while this one runs; restored on failure if it never landed
     text = ''
+    await tick()
     autosize()
     let trayCleared = false
     let flight: Promise<unknown> | null = null
@@ -255,6 +258,7 @@
       }
     } catch (e: any) {
       text = body // fast failure (prep/dispatch): give the message back
+      await tick()
       autosize()
       tabs.patch(sid, { busy: false })
       toastErr(e)
@@ -290,17 +294,19 @@
     if (!landed && !text.trim()) {
       // don't clobber a newer draft the user started meanwhile
       text = body
+      await tick()
       autosize()
       // hand the attachments back too, unless new ones were staged meanwhile
       if (files?.length && !atts.length) atts = files
     }
   }
 
-  function key(e: KeyboardEvent) {
+  async function key(e: KeyboardEvent) {
     if (e.key === 'Escape' && menuOpen) {
       // dismiss menu and clear the staged slash, like the TUI
       e.preventDefault()
       text = ''
+      await tick()
       autosize()
       return
     }
