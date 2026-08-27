@@ -26,6 +26,7 @@ export interface Tab {
   pending?: boolean // not created on the engine yet
   partial?: boolean // older messages exist on the engine but aren't loaded yet
   loadingOlder?: boolean // backfill fetch in flight (transcript shows a spinner)
+  loading?: boolean // initial content fetch in flight (shows "Loading…")
   jumpTo?: string // message id the transcript should scroll to once rendered
   // draft text handed to the composer of a not-yet-mounted pane (fork-refill:
   // the forked-from message's text lands editable in the new tab's box)

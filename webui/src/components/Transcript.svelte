@@ -747,7 +747,9 @@
     {#if !tab.messages.length}
       <div class="empty">
         <div class="logo">opencode</div>
-        {#if tab.live}
+        {#if tab.loading}
+          Loading…
+        {:else if tab.live}
           Type below to start the conversation.
           <div class="modelrow"><ModelSelect /></div>
         {:else}

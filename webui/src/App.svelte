@@ -138,6 +138,7 @@
       }
       tabs.patch(id, { jumpTo: anchor })
     }
+    tabs.patch(id, { loading: false })
     return true
   }
 
@@ -219,7 +220,7 @@
         // renders instantly — content loads in the background.
         for (const id of saved.ids) {
           if (!tabs.isopen(id)) {
-            tabs.open({ id, title: id.slice(0, 14), messages: [], live: false }, false)
+            tabs.open({ id, title: id.slice(0, 14), messages: [], live: false, loading: true }, false)
           }
         }
         if (saved.active && tabs.isopen(saved.active)) tabs.setActive(saved.active)
