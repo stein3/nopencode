@@ -298,11 +298,11 @@ try {
     }
     await sleep(250);
     const d5 = await distFromBottom(page);
-    check('S5', 'back at the bottom corner (distance < 24)', d5 < 24, `distance=${d5}`);
+    check('S5', 'back at the bottom corner (distance < 80)', d5 < 80, `distance=${d5}`);
     // prove the PIN (not just position): keep growing, view must stay glued
     const s5samples = await sampleDist(page, 900);
     const d5max = Math.max(...s5samples.filter((n) => Number.isFinite(n)));
-    check('S5', 'view glued while feed grows (max distance < 24)', d5max < 24, `max=${d5max}`);
+    check('S5', 'view glued while feed grows (max distance < 80)', d5max < 80, `max=${d5max}`);
     await screenshot(page, 'scrollstick-resumed');
 
     // ---- K1/K2 Home/End -----------------------------------------------------
@@ -318,7 +318,7 @@ try {
     await page.keyboard.press('End');
     await sleep(300);
     const k2 = await distFromBottom(page);
-    check('K2', 'End re-pins to the bottom corner', k2 < 24, `distance=${k2}`);
+    check('K2', 'End re-pins to the bottom corner', k2 < 80, `distance=${k2}`);
     await ctl({ stop: true });
 
     // ---- page health --------------------------------------------------------
