@@ -38,7 +38,7 @@ check('c1 .app computed height == viewport height (1280px)', aState.h === `${VP.
 check('c2 --vvh absent when keyboard closed', aState.vvh === '', `got "${aState.vvh}"`);
 
 // focus insurance: composer focuses cleanly, no errors
-await pageA.click('#composer-input');
+await pageA.locator('.tabpane[style*="flex"] #composer-input').click();
 await pageA.waitForTimeout(150);
 const focused = await pageA.evaluate(() => document.activeElement?.id === 'composer-input');
 check('c3 composer textarea focusable, scrollIntoView no-op safe', focused, '');

@@ -377,7 +377,7 @@ try {
     }, 6000);
     check('C', 'SSE-arrived notice rendered as .subres', !!arrived);
     if (arrived) {
-      const roleT3 = (await rowT3.locator('.role').innerText()).replace(/\s+/g, ' ').trim();
+      const roleT3 = (await rowT3.locator('.role.subrole').innerText()).replace(/\s+/g, ' ').trim();
       check('C', 'live notice labeled "✓ subagent"', /✓\s*subagent/i.test(roleT3), roleT3);
       check('C', 'live notice collapsed by default', (await rowT3.locator('details.tnote').evaluate((el) => el.open)) === false);
     }

@@ -11,7 +11,7 @@ await page.waitForTimeout(2500);
 await page.keyboard.press('Control+t');
 await page.locator('.empty select').waitFor({ timeout: 5000 });
 
-const btn = page.locator('button.cur');
+const btn = page.locator('button[title="Model for next message"]');
 console.log('collapsed label before providers/pick:', JSON.stringify(await btn.textContent()));
 
 // pick Ox Alpha Free via the empty-state dropdown

@@ -31,8 +31,8 @@ const page = await ctx.newPage()
 page.on('pageerror', (e) => console.log('PAGEERROR:', e.message))
 
 const PANE = '.tabpane[style*="flex"]'
-const trigger = () => page.locator(`${PANE} .box > .wrap button.cur`)
-const menuRows = () => page.locator(`${PANE} .box > .wrap .menu button.m`)
+const trigger = () => page.locator(`${PANE} .toolbar .wrap button.cur`)
+const menuRows = () => page.locator(`${PANE} .toolbar .wrap .menu button.m`)
 const activeSid = () =>
   page.locator('.tabbar .tab.active').getAttribute('data-sid')
 const gotoTab = async (sid) => {
@@ -57,7 +57,7 @@ check(((await trigger().textContent()) ?? '').includes('Auto'), 'collapsed label
 
 // 2. open menu, compare row set vs engine roster
 await trigger().click()
-await page.waitForSelector(`${PANE} .box > .wrap .menu button.m`)
+await page.waitForSelector(`${PANE} .toolbar .wrap .menu button.m`)
 const names = []
 for (const r of await menuRows().all()) {
   const nm = ((await r.locator('.nm').textContent()) ?? '').trim()
@@ -97,7 +97,7 @@ const send = async (text) => {
 
 // 3. pick Plan on session A, send, capture payload
 const sidA = await activeSid()
-const planRow = page.locator(`${PANE} .box > .wrap .menu button.m`, { hasText: 'Plan' })
+const planRow = page.locator(`${PANE} .toolbar .wrap .menu button.m`, { hasText: 'Plan' })
 check(await planRow.count() === 1, 'exactly one Plan row')
 await planRow.click()
 check(((await trigger().textContent()) ?? '').includes('Plan'), 'collapsed label updates to "Plan"')
@@ -120,8 +120,8 @@ check(((await trigger().textContent()) ?? '').includes('Auto'), 'new session sta
 
 // 5b. pick Build on the PENDING tab, send -> realize keeps the pick
 await trigger().click()
-await page.waitForSelector(`${PANE} .box > .wrap .menu button.m`)
-const buildRow = page.locator(`${PANE} .box > .wrap .menu button.m`, { hasText: 'Build' })
+await page.waitForSelector(`${PANE} .toolbar .wrap .menu button.m`)
+const buildRow = page.locator(`${PANE} .toolbar .wrap .menu button.m`, { hasText: 'Build' })
 check(await buildRow.count() === 1, 'exactly one Build row')
 await buildRow.click()
 check(((await trigger().textContent()) ?? '').includes('Build'), 'pending tab label updates to "Build"')
@@ -138,8 +138,8 @@ check(((await trigger().textContent()) ?? '').includes('Plan'), 'switching tabs 
 
 // 5d. Auto on A must NOT touch B
 await trigger().click()
-await page.waitForSelector(`${PANE} .box > .wrap .menu button.m`)
-await page.locator(`${PANE} .box > .wrap .menu button.m.auto`).click()
+await page.waitForSelector(`${PANE} .toolbar .wrap .menu button.m`)
+await page.locator(`${PANE} .toolbar .wrap .menu button.m.auto`).click()
 check(((await trigger().textContent()) ?? '').includes('Auto'), 'back to Auto on A')
 await gotoTab(createdSid)
 check(((await trigger().textContent()) ?? '').includes('Build'), 'session B unaffected by A going Auto (still Build)')
@@ -148,8 +148,8 @@ check(bodies.length === 4 && bodies[3]?.agent === 'build', 'send from B still ca
 
 // 6. Auto omits the field (on B this time)
 await trigger().click()
-await page.waitForSelector(`${PANE} .box > .wrap .menu button.m`)
-await page.locator(`${PANE} .box > .wrap .menu button.m.auto`).click()
+await page.waitForSelector(`${PANE} .toolbar .wrap .menu button.m`)
+await page.locator(`${PANE} .toolbar .wrap .menu button.m.auto`).click()
 check(((await trigger().textContent()) ?? '').includes('Auto'), 'B back to Auto')
 await send('agent picker probe five')
 check(bodies.length === 5 && !('agent' in bodies[4]), 'Auto send omits agent field entirely')

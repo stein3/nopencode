@@ -58,9 +58,10 @@ check((await pickerBtn.textContent())?.trim().startsWith('Auto'), 'collapsed lab
 
 // 2. open menu: eligible rows only, engine order preserved
 await pickerBtn.click()
-await page.waitForSelector('.menu')
+const agentMenu = pane.locator('.wrap .menu')
+await agentMenu.waitFor({ state: 'visible', timeout: 5000 })
 const names = []
-for (const r of await page.locator('.menu .m').all()) {
+for (const r of await agentMenu.locator('.m').all()) {
   names.push(((await r.locator('.nm').textContent()) ?? '').trim())
 }
 const expected = ['Auto', 'Orchestrator', 'Build', 'Plan']
@@ -75,25 +76,25 @@ check(bad.length === 0, `no subagents/hidden in list (found: ${JSON.stringify(ba
 
 // 3. menu opens UPWARD above the button
 const bb = await pickerBtn.boundingBox()
-const mb = await page.locator('.menu').boundingBox()
+const mb = await agentMenu.boundingBox()
 check(bb && mb && mb.y + mb.height <= bb.y + 2, `menu sits above the button (menu bottom ${mb ? Math.round(mb.y + mb.height) : '?'}, btn top ${bb ? Math.round(bb.y) : '?'})`)
 
 // 4. Esc closes
 await page.keyboard.press('Escape')
 await page.waitForTimeout(150)
-check((await page.locator('.menu').count()) === 0, 'Escape closes the menu')
+check((await agentMenu.count()) === 0, 'Escape closes the menu')
 
 // 5. click-outside closes
 await pickerBtn.click()
-await page.waitForSelector('.menu')
+await agentMenu.waitFor({ state: 'visible', timeout: 5000 })
 await pane.locator('#composer-input').click()
 await page.waitForTimeout(150)
-check((await page.locator('.menu').count()) === 0, 'click-outside closes the menu')
+check((await agentMenu.count()) === 0, 'click-outside closes the menu')
 
 // 6. pick Plan -> label + localStorage
 await pickerBtn.click()
-await page.waitForSelector('.menu')
-await page.locator('.menu .m', { hasText: 'Plan' }).first().click()
+await agentMenu.waitFor({ state: 'visible', timeout: 5000 })
+await agentMenu.locator('.m', { hasText: 'Plan' }).first().click()
 await page.waitForTimeout(150)
 check((await pickerBtn.textContent())?.trim().startsWith('Plan'), 'picked Plan -> collapsed label "Plan"')
 const storedRaw = await page.evaluate(() => localStorage.getItem('opencode.sessionAgents'))
@@ -118,10 +119,10 @@ check(body?.parts?.[0]?.text === 'hello agent picker', 'payload text intact')
 
 // 8. back to Auto via the menu's Auto row
 await pickerBtn.click()
-await page.waitForSelector('.menu')
-const onRow = await page.locator('.menu .m.on .nm').allTextContents()
+await agentMenu.waitFor({ state: 'visible', timeout: 5000 })
+const onRow = await agentMenu.locator('.m.on .nm').allTextContents()
 check(onRow.map((s) => s.trim()).includes('Plan'), 'current selection marked in menu')
-await page.locator('.menu .m.auto').click()
+await agentMenu.locator('.m.auto').click()
 await page.waitForTimeout(150)
 check((await pickerBtn.textContent())?.trim().startsWith('Auto'), 'Auto row resets to default')
 const afterAuto = await page.evaluate(() => localStorage.getItem('opencode.sessionAgents'))
@@ -129,8 +130,8 @@ check(afterAuto === '{}' || afterAuto === null, `session-agents map empty on Aut
 
 // 9. sticky across reload
 await pickerBtn.click()
-await page.waitForSelector('.menu')
-await page.locator('.menu .m', { hasText: 'Build' }).first().click()
+await agentMenu.waitFor({ state: 'visible', timeout: 5000 })
+await agentMenu.locator('.m', { hasText: 'Build' }).first().click()
 await page.waitForTimeout(150)
 await page.reload({ waitUntil: 'domcontentloaded' })
 await page.waitForTimeout(1500)
@@ -157,8 +158,8 @@ const t1 = await mtb.boundingBox()
 check(b1 && t1 && b1.x + b1.width <= t1.x + 1, `picker left of textarea at 360px (btn right ${b1 && Math.round(b1.x + b1.width)}, ta left ${t1 && Math.round(t1.x)})`)
 check(!!b1 && b1.width <= 90, `collapsed control compact at 360px (${b1 && Math.round(b1.width)}px wide)`)
 await mbtn.click()
-await page.waitForSelector('.menu')
-const mobMenu = await page.locator('.menu').boundingBox()
+await mpane.locator('.wrap .menu').waitFor({ state: 'visible', timeout: 5000 })
+const mobMenu = await mpane.locator('.wrap .menu').boundingBox()
 check(mobMenu && mobMenu.x >= 0 && mobMenu.x + mobMenu.width <= 361, `mobile menu stays in viewport (${mobMenu && Math.round(mobMenu.width)}px wide)`)
 
 // --- cleanup --------------------------------------------------------------

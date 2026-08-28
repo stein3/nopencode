@@ -91,7 +91,16 @@ setupFontEnv()
 export async function launchBrowser(opts = {}) {
   const { chromium } = createRequire(path.join(WEBTEST_DIR, 'package.json'))('playwright-core')
   const launchOpts = {
-    args: ['--no-sandbox'],
+    args: [
+      '--no-sandbox',
+      // Bypass SkFontMgr_FontConfigInterface crash on chromium_headless_shell
+      // builds compiled without the fontconfig backend (e.g. revision 1234).
+      // These flags skip subpixel hinting; text still renders via normal font
+      // discovery.  See headless-browser skill for full details.
+      '--disable-lcd-text',
+      '--disable-font-subpixel-positioning',
+      '--font-render-hinting=none',
+    ],
     ...opts,
   }
   if (EXE) launchOpts.executablePath = EXE
