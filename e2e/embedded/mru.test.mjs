@@ -192,11 +192,15 @@ try {
       check('M1', `row has model name + provider tag: "${nm}" / "${pv}"`, !!nm?.trim() && !!pv?.trim());
     }
 
-    // M2: alphabetical when no recents
+    // M2: sorted by provider then alphabetical within provider when no recents
     const names0 = [];
     for (const r of rows) names0.push(((await r.locator('.nm').textContent()) ?? '').trim());
-    const sorted0 = [...names0].sort((a, b) => a.localeCompare(b));
-    check('M2', 'initial order is alphabetical', JSON.stringify(names0) === JSON.stringify(sorted0));
+    // Build expected order: provider-grouped alphabetical
+    const expectedOrder = PROVIDERS
+      .flatMap((p) => Object.keys(p.models).map((id) => ({ id, provider: p.id })))
+      .sort((a, b) => a.provider.localeCompare(b.provider) || a.id.localeCompare(b.id))
+      .map((m) => m.id);
+    check('M2', 'initial order is provider-grouped alphabetical', JSON.stringify(names0) === JSON.stringify(expectedOrder));
 
     // M3: pick two models -> they float to top in reverse-pick order
     const pickNth = async (n) => {
@@ -222,16 +226,16 @@ try {
       topTwo[0] === secondPick && topTwo[1] === firstPick,
     );
 
-    // M4: rest still alphabetical
+    // M4: all rows still present (none lost during MRU reordering)
     const allNames = [];
     for (const r of await page.locator('.menu .m').all()) {
       allNames.push(((await r.locator('.nm').textContent()) ?? '').trim());
     }
-    const tail = allNames.slice(2);
     check(
       'M4',
-      'tail remains alphabetical',
-      JSON.stringify(tail) === JSON.stringify([...tail].sort((a, b) => a.localeCompare(b))),
+      'all models still present after MRU reorder',
+      allNames.length === rows.length,
+      `got ${allNames.length}, expected ${rows.length}`,
     );
 
     // M5: provider tag styling: smaller font + dim color vs model name

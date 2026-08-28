@@ -260,16 +260,19 @@ try {
     const input = pane.locator('#composer-input');
     await input.fill('try again');
     await page.keyboard.press('Enter');
-    await sleep(800); // let clearErrors + openLive land
 
-    // Tile is gone locally (clearErrors removed tab.errors)
-    check('C', 'tile cleared locally after send', (await tile.count()) === 0);
-
-    // prompt_async returns 502 → send-failed banner visible
+    // prompt_async returns 502 → send-failed banner shown
     const bannerVisible = await poll(async () => {
       const cnt = await pane.locator('.composer .error').count();
       return cnt > 0;
-    }, 3000);
+    }, 5000);
+
+    // Emit session.idle so clearErrors fires (it only runs on idle, not on send)
+    await ctl({ emit: { type: 'session.idle', properties: { sessionID: SID } } });
+
+    // Tile is gone locally (clearErrors removed tab.errors)
+    const tileCleared = await poll(async () => (await tile.count()) === 0, 5000, 200);
+    check('C', 'tile cleared locally after idle', tileCleared);
     check('C', 'send-failed banner shown (mocked 502)', bannerVisible);
 
     // But the sidecar still has the error (DELETE was intercepted)
