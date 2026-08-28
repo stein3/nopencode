@@ -17,6 +17,14 @@ jobs:
         with:
           node-version: 22
 
+      - name: Cache npm downloads
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-${{ hashFiles('webui/package-lock.json', 'e2e/package-lock.json') }}
+          restore-keys: |
+            npm-${{ runner.os }}-
+
       - name: Build webui
         working-directory: webui
         run: npm ci && npm run build
@@ -69,8 +77,44 @@ jobs:
           [ $failed_count -eq 0 ]
 
   integration:
-    name: Integration Tests (engine + chatserver)
+    name: "Integration (${{ matrix.name }})"
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: group-1
+            tests: >-
+              agent-label.test.mjs
+              agent-picker.test.mjs
+              agentpicker.test.mjs
+              errtile.test.mjs
+              errtile-persist.test.mjs
+              fork.test.mjs
+              grep-count.test.mjs
+              hotkeys.test.mjs
+              kbd.test.mjs
+          - name: group-2
+            tests: >-
+              label.test.mjs
+              model-badge.test.mjs
+              model-picker.test.mjs
+              modelid.test.mjs
+              mru.test.mjs
+              nest.test.mjs
+              palette-sid.test.mjs
+              qbanner.test.mjs
+          - name: group-3
+            tests: >-
+              search-groups.test.mjs
+              settings.test.mjs
+              settings-cmd.test.mjs
+              subs.test.mjs
+              subs2.test.mjs
+              subs3.test.mjs
+              tokens.test.mjs
+              uploads.test.mjs
+
     steps:
       - uses: actions/checkout@v4
 
@@ -82,6 +126,14 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Cache npm downloads
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-${{ hashFiles('webui/package-lock.json', 'e2e/package-lock.json') }}
+          restore-keys: |
+            npm-${{ runner.os }}-
+
       - name: Install webui dependencies
         working-directory: webui
         run: npm ci
@@ -90,16 +142,30 @@ jobs:
         working-directory: webui
         run: npm run build
 
+      - name: Cache Playwright Chromium
+        id: cache-playwright
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('e2e/package-lock.json') }}
+
+      - name: Install Chromium
+        working-directory: e2e
+        run: npx playwright install --with-deps chromium
+
+      - name: Cache opencode engine
+        id: cache-engine
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm-global/lib/node_modules/opencode-ai
+          key: opencode-ai-1.18.18
+
       - name: Install opencode engine
         run: npm install -g opencode-ai@1.18.18
 
       - name: Install e2e dependencies
         working-directory: e2e
         run: npm ci
-
-      - name: Install Chromium
-        working-directory: e2e
-        run: npx playwright install --with-deps chromium
 
       - name: Start opencode engine
         run: |
@@ -123,8 +189,8 @@ jobs:
           results=""
           total=0; passed=0; failed_count=0
           fail_out=""
-          for f in e2e/integration/*.test.mjs; do
-            name=$(basename "$f")
+          for name in ${{ matrix.tests }}; do
+            f="e2e/integration/$name"
             echo "::group::$name"
             if output=$(node "$f" 2>&1); then
               results="$results | $name | ✅ pass |\n"
@@ -146,7 +212,7 @@ jobs:
             echo "::endgroup::"
           fi
           echo ""
-          echo "### Integration test results" >> $GITHUB_STEP_SUMMARY
+          echo "### Integration test results (${{ matrix.name }})" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Test | Result |" >> $GITHUB_STEP_SUMMARY
           echo "|------|--------|" >> $GITHUB_STEP_SUMMARY
@@ -160,3 +226,17 @@ jobs:
       - name: Cleanup
         if: always()
         run: pkill -f 'opencode serve' || true
+
+  integration-result:
+    name: Integration Tests
+    if: always()
+    needs: [integration]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check results
+        run: |
+          if [ "${{ needs.integration.result }}" = "failure" ]; then
+            echo "::error::One or more integration test groups failed"
+            exit 1
+          fi
+          echo "All integration test groups passed"
