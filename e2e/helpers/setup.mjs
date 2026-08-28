@@ -95,8 +95,10 @@ export async function launchBrowser(opts = {}) {
       '--no-sandbox',
       // Bypass SkFontMgr_FontConfigInterface crash on chromium_headless_shell
       // builds compiled without the fontconfig backend (e.g. revision 1234).
-      // These flags skip subpixel hinting; text still renders via normal font
-      // discovery.  See headless-browser skill for full details.
+      // --use-gl=angle --use-angle=swiftshader forces software rendering,
+      // preventing the GPU process from hitting the unimplemented fontconfig path.
+      '--use-gl=angle',
+      '--use-angle=swiftshader',
       '--disable-lcd-text',
       '--disable-font-subpixel-positioning',
       '--font-render-hinting=none',
