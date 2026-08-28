@@ -367,14 +367,26 @@ export function clearSessionUnread(sid: string) {
 }
 
 export function preferredDefaultModel(providers: { id: string; models?: Record<string, any> }[]): ModelRef | null {
-  // Deployment preference: the opencode provider's free model is the
-  // cheapest, generally-available default; don't fall back to the first
-  // provider's first model (that's a local lemonade runtime that often
-  // isn't running in this environment).
+  // Prefer the `opencode` provider's free tier — generally available and cheap.
+  // Avoid the first provider's first model: that's often a local runtime
+  // (e.g. lemonade) that isn't running in this environment.
   const opencode = providers.find((p) => p.id === 'opencode')
-  if (opencode?.models?.['x-preview-f-free']) {
-    return { providerID: 'opencode', modelID: 'x-preview-f-free' }
+  if (opencode?.models) {
+    // legacy id, kept for back-compat with older engine catalogs
+    if (opencode.models['x-preview-f-free']) {
+      return { providerID: 'opencode', modelID: 'x-preview-f-free' }
+    }
+    // current primary free model, then any other free model (ids end in "-free")
+    if (opencode.models['hy3-free']) {
+      return { providerID: 'opencode', modelID: 'hy3-free' }
+    }
+    const free = Object.keys(opencode.models).find((id) => id.endsWith('-free'))
+    if (free) return { providerID: 'opencode', modelID: free }
+    // otherwise the first opencode model
+    const first = Object.keys(opencode.models)[0]
+    if (first) return { providerID: 'opencode', modelID: first }
   }
+  // last resort: first provider's first model
   const first = providers[0]
   if (!first) return null
   const mid = Object.keys(first.models ?? {})[0]

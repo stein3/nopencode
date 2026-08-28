@@ -96,7 +96,13 @@
   function pick(pid: string, mid: string) {
     const ref: ModelRef = { providerID: pid, modelID: mid }
     recordRecent(ref)
+    // also promote to the global default so brand-new sessions inherit the
+    // model the user last picked (mirrors the topbar ModelPicker). Without this,
+    // $selectedModel stays on its stale seed and every new chat reverts to it.
+    selectedModel.save(ref)
     setSessionModel(sid, ref)
+    // keep the live session's engine-side model in sync (no-op for pending tabs)
+    if (sid) oc.setSessionModel(sid, ref).catch(() => {})
     open = false
   }
 
