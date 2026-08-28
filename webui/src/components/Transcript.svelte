@@ -247,6 +247,13 @@
       if (stuck || force) {
         followRan = true
         scroller.scrollTop = scroller.scrollHeight
+        // Self-heal: if still stuck but the write didn't quite reach the bottom
+        // (content arrived during this frame), schedule another pass so the view
+        // converges within 1-2 frames instead of falling behind.  Cost is zero
+        // when at bottom (nearBottom is true → no re-schedule).
+        if (stuck && !nearBottom(scroller)) {
+          follow(false)
+        }
       }
     })
   }
@@ -1025,6 +1032,7 @@
   .transcript {
     flex: 1;
     overflow-y: auto;
+    overflow-anchor: none;
     padding: 18px 0 0;
   }
   .empty {
