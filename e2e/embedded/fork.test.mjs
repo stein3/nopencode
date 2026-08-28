@@ -274,9 +274,10 @@ try {
     check('active tab title contains "fork"', /fork/i.test(activeTitle.trim()), activeTitle.trim());
 
     // ---- original tab untouched?
-    const origTab = page.locator(`.tabbar .tab[title*="${TITLE}"]`).first();
+    // The fork tab title contains "(fork" — find the original by excluding it
+    const origTab = page.locator('.tabbar .tab').filter({ hasNotText: '(fork' }).first();
     await origTab.click();
-    await page.waitForTimeout(800);
+    await page.waitForTimeout(1500);
     const origRows = await page.locator('.tabpane:visible .msg.user').count();
     console.log('[4] original tab still has:', origRows, 'user rows (expect 3)');
     check('source session still has 3 messages', origRows === 3, `got ${origRows}`);

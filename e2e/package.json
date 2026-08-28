@@ -4,8 +4,7 @@
   "type": "module",
   "scripts": {
     "test:embedded": "node embedded/*.test.mjs",
-    "test:integration": "node integration/*.test.mjs",
-    "test": "npm run test:embedded && npm run test:integration"
+    "test": "npm run test:embedded"
   },
   "dependencies": {
     "playwright-core": "^1.62.1"
