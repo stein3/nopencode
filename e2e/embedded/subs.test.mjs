@@ -187,9 +187,15 @@ try {
     const label = (await page.$eval('.hidesub', (el) => el.textContent)).trim();
     check('A', 'label reads "hide subagents"', /hide subagents/i.test(label), label);
 
-    // uncheck -> subagents appear
+    // uncheck -> subagents visible; groups are collapsed by default so also
+    // expand the first parent group to reveal sub-rows
     await page.uncheck('.hidesub input');
     await page.waitForTimeout(400);
+    const chevA = await page.$('.sidebar .item .chev');
+    if (chevA) {
+      await chevA.click();
+      await page.waitForTimeout(400);
+    }
     const subRowsShown = await page.$$eval('.sidebar .item.sub-row', (els) => els.length);
     check('A', 'uncheck shows subagent rows', subRowsShown > 0, `got ${subRowsShown}`);
 
@@ -237,13 +243,17 @@ try {
       await page.uncheck('.hidesub input');
       await page.waitForTimeout(300);
     }
-    // groups render collapsed by default — expand the first parent
-    const chev = await page.$('.sidebar .item .chev');
-    if (chev) {
-      await chev.click();
-      await page.waitForTimeout(300);
+    // groups may already be expanded from Case A's persisted subExpanded;
+    // only click the chevron if sub-rows aren't already visible
+    let subRow = await page.$('.sidebar .item.sub-row');
+    if (!subRow) {
+      const chev = await page.$('.sidebar .item .chev');
+      if (chev) {
+        await chev.click();
+        await page.waitForTimeout(300);
+      }
+      subRow = await page.$('.sidebar .item.sub-row');
     }
-    const subRow = await page.$('.sidebar .item.sub-row');
     check('C', 'sub-row visible after expand', !!subRow);
     if (subRow) {
       await subRow.click();

@@ -16,6 +16,7 @@ import { DIST, launchBrowser, screenshot } from '../helpers/setup.mjs';
 const PORT = 8165;
 const BASE = `http://127.0.0.1:${PORT}`;
 const SID = 'ses_modeltest';
+const PANE = '.tabpane[style*="flex"]';
 
 // ============================== fake engine =================================
 
@@ -24,16 +25,11 @@ const state = {
   messages: [], // growing message list per session
 };
 
-const SESSIONS = [
-  {
-    id: SID,
-    title: 'model-picker-test',
-    created: Date.now() - 60_000,
-    updated: Date.now() - 10_000,
-    message_count: 0,
-    cost: 0,
-  },
-];
+// Start with an empty session list so the page has NO auto-opened session.
+// If the fake engine returned ses_modeltest here, the onMount fallback would
+// open it, and then Ctrl+T → realize would re-key the pending tab to the same
+// ID — a Svelte keyed-each duplicate that breaks the submit flow.
+const SESSIONS = [];
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -212,17 +208,18 @@ try {
     // ---- Phase 1: empty session — dropdown pick drives first prompt -----------
     console.log('\nPHASE 1 — dropdown pick on empty session');
     await page.keyboard.press('Control+t');
-    await page.locator('.tabpane[style*="flex"] .empty select').waitFor({ timeout: 5000 });
+    await page.locator(`${PANE} .empty select`).waitFor({ timeout: 5000 });
     check('M', 'dropdown visible on new-session page', true);
 
-    await page.selectOption('.tabpane[style*="flex"] .empty select', 'opencode/big-pickle');
+    await page.selectOption(`${PANE} .empty select`, 'opencode/big-pickle');
     await page.waitForTimeout(300);
-    const selected = await page.inputValue('.tabpane[style*="flex"] .empty select');
+    const selected = await page.inputValue(`${PANE} .empty select`);
     check('M', 'selected value is big-pickle', selected === 'opencode/big-pickle', selected);
 
-    await page.fill('#composer-input:visible', 'probe one');
+    // Send the first prompt
+    await page.fill(`${PANE} #composer-input:visible`, 'probe one');
     await page.keyboard.press('Enter');
-    await page.waitForTimeout(1800);
+    await sleep(3000);
 
     check('M', 'prompt #1 captured', state.promptBodies.length >= 1);
     const m1 = state.promptBodies[0]?.body?.model;
@@ -230,17 +227,24 @@ try {
 
     // ---- Phase 2: topbar picker changes model for next prompt ----------------
     console.log('\nPHASE 2 — topbar picker changes model');
-    await page.click('.tabpane[style*="flex"] button[title="Model for next message"]');
-    await page.locator('.tabpane[style*="flex"] .menu').waitFor({ timeout: 3000 });
-    await page.click('.tabpane[style*="flex"] .menu button.m:has-text("Big Pickle")');
-    await page.waitForTimeout(500);
+    // After sending a message the pane is no longer empty, but ComposerModelPicker
+    // (inside ComposerToolbar) is always visible above the composer input.
+    // Wait for busy to clear (SSE session.idle) before clicking the picker.
+    await page.locator(`${PANE} button[title="Model for next message"]`).waitFor({ state: 'visible', timeout: 10000 });
+    await page.click(`${PANE} button[title="Model for next message"]`);
+    await page.locator(`${PANE} .menu`).waitFor({ state: 'visible', timeout: 5000 });
+    // Model name comes from the fake engine's models dict — no human-readable
+    // `name` field, so the button text is the raw id `big-pickle`.
+    await page.click(`${PANE} .menu button.m:has-text("big-pickle")`);
+    await sleep(500);
 
     const stored = await page.evaluate(() => localStorage.getItem('opencode.model'));
     check('M', 'localStorage updated after topbar pick', !!stored, stored);
 
-    await page.fill('#composer-input:visible', 'probe two');
+    // Send the second prompt
+    await page.fill(`${PANE} #composer-input:visible`, 'probe two');
     await page.keyboard.press('Enter');
-    await page.waitForTimeout(1800);
+    await sleep(2000);
 
     check('M', 'prompt #2 captured', state.promptBodies.length >= 2);
     const m2 = state.promptBodies[1]?.body?.model;

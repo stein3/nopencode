@@ -147,7 +147,28 @@ const server = http.createServer(async (req, res) => {
       if (req.method === 'GET') return json(res, []);
       return json(res, { ok: true });
     }
-    if (p.startsWith('/api/history/session/')) return json(res, []);
+    if (p.startsWith('/api/history/session/')) {
+      const sid = p.split('/api/history/session/')[1]?.split('/')[0];
+      if (sid === PROBE_SID) {
+        // chatserver load_messages format: flat objects with time as number,
+        // modelID as flat field (extracted from nested model.modelID)
+        return json(res, PROBE_MSGS.map((m) => ({
+          id: m.info.id,
+          role: m.info.role,
+          agent: m.info.agent ?? null,
+          modelID: m.info.model?.modelID ?? null,
+          time: m.info.time?.created ?? null,
+          parts: m.parts.map((pt) => ({
+            id: pt.id,
+            type: pt.type,
+            text: pt.text,
+            tool: pt.tool ?? null,
+            state: pt.state ?? null,
+          })),
+        })));
+      }
+      return json(res, []);
+    }
 
     // ---- SSE -----------------------------------------------------------------
     if (p === '/oc/event') {

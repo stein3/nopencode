@@ -255,7 +255,7 @@ try {
 
     // ---- C. banner disappears when questions drain ---------------------------
     console.log('\nCASE C — banner disappears when nothing pending');
-    await ctl({ questions: [] });
+    await ctl({ questions: [], emit: { type: 'question.replied' } });
     // Give the SSE event time to propagate + refreshQuestions to fire
     let gone = false;
     for (let i = 0; i < 40; i++) {

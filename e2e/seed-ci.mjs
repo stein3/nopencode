@@ -177,7 +177,7 @@ tok_msg = '${tokMsgId}'
 tok_part = 'prt_seed_tokens_${now}'
 tok_sid = '${tokSess.id}'
 cur.execute('INSERT INTO message (id,session_id,time_created,time_updated,data) VALUES(?,?,?,?,?)',
-  (tok_msg, tok_sid, now, now, json.dumps({'role':'assistant','agent':'orchestrator','model':{'providerID':'opencode-go','modelID':'mimo-v2.5'},'modelID':'mimo-v2.5','providerID':'opencode-go','time':{'created':now},'parentID':'${tokUserMsgId}','tokens':{'input':1500,'output':800,'reasoning':200,'cache':{'read':5000,'write':0}}}))
+  (tok_msg, tok_sid, now, now, json.dumps({'role':'assistant','agent':'orchestrator','model':{'providerID':'opencode-go','modelID':'mimo-v2.5'},'modelID':'mimo-v2.5','providerID':'opencode-go','time':{'created':now},'parentID':'${tokUserMsgId}','tokens':{'input':1500,'output':800,'reasoning':200,'cache':{'read':5000,'write':0}}})))
 cur.execute('INSERT INTO part (id,message_id,session_id,time_created,time_updated,data) VALUES(?,?,?,?,?,?)',
   (tok_part, tok_msg, tok_sid, now, now, json.dumps({'type':'text','text':'fake assistant response for token seeding'})))
 

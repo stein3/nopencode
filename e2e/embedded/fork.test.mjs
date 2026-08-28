@@ -274,7 +274,7 @@ try {
     check('active tab title contains "fork"', /fork/i.test(activeTitle.trim()), activeTitle.trim());
 
     // ---- original tab untouched?
-    const origTab = page.locator(`.tabbar .tab[title="${TITLE}"]`).first();
+    const origTab = page.locator(`.tabbar .tab[title*="${TITLE}"]`).first();
     await origTab.click();
     await page.waitForTimeout(800);
     const origRows = await page.locator('.tabpane:visible .msg.user').count();
