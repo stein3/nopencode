@@ -140,11 +140,13 @@ async function seed() {
     db.close();
   } catch (e) {
     console.log('  node:sqlite unavailable, trying python3 fallback:', e.message);
-    const { execSync } = await import('node:child_process');
+    const { execSync, writeFileSync, unlinkSync } = await import('node:child_process');
+    const fs = await import('node:fs');
     const now = Date.now();
     const grepMsgId = 'msg_seed_grep_' + now;
     const tokMsgId = 'msg_seed_tokens_' + now;
-    execSync(`python3 -c "
+    const pyScript = `/tmp/seed_tokens_${now}.py`;
+    fs.writeFileSync(pyScript, `
 import sqlite3, json, time
 conn = sqlite3.connect('${DB_PATH}')
 cur = conn.cursor()
@@ -158,9 +160,9 @@ grep_sid = '${grepSess.id}'
 cur.execute('INSERT INTO message (id,session_id,time_created,time_updated,data) VALUES(?,?,?,?,?)',
   (grep_msg, grep_sid, now, now, json.dumps({'role':'assistant','agent':'orchestrator','model':{'providerID':'opencode-go','modelID':'mimo-v2.5'}})))
 cur.execute('INSERT INTO part (id,message_id,session_id,time_created,time_updated,data) VALUES(?,?,?,?,?,?)',
-  (grep_txt, grep_msg, grep_sid, now, now, json.dumps({'type':'text','text':'Found 3 matches\n  Line 12: foo\n  Line 45: bar\n  Line 78: baz'})))
+  (grep_txt, grep_msg, grep_sid, now, now, json.dumps({'type':'text','text':'Found 3 matches\\n  Line 12: foo\\n  Line 45: bar\\n  Line 78: baz'})))
 cur.execute('INSERT INTO part (id,message_id,session_id,time_created,time_updated,data) VALUES(?,?,?,?,?,?)',
-  (grep_tool, grep_msg, grep_sid, now, now, json.dumps({'type':'tool','tool':'grep','state':{'status':'completed','input':{'pattern':'foo','path':'/workspace'},'output':'Found 3 matches\n  Line 12: foo\n  Line 45: bar\n  Line 78: baz'}})))
+  (grep_tool, grep_msg, grep_sid, now, now, json.dumps({'type':'tool','tool':'grep','state':{'status':'completed','input':{'pattern':'foo','path':'/workspace'},'output':'Found 3 matches\\n  Line 12: foo\\n  Line 45: bar\\n  Line 78: baz'}})))
 
 # Tokens message
 tok_msg = '${tokMsgId}'
@@ -173,7 +175,9 @@ cur.execute('INSERT INTO part (id,message_id,session_id,time_created,time_update
 
 conn.commit()
 conn.close()
-"`, { stdio: 'pipe' });
+`);
+    execSync(`python3 ${pyScript}`, { stdio: 'pipe' });
+    fs.unlinkSync(pyScript);
   }
 
   console.log('seeding complete');
