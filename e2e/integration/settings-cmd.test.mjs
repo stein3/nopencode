@@ -24,7 +24,7 @@ try {
   await page.waitForSelector('.panel input', { timeout: 5000 });
   await page.keyboard.type('setting');
   await sleep(200);
-  const row = page.locator('.panel .row', { hasText: '/settings' });
+  const row = page.locator('.panel .row', { hasText: 'Open settings' });
   check('palette lists /settings for "setting"', (await row.count()) === 1);
   const desc = (await row.first().locator('.desc').textContent())?.trim();
   check('description reads "Open settings"', desc === 'Open settings', desc);

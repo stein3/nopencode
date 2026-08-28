@@ -73,8 +73,71 @@ async function seed() {
   });
   console.log(`  seeded: grep session (${grepSess.id})`);
 
+  // 3. Subagent sessions for subs2.test.mjs (need parent_id to show as .sub-row)
+  const parentSess = await post('/session', { title: 'Parent session for subagent test' });
+  await post(`/session/${parentSess.id}/message`, {
+    parts: [{ type: 'text', text: 'parent probe message' }],
+    noReply: true,
+  });
+  const subSess = await post('/session', {
+    title: 'Subagent probe (@explore subagent)',
+    parentID: parentSess.id,
+    agent: 'explore',
+  });
+  await post(`/session/${subSess.id}/message`, {
+    parts: [{ type: 'text', text: 'subagent probe message' }],
+    noReply: true,
+  });
+  console.log(`  seeded: subagent sessions (parent=${parentSess.id}, sub=${subSess.id})`);
+
   // Give the engine a moment to flush to opencode.db
   await sleep(500);
+
+  // 4. Write token tallies directly to opencode.db for tokens.test.mjs
+  //    The engine API doesn't support setting tokens on messages, so we
+  //    update the assistant messages' data JSON directly in sqlite.
+  const DB_PATH = process.env.OPENCODE_DB || '/home/node/.local/share/opencode/opencode.db';
+  try {
+    const { DatabaseSync } = await import('node:sqlite');
+    const db = new DatabaseSync(DB_PATH);
+    // Find the "Healthscape dark and light theme options" session's assistant message
+    const rows = db.prepare(
+      `SELECT m.id, m.data FROM message m
+       JOIN session s ON s.id = m.session_id
+       WHERE s.title LIKE '%Healthscape dark%'
+         AND json_extract(m.data, '$.role') = 'assistant'`
+    ).all();
+    for (const row of rows) {
+      const data = JSON.parse(row.data);
+      if (!data.tokens || (data.tokens.input === 0 && data.tokens.output === 0)) {
+        data.tokens = { input: 1500, output: 800, reasoning: 200, cache: { read: 5000, write: 0 } };
+        db.prepare('UPDATE message SET data = ? WHERE id = ?').run(JSON.stringify(data), row.id);
+        console.log(`  seeded tokens on message ${row.id}`);
+      }
+    }
+    db.close();
+  } catch (e) {
+    // node:sqlite may not be available; fall back to python3
+    console.log('  node:sqlite unavailable, trying python3 fallback:', e.message);
+    const { execSync } = await import('node:child_process');
+    execSync(`python3 -c "
+import sqlite3, json
+conn = sqlite3.connect('${DB_PATH}')
+cur = conn.cursor()
+cur.execute('''SELECT m.id, m.data FROM message m
+  JOIN session s ON s.id = m.session_id
+  WHERE s.title LIKE '%Healthscape dark%'
+    AND json_extract(m.data, '$.role') = 'assistant' ''')
+for row in cur.fetchall():
+    data = json.loads(row[1])
+    if not data.get('tokens') or (data['tokens'].get('input',0)==0 and data['tokens'].get('output',0)==0):
+        data['tokens'] = {'input':1500,'output':800,'reasoning':200,'cache':{'read':5000,'write':0}}
+        cur.execute('UPDATE message SET data=? WHERE id=?', (json.dumps(data), row[0]))
+conn.commit()
+conn.close()
+"`, { stdio: 'pipe' });
+  }
+
   console.log('seeding complete');
 }
 

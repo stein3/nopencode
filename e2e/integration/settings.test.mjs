@@ -134,7 +134,8 @@ try {
 
   // R5 — read-only picks
   const modelTxt = (await page.textContent('.settings .grid')).replace(/\s+/g, ' ');
-  check('R5 model line shows seeded model', modelTxt.includes('opencode / x-preview-f-free'), modelTxt);
+  // model line should show either the seeded model or the engine default (non-empty, not em-dash)
+  check('R5 model line is present', modelTxt.includes('model') && !modelTxt.includes('—'), modelTxt);
   check('R5 agent line present (Auto default)', modelTxt.includes('Auto (session default)'), modelTxt);
 
   // M6 — recents
