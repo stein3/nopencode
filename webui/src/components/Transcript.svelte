@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, afterUpdate } from 'svelte'
-  import { tabs, showThinking, showTimestamps, toast, type Tab, pendingQuestions, type PendingQuestion, lightbox, engineRetries } from '../lib/stores'
+  import { tabs, showThinking, showTimestamps, toast, type Tab, pendingQuestions, type PendingQuestion, lightbox, engineRetries, cancelQueuedPrompt } from '../lib/stores'
   import { oc, hist, type OcMessage } from '../lib/api'
   import { refetchNow } from '../lib/sse'
   import { md } from '../lib/markdown'
@@ -682,16 +682,6 @@
     return t ? new Date(t < 1e12 ? t * 1000 : t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''
   }
 
-  async function delMessage(mid: string) {
-    if (!confirm('Delete this message?')) return
-    try {
-      await oc.deleteMessage(tab.id, mid)
-      refetchNow(tab.id)
-    } catch (e: any) {
-      alert(`delete failed: ${e.message ?? e}`)
-    }
-  }
-
   async function revertTo(mid: string) {
     // capture the text first — the refetch below prunes the message from the
     // window, and the composer refill needs it
@@ -799,7 +789,6 @@
           <span class="acts">
             <button class="act" title="Revert session to before this message" on:click={() => revertTo(m.id)}>↩</button>
             <button class="act" title="Fork a new session from before this message" on:click={() => forkFrom(m.id)}>⑂</button>
-            <button class="act" title="Delete message" on:click={() => delMessage(m.id)}>🗑</button>
           </span>
         {/if}
       </div>
@@ -937,6 +926,34 @@
       </div>
     </div>
   {/each}
+    {#each tab.queue ?? [] as q (q.id)}
+      <div class="msg user queued" id={`m-${q.id}`}>
+        <div class="head">
+          <span class="role">You</span>
+          <span class="qbadge" title="queued — not sent yet">queued</span>
+          <span class="acts">
+            <button class="act" title="Cancel queued message" on:click={() => cancelQueuedPrompt(tab.id, q.id)}>↩</button>
+          </span>
+        </div>
+        <div class="body">
+          {#if q.files?.length}
+            <div class="qfiles">
+              {#each q.files as f (f.url)}
+                {#if isImageMime(f.mime)}
+                  <img class="qimg" src={f.url} alt={f.filename} title={f.filename} />
+                {:else}
+                  <span class="msgfile" title={f.mime ?? 'file'}>
+                    <span class="fext">{extLabel(f.filename)}</span>
+                    <span class="fname">{f.filename}</span>
+                  </span>
+                {/if}
+              {/each}
+            </div>
+          {/if}
+          {@html html({ id: q.id, type: 'text', text: q.text }, false)}
+        </div>
+      </div>
+    {/each}
     {#each sidecarErrors as e, i (i)}
       <div class="msg errtile">
         <div class="head">
@@ -1007,6 +1024,26 @@
     line-height: 1.5;
     user-select: none;
     white-space: nowrap;
+  }
+  /* locally-held queued prompt: not sent to the engine yet — distinguish it
+     from a delivered user message and keep its cancel action visible */
+  .msg.queued {
+    border-left: 2px dashed var(--user-accent);
+    opacity: 0.92;
+  }
+  .msg.queued .acts {
+    display: inline-flex;
+  }
+  .qfiles {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 6px;
+  }
+  .qimg {
+    max-height: 120px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
   }
   .logo {
     font-size: 22px;

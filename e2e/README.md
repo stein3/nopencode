@@ -71,7 +71,7 @@ e2e/
 │   ├── titleclip.test.mjs
 │   ├── errtile-render.test.mjs
 │   ├── imgthumb.test.mjs
-│   └── queue-fix.test.mjs
+│   └── queue-e2e.test.mjs
 ├── integration/        # Live-engine tests (need engine + chatserver)
 │   ├── hotkeys.test.mjs
 │   ├── agent-picker.test.mjs

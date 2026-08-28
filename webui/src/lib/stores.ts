@@ -1,5 +1,5 @@
 import { writable } from 'svelte/store'
-import type { OcMessage } from './api'
+import type { OcMessage, OcFilePart } from './api'
 import { msgModel } from './util'
 
 // Engine reverts don't delete messages — they mark a revert point on the
@@ -8,6 +8,20 @@ import { msgModel } from './util'
 export interface RevertPoint {
   messageID?: string
   partID?: string
+}
+
+// ---- local prompt queue (queued messages are held client-side) ------------
+// While a turn is running, the composer enqueues new prompts here instead of
+// sending them to the engine. They render in the transcript with a "queued"
+// badge and a cancel (↩) action; on session.idle sse.pumpQueue dispatches them
+// in order. A queued prompt has no engine presence yet, so canceling it is a
+// pure local remove — it never touches the running turn or earlier messages.
+export interface QueuedPrompt {
+  id: string
+  text: string
+  files: OcFilePart[]
+  model?: ModelRef
+  agent?: string
 }
 
 export interface Tab {
@@ -23,6 +37,8 @@ export interface Tab {
   errors?: { message: string; t: number }[]
   errorsFetched?: boolean // persisted errors loaded for this tab (once per open)
   revert?: RevertPoint | null
+  // local pending prompts (held while a turn runs) — dispatched on session.idle
+  queue?: QueuedPrompt[]
   pending?: boolean // not created on the engine yet
   partial?: boolean // older messages exist on the engine but aren't loaded yet
   loadingOlder?: boolean // backfill fetch in flight (transcript shows a spinner)
@@ -230,6 +246,30 @@ function makeTabs() {
 }
 
 export const tabs = makeTabs()
+
+// ---- local prompt queue ------------------------------------------------
+// Queued prompts live on the tab so the transcript can render/cancel them and
+// sse.pumpQueue can dispatch them when the session goes idle.
+let queueSeq = 0
+export function enqueuePrompt(sid: string, item: Omit<QueuedPrompt, 'id'>) {
+  const t = tabs.snapshot(sid)
+  if (!t) return
+  const q: QueuedPrompt = { ...item, id: `q-${queueSeq++}` }
+  tabs.patch(sid, { queue: [...(t.queue ?? []), q] })
+}
+export function cancelQueuedPrompt(sid: string, id: string) {
+  const t = tabs.snapshot(sid)
+  if (!t?.queue) return
+  tabs.patch(sid, { queue: t.queue.filter((q) => q.id !== id) })
+}
+// Remove and return the oldest queued prompt for dispatch (null when empty).
+export function dequeueFirstPrompt(sid: string): QueuedPrompt | null {
+  const t = tabs.snapshot(sid)
+  if (!t?.queue?.length) return null
+  const [first, ...rest] = t.queue
+  tabs.patch(sid, { queue: rest })
+  return first
+}
 
 // ---- live per-session metrics (keeps the sidebar fresh for open tabs) ----
 // The sidebar's sqlite snapshot only changes on reload; these values are
