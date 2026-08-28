@@ -51,7 +51,7 @@ await page.click('button.add')
 await page.waitForTimeout(400)
 
 const pane = page.locator('.tabpane[style*="flex"]')
-const pickerBtn = pane.locator('.wrap .cur')
+const pickerBtn = pane.locator('.toolbar .wrap:first-child .cur')
 
 // 1. collapsed default label
 check((await pickerBtn.textContent())?.trim().startsWith('Auto'), 'collapsed label defaults to "Auto"')
@@ -135,7 +135,7 @@ await agentMenu.locator('.m', { hasText: 'Build' }).first().click()
 await page.waitForTimeout(150)
 await page.reload({ waitUntil: 'domcontentloaded' })
 await page.waitForTimeout(1500)
-const lblAfter = await page.locator('.tabpane[style*="flex"] .wrap .cur').textContent()
+const lblAfter = await page.locator('.tabpane[style*="flex"] .toolbar .wrap:first-child .cur').textContent()
 check(lblAfter?.trim().startsWith('Build'), `selection survives reload ("${lblAfter?.trim()}")`)
 
 // 10. reset pref, mobile width pass
@@ -151,7 +151,7 @@ const burger = page.locator('button.burger[title="Toggle sidebar"]')
 if (await burger.isVisible().catch(() => false)) await burger.click()
 await page.waitForTimeout(300)
 const mpane = page.locator('.tabpane[style*="flex"]')
-const mbtn = mpane.locator('.wrap .cur')
+const mbtn = mpane.locator('.toolbar .wrap:first-child .cur')
 const mtb = mpane.locator('#composer-input')
 const b1 = await mbtn.boundingBox()
 const t1 = await mtb.boundingBox()

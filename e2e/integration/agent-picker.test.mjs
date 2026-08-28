@@ -41,7 +41,7 @@ const gotoTab = async (sid) => {
 }
 
 await page.goto(BASE, { waitUntil: 'domcontentloaded' })
-await page.waitForTimeout(1500)
+await page.waitForTimeout(2500)
 
 // fresh state (also scrub the pre-2026-08 global key)
 await page.evaluate(() => {
@@ -49,7 +49,7 @@ await page.evaluate(() => {
   localStorage.removeItem('opencode.sessionAgents')
 })
 await page.reload({ waitUntil: 'domcontentloaded' })
-await page.waitForTimeout(1500)
+await page.waitForTimeout(2500)
 
 // 1. collapsed default label
 await trigger().waitFor({ state: 'visible', timeout: 5000 })

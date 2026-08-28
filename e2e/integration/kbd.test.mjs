@@ -21,7 +21,7 @@ const pageA = await ctxA.newPage();
 watch(pageA, 'A');
 await pageA.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 20000 });
 await pageA.waitForSelector('.app', { timeout: 10000 });
-await pageA.waitForTimeout(800); // let mount + auto-open settle
+await pageA.waitForTimeout(1500); // let mount + auto-open settle
 
 // (b) viewport meta
 const meta = await pageA.evaluate(() => document.querySelector('meta[name="viewport"]')?.content ?? '');
@@ -38,6 +38,7 @@ check('c1 .app computed height == viewport height (1280px)', aState.h === `${VP.
 check('c2 --vvh absent when keyboard closed', aState.vvh === '', `got "${aState.vvh}"`);
 
 // focus insurance: composer focuses cleanly, no errors
+await pageA.locator('.tabpane[style*="flex"]').waitFor({ state: 'visible', timeout: 10000 });
 await pageA.locator('.tabpane[style*="flex"] #composer-input').click();
 await pageA.waitForTimeout(150);
 const focused = await pageA.evaluate(() => document.activeElement?.id === 'composer-input');
