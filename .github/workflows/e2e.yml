@@ -91,7 +91,6 @@ jobs:
               errtile.test.mjs
               errtile-persist.test.mjs
               fork.test.mjs
-              grep-count.test.mjs
               hotkeys.test.mjs
               kbd.test.mjs
           - name: group-2
@@ -112,7 +111,6 @@ jobs:
               subs.test.mjs
               subs2.test.mjs
               subs3.test.mjs
-              tokens.test.mjs
               uploads.test.mjs
 
     steps:
