@@ -5,3 +5,4 @@ webui/node_modules/
 webui/dist/
 webui/.webtest/
 .webtest/
+e2e/fixtures/
