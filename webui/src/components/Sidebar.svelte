@@ -1158,6 +1158,7 @@
     align-items: center;
     justify-content: center;
     padding: 0;
+    line-height: 1;
     opacity: 0;
     transition: opacity 0.12s;
     z-index: 1;
@@ -1172,6 +1173,7 @@
   }
   .delbtn.yes {
     position: static;
+    transform: none;
     color: var(--err);
     font-size: 11px;
     width: auto;
@@ -1183,6 +1185,7 @@
   }
   .delbtn.no {
     position: static;
+    transform: none;
     color: var(--fg-dim);
     font-size: 11px;
     width: auto;
