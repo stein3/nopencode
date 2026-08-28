@@ -2,7 +2,7 @@
   import { onMount, tick } from 'svelte'
   import { oc } from '../lib/api'
   import type { OcFilePart } from '../lib/api'
-  import { tabs, selectedModel, sessionModel, sessionAgent, cmdVersion } from '../lib/stores'
+  import { tabs, selectedModel, sessionModel, sessionAgent, enqueuePrompt, cmdVersion } from '../lib/stores'
   import type { Tab } from '../lib/stores'
   import { registry, type Cmd } from '../lib/commands'
   import { RECENT_PAGE, normalizeMessages } from '../lib/sse'
@@ -240,6 +240,22 @@
         if (cmd.source !== 'builtin' && real) onSent(real)
       } else {
         cancelRetry(sid) // manual send takes over from any pending auto-retry
+        // Engine busy → hold the prompt locally and dispatch it on session.idle
+        // (sse.pumpQueue). This is a "queued message": it has no engine presence
+        // yet, so the transcript's cancel (↩) can drop it without touching the
+        // running turn or any earlier message. Commands are not queued — they
+        // keep their existing immediate (engine-blocked) behavior.
+        if (tab.busy && !isCmd) {
+          enqueuePrompt(sid, {
+            text: body,
+            files: files.map(toFilePart),
+            model: sessionModel(sid) ?? $selectedModel ?? undefined,
+            agent: sessionAgent(sid),
+          })
+          atts = []
+          trayCleared = true
+          return
+        }
         tabs.patch(sid, { busy: true }) // optimistic spinner immediately
         // NOTE: error tiles are NOT cleared here — they're history (a record
         // of the failed turn), not a transient banner. A resend that fails

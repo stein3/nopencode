@@ -56,8 +56,8 @@ jobs:
             file: qbanner.test.mjs
           - name: question-picker
             file: question-picker.test.mjs
-          - name: queue-fix
-            file: queue-fix.test.mjs
+          - name: queue-e2e
+            file: queue-e2e.test.mjs
           - name: scrollstick
             file: scrollstick.test.mjs
           - name: search-groups

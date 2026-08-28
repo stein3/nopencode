@@ -25,7 +25,7 @@ import fs from 'node:fs';
 import http from 'node:http';
 import { DIST, SHOTS_DIR, launchBrowser, screenshot, sleep, poll } from '../helpers/setup.mjs';
 
-const PORT = 8137;
+const PORT = Number(process.env.PORT) || 8137;
 const BASE = `http://127.0.0.1:${PORT}`;
 const SID = 'ses_tasknote01';
 
@@ -283,7 +283,7 @@ try {
 
     check('A', 'notice rows render NO revert/fork/delete actions', (await rowT1.locator('.act').count()) === 0 && (await rowT2.locator('.act').count()) === 0);
     const clsU1 = (await rowU1.getAttribute('class')) ?? '';
-    check('A', 'real user row keeps .user + actions', clsU1.split(/\s+/).includes('user') && (await rowU1.locator('.act').count()) === 3);
+    check('A', 'real user row keeps .user + revert/fork actions (no delete)', clsU1.split(/\s+/).includes('user') && (await rowU1.locator('.act[title^="Revert"]').count()) === 1 && (await rowU1.locator('.act[title^="Fork"]').count()) === 1 && (await rowU1.locator('.act[title*="Delete"]').count()) === 0);
 
     const borderT1 = await rowT1.evaluate((el) => getComputedStyle(el).borderLeftColor);
     check('A', 'completed border is agent pink #ec7ba4', borderT1 === 'rgb(236, 123, 164)', borderT1);
