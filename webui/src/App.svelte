@@ -446,7 +446,7 @@
 
 <div class="app" class:nosidebar={!$sidebarOpen}>
   {#if $sidebarOpen}
-    <Sidebar bind:this={sidebarEl} onOpenHistory={openHistory} onNewChat={newChat} />
+    <Sidebar bind:this={sidebarEl} onOpenHistory={openHistory} onNewChat={newChat} onCloseSession={closeTab} />
   {/if}
   <main>
     <div class="topbar">
