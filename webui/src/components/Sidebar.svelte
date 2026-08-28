@@ -526,7 +526,7 @@
     <div class="searchwrap">
       <input
         id="sidebar-search"
-        placeholder="Search all chats…"
+        placeholder="Search all chats…           Ctrl+K to search"
         bind:value={$searchQuery}
         bind:this={searchEl}
         on:keydown={onSearchKey}
