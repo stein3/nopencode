@@ -676,24 +676,24 @@
                   >{d.kids}</span
                 >
               {/if}
-              {#if pendingDeleteId === d.s.id}
-                <span class="delconfirm">
-                  <button class="delbtn yes" title="Confirm delete" on:click|stopPropagation={() => confirmDelete(d.s.id)}>Yes</button>
-                  <button class="delbtn no" title="Cancel" on:click|stopPropagation={cancelDelete}>No</button>
-                </span>
-              {:else}
-                <button class="delbtn" title="Delete session" on:click|stopPropagation={() => requestDelete(d.s.id)}>
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <polyline points="3 6 5 6 21 6"/>
-                    <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
-                    <path d="M10 11v6"/>
-                    <path d="M14 11v6"/>
-                    <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
-                  </svg>
-                </button>
-              {/if}
             </span>
           </span>
+          {#if pendingDeleteId === d.s.id}
+            <span class="delconfirm">
+              <button class="delbtn yes" title="Confirm delete" on:click|stopPropagation={() => confirmDelete(d.s.id)}>Yes</button>
+              <button class="delbtn no" title="Cancel" on:click|stopPropagation={cancelDelete}>No</button>
+            </span>
+          {:else}
+            <button class="delbtn" title="Delete session" on:click|stopPropagation={() => requestDelete(d.s.id)}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="3 6 5 6 21 6"/>
+                <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+                <path d="M10 11v6"/>
+                <path d="M14 11v6"/>
+                <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
+              </svg>
+            </button>
+          {/if}
           <span class="sub"
             ><span
                 class="smeta"
@@ -1140,14 +1140,18 @@
     padding: 0 4px;
     font-size: 10px;
   }
-  /* delete button: hover-reveal trash icon on session rows */
+  /* delete button: absolutely positioned on the right edge of the row
+     so it never takes flex space or shifts kidcount/stime */
   .delbtn {
-    flex: none;
-    width: 22px;
-    height: 22px;
+    position: absolute;
+    right: 4px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 24px;
+    height: 24px;
     border: none;
     border-radius: 4px;
-    background: transparent;
+    background: var(--bg-panel);
     color: var(--fg-dim);
     cursor: pointer;
     display: inline-flex;
@@ -1156,8 +1160,9 @@
     padding: 0;
     opacity: 0;
     transition: opacity 0.12s;
+    z-index: 1;
   }
-  .item:hover > .row1 .delbtn,
+  .item:hover > .delbtn,
   .delconfirm .delbtn {
     opacity: 1;
   }
@@ -1170,6 +1175,7 @@
     font-size: 11px;
     width: auto;
     padding: 0 6px;
+    background: var(--bg-panel);
   }
   .delbtn.yes:hover {
     background: rgba(244, 135, 113, 0.15);
@@ -1179,14 +1185,21 @@
     font-size: 11px;
     width: auto;
     padding: 0 6px;
+    background: var(--bg-panel);
   }
   .delbtn.no:hover {
     background: var(--bg-hover);
     color: var(--fg);
   }
   .delconfirm {
+    position: absolute;
+    right: 4px;
+    top: 50%;
+    transform: translateY(-50%);
     display: inline-flex;
     gap: 2px;
-    flex: none;
+    z-index: 1;
+    background: var(--bg-panel);
+    border-radius: 4px;
   }
 </style>
