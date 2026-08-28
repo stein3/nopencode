@@ -97,7 +97,7 @@
     { id: 'indigo', label: 'Indigo', bg: '#1e1e1e', panel: '#252526', accent: '#5648ff', fg: '#cccccc' },
     { id: 'night-runner', label: 'Night Runner', bg: '#1a1a2e', panel: '#242440', accent: '#F9FF23', fg: '#F9FF23' },
     { id: 'nord', label: 'Nord', bg: '#2e3440', panel: '#3b4252', accent: '#88c0d0', fg: '#eceff4' },
-    { id: 'opencode', label: 'OpenCode', bg: '#0a0a0a', panel: '#141414', accent: '#fab283', fg: '#eeeeee' },
+    { id: 'opencode', label: 'Nopencode', bg: '#0a0a0a', panel: '#141414', accent: '#fab283', fg: '#eeeeee' },
     { id: 'solarized-dark', label: 'Solarized Dark', bg: '#002b36', panel: '#073642', accent: '#268bd2', fg: '#839496' },
     { id: 'solarized-light', label: 'Solarized Light', bg: '#fdf6e3', panel: '#eee8d5', accent: '#268bd2', fg: '#657b83' },
     { id: 'tokyo-night', label: 'Tokyo Night', bg: '#1a1b26', panel: '#1f2335', accent: '#7aa2f7', fg: '#c0caf5' },

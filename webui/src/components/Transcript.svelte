@@ -788,7 +788,7 @@
     {/if}
     {#if !tab.messages.length}
       <div class="empty">
-        <div class="logo">opencode</div>
+        <div class="logo">nopencode</div>
         {#if tab.loading}
           Loading…
         {:else if tab.live}

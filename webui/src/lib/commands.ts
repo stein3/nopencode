@@ -359,7 +359,7 @@ registry.builtins = [
     category: 'System',
     run: async () => {
       openDialog({
-        title: 'opencode web help',
+        title: 'nopencode web help',
         pre: [
           'ctrl + p   command palette        /        slash commands in composer',
           'ctrl + t   new chat               ctrl + w close tab',
