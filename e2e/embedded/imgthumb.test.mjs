@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { E2E_DIR, launchBrowser, screenshot } from '../helpers/setup.mjs';
+import http from 'node:http';
+import { DIST, E2E_DIR, launchBrowser, screenshot } from '../helpers/setup.mjs';
 
 // Verifies image-read thumbnails + full-size lightbox (fully mocked payloads):
 //  1. completed read of a real PNG → thumbnail <img> with data:image/png src
@@ -9,12 +10,49 @@ import { E2E_DIR, launchBrowser, screenshot } from '../helpers/setup.mjs';
 //  4. read of a MISSING image → no thumbnail rendered
 //  5. read of a NON-image file → no thumbnail rendered
 
+const PORT = 8141;
+const BASE = `http://127.0.0.1:${PORT}`;
 const SID = 'ses_imgthumb';
 const PNG_PATH = '/workspace/shot.png';
 const MISSING_IMG = '/workspace/gone.png';
 const TXT_PATH = '/workspace/notes.md';
 
 const PNG_B64 = fs.readFileSync(path.join(E2E_DIR, 'rename-dialog.png')).toString('base64');
+
+// ---- minimal dist server ---------------------------------------------------
+const MIME = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript',
+  '.mjs': 'text/javascript',
+  '.css': 'text/css',
+  '.json': 'application/json',
+  '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+  '.ico': 'image/x-icon',
+  '.ttf': 'font/ttf',
+  '.woff': 'font/woff',
+  '.woff2': 'font/woff2',
+  '.map': 'application/json',
+};
+
+const server = http.createServer((req, res) => {
+  const p = (req.url ?? '/').split('?')[0];
+  const rel = p === '/' ? '/index.html' : p;
+  try {
+    const full = fs.realpathSync(path.join(DIST, rel));
+    if (!full.startsWith(fs.realpathSync(DIST))) return res.writeHead(403).end();
+    const b = fs.readFileSync(full);
+    res.writeHead(200, {
+      'Content-Type': MIME[path.extname(full)] ?? 'application/octet-stream',
+      'Content-Length': b.length,
+    });
+    res.end(b);
+  } catch {
+    res.writeHead(404).end('not found');
+  }
+});
+
+await new Promise((r) => server.listen(PORT, '127.0.0.1', r));
 
 const MSGS = [
   {
@@ -89,7 +127,7 @@ const check = (ok, label) => {
 };
 
 try {
-  await page.goto('http://127.0.0.1:8123/', { waitUntil: 'domcontentloaded', timeout: 20000 });
+  await page.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 20000 });
   const item = page.locator('.sidebar button.item', { hasText: 'imgthumb render mock' }).first();
   await item.waitFor({ timeout: 15000 });
   await item.click();
@@ -128,4 +166,5 @@ try {
   process.exitCode = fail ? 1 : 0;
 } finally {
   await browser.close();
+  server.close();
 }

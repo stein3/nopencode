@@ -13,3 +13,4 @@ utilities/
 # Test output
 shots/
 *.png
+!rename-dialog.png

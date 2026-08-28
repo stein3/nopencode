@@ -1,5 +1,7 @@
+import fs from 'node:fs';
 import path from 'node:path';
-import { BASE, launchBrowser, SHOTS_DIR } from '../helpers/setup.mjs';
+import http from 'node:http';
+import { DIST, launchBrowser, SHOTS_DIR } from '../helpers/setup.mjs';
 
 // Verifies, against fully mocked /oc + /api routes (no live model):
 //  1. queueing while a turn is in flight — Enter AND the ➤ button must fire
@@ -8,12 +10,50 @@ import { BASE, launchBrowser, SHOTS_DIR } from '../helpers/setup.mjs';
 //     empty (no blind restore)
 //  3. late POST failure with the message NOT in the transcript → text restored
 
+const PORT = 8140;
+const BASE = `http://127.0.0.1:${PORT}`;
+
 let sidCounter = 0;
 let lastSid = null;
 const posts = []; // {text}
 let hangPosts = false; // first send hangs like a real blocking turn
 let nextPostFails = false;
 let transcriptTexts = []; // what GET .../message claims is landed
+
+// ---- minimal dist server (route handlers intercept before reaching here) ---
+const MIME = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript',
+  '.mjs': 'text/javascript',
+  '.css': 'text/css',
+  '.json': 'application/json',
+  '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+  '.ico': 'image/x-icon',
+  '.ttf': 'font/ttf',
+  '.woff': 'font/woff',
+  '.woff2': 'font/woff2',
+  '.map': 'application/json',
+};
+
+const server = http.createServer((req, res) => {
+  const p = (req.url ?? '/').split('?')[0];
+  const rel = p === '/' ? '/index.html' : p;
+  try {
+    const full = fs.realpathSync(path.join(DIST, rel));
+    if (!full.startsWith(fs.realpathSync(DIST))) return res.writeHead(403).end();
+    const b = fs.readFileSync(full);
+    res.writeHead(200, {
+      'Content-Type': MIME[path.extname(full)] ?? 'application/octet-stream',
+      'Content-Length': b.length,
+    });
+    res.end(b);
+  } catch {
+    res.writeHead(404).end('not found');
+  }
+});
+
+await new Promise((r) => server.listen(PORT, '127.0.0.1', r));
 
 const browser = await launchBrowser();
 const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
@@ -148,4 +188,5 @@ console.log('[3b] newer draft preserved:', (await taValue()) === 'user typed new
 
 await page.screenshot({ path: path.join(SHOTS_DIR, 'queue-fix-final.png'), fullPage: true });
 await browser.close();
+server.close();
 console.log('done');
