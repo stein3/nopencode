@@ -26,7 +26,7 @@
 import path from 'node:path';
 import fs from 'node:fs';
 import http from 'node:http';
-import { DIST, launchBrowser, createChecker, screenshot, SHOTS_DIR } from '../helpers/setup.mjs';
+import { DIST, launchBrowser, sleep, poll, SHOTS_DIR } from '../helpers/setup.mjs';
 
 const PORT = 8132;
 const BASE = `http://127.0.0.1:${PORT}`;
@@ -162,37 +162,37 @@ function readBody(req) {
 
 // ================================ checks ====================================
 
-const { check, summary } = createChecker();
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-async function poll(fn, timeout = 12000, iv = 250) {
-  const t0 = Date.now();
-  while (Date.now() - t0 < timeout) {
-    if (await fn()) return true;
-    await sleep(iv);
-  }
-  return !!(await fn());
+const results = [];
+let pageErrors = [];
+
+function check(c, name, pass, note = '') {
+  results.push({ c, name, pass: !!pass, note });
+  console.log(`  [${pass ? 'PASS' : 'FAIL'}] ${c} · ${name}${note ? ` — ${note}` : ''}`);
 }
+
 const rowLoc = async (page) =>
   page.$('.sidebar .item[title="Parent orchestration session"]');
 
 // hide-mode assertions shared by H1/H2/H4
 async function expectHiddenMode(page, tag) {
   const row = await rowLoc(page);
-  check(`${tag} parent row rendered`, row !== null);
-  check(`${tag} aggdot.busy shown`, (await row.$('.aggdot.busy')) !== null);
+  check(tag, 'parent row rendered', row !== null);
+  check(tag, 'aggdot.busy shown', (await row.$('.aggdot.busy')) !== null);
   const kc = await row.$eval('.kidcount', (el) => el.textContent.trim()).catch(() => null);
-  check(`${tag} kidcount shown (always visible)`, kc === '3', `text=${kc}`);
+  check(tag, 'kidcount shown (always visible)', kc === '3', `text=${kc}`);
   check(
-    `${tag} kidcount tooltip says hidden`,
+    tag,
+    'kidcount tooltip says hidden',
     (await row.$eval('.kidcount', (el) => el.title).catch(() => '')) === '3 subagents · hidden',
   );
-  check(`${tag} chevron NOT shown`, (await row.$('.chev')) === null);
+  check(tag, 'chevron NOT shown', (await row.$('.chev')) === null);
   check(
-    `${tag} no sub rows anywhere`,
+    tag,
+    'no sub rows anywhere',
     (await page.$$eval('.item.child, .sub-row', (els) => els.length)) === 0,
   );
   const sec = await page.$eval('.section .count', (el) => el.textContent.replace(/\s+/g, ' ').trim());
-  check(`${tag} header keeps hidden count`, sec.includes('· 3 hidden'), sec);
+  check(tag, 'header keeps hidden count', sec.includes('· 3 hidden'), sec);
 }
 
 // ================================ run =======================================
@@ -203,14 +203,15 @@ try {
   await new Promise((r) => server.listen(PORT, '127.0.0.1', r));
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
   const page = await ctx.newPage();
-  page.on('pageerror', (e) => console.log('PAGEERROR:', e.message));
+  page.on('pageerror', (e) => pageErrors.push(e.message));
 
   // ---- H1: fresh profile → default hideSubagents=true ----------------------
   await page.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 20000 });
   await page.waitForSelector('.sidebar .item', { timeout: 10000 });
   await sleep(700);
   check(
-    'H1 checkbox defaults to checked',
+    'H1',
+    'checkbox defaults to checked',
     await page.$eval('.hidesub input', (el) => el.checked),
   );
   await expectHiddenMode(page, 'H1');
@@ -236,26 +237,28 @@ try {
   await sleep(600);
   const row = await rowLoc(page);
   check(
-    'H3 collapsed kidcount reads 3',
+    'H3',
+    'collapsed kidcount reads 3',
     (await row.$eval('.kidcount', (el) => el.textContent.trim()).catch(() => null)) === '3',
   );
   check(
-    'H3 kidcount tooltip (tree mode, not hidden)',
+    'H3',
+    'kidcount tooltip (tree mode, not hidden)',
     (await row.$eval('.kidcount', (el) => el.title).catch(() => '')) === '3 subagents',
   );
-  check('H3 chevron shown when expanded-set empty', (await row.$('.chev')) !== null);
-  check('H3 collapsed aggdot.busy shown', (await row.$('.aggdot.busy')) !== null);
+  check('H3', 'chevron shown when expanded-set empty', (await row.$('.chev')) !== null);
+  check('H3', 'collapsed aggdot.busy shown', (await row.$('.aggdot.busy')) !== null);
 
   await page.click('.chev');
   await sleep(350);
-  check('H3 expand reveals 3 sub rows', (await page.$$eval('.item.child', (els) => els.length)) === 3);
-  check('H3 expanded parent hides aggdot', (await row.$('.aggdot')) === null);
+  check('H3', 'expand reveals 3 sub rows', (await page.$$eval('.item.child', (els) => els.length)) === 3);
+  check('H3', 'expanded parent hides aggdot', (await row.$('.aggdot')) === null);
   await page.locator('.sidebar').screenshot({ path: path.join(SHOTS_DIR, 'hidelight-tree-expanded.png') });
 
   await page.click('.chev');
   await sleep(350);
-  check('H3 collapse removes sub rows', (await page.$$eval('.item.child', (els) => els.length)) === 0);
-  check('H3 collapse restores aggdot.busy', (await row.$('.aggdot.busy')) !== null);
+  check('H3', 'collapse removes sub rows', (await page.$$eval('.item.child', (els) => els.length)) === 0);
+  check('H3', 'collapse restores aggdot.busy', (await row.$('.aggdot.busy')) !== null);
 
   // ---- H4: toggle ON in place → light returns, chev/sub rows vanish -------
   await page.check('.hidesub input');
@@ -270,13 +273,28 @@ try {
     body: JSON.stringify({ status: {} }),
   }).then((r) => r.json());
   const flipped = await poll(async () => (await row.$('.aggdot.unread')) !== null, 13000);
-  check('H5 busy→idle flips light to unread within one poll', flipped);
-  check('H5 old busy light gone', (await row.$('.aggdot.busy')) === null);
+  check('H5', 'busy→idle flips light to unread within one poll', flipped);
+  check('H5', 'old busy light gone', (await row.$('.aggdot.busy')) === null);
   await page.locator('.sidebar').screenshot({ path: path.join(SHOTS_DIR, 'hidelight-unread.png') });
 
   await ctx.close();
 } finally {
   await browser.close();
-  server.close();
+  await new Promise((r) => server.close(r));
 }
-process.exit(summary());
+
+// =============================== summary ====================================
+
+console.log('\n================ SUMMARY ================');
+let fails = 0;
+for (const r of results) {
+  const tag = r.pass ? 'PASS' : 'FAIL';
+  console.log(`  [${tag}] ${r.name}${r.note ? ` — ${r.note}` : ''}`);
+  if (!r.pass) fails++;
+}
+if (pageErrors.length) {
+  console.log(`\npage errors observed (${pageErrors.length}):`);
+  for (const e of [...new Set(pageErrors)].slice(0, 5)) console.log('  •', e.slice(0, 220));
+}
+console.log('\nChecks:', results.length, '| failed:', fails);
+process.exitCode = fails ? 1 : 0;

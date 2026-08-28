@@ -7,7 +7,7 @@
 import path from 'node:path'
 import fs from 'node:fs'
 import http from 'node:http'
-import { DIST, launchBrowser, screenshot } from '../helpers/setup.mjs'
+import { DIST, launchBrowser, screenshot, sleep } from '../helpers/setup.mjs'
 
 const PORT = 8154
 const BASE = `http://127.0.0.1:${PORT}`
@@ -132,12 +132,10 @@ const results = []
 let pageErrors = []
 let consoleErrors = []
 
-function check(name, pass, note = '') {
-  results.push({ name, pass: !!pass, note })
-  console.log(`  [${pass ? 'PASS' : 'FAIL'}] ${name}${note ? ` — ${note}` : ''}`)
+function check(c, name, pass, note = '') {
+  results.push({ c, name, pass: !!pass, note })
+  console.log(`  [${pass ? 'PASS' : 'FAIL'}] ${c} · ${name}${note ? ` — ${note}` : ''}`)
 }
-
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
 const PANE = '.tabpane[style*="flex"]'
 
@@ -197,7 +195,7 @@ try {
     await sleep(400)
     const p1b = await activePane()
     check(
-      '1 Home jumps to top',
+      '1', 'Home jumps to top',
       p1a.st === 0 && p1b.st === 0,
       `scrollTop after 300ms=${p1a.st}, after 700ms=${p1b.st}`,
     )
@@ -211,7 +209,7 @@ try {
     const p2b = await activePane()
     const d2a = Math.abs(p2a.st - p2a.bottom)
     const d2b = Math.abs(p2b.st - p2b.bottom)
-    check('2 End jumps to bottom', d2a <= 2 && d2b <= 2, `|st-bottom| 300ms=${d2a}, 700ms=${d2b}`)
+    check('2', 'End jumps to bottom', d2a <= 2 && d2b <= 2, `|st-bottom| 300ms=${d2a}, 700ms=${d2b}`)
 
     // ---- 3. Input guard: Home/End inside composer must not scroll ------------
     console.log('\nCASE 3 — input guard')
@@ -224,7 +222,7 @@ try {
     await sleep(150)
     const afterEnd3 = (await activePane()).st
     check(
-      '3 input guard keeps transcript still',
+      '3', 'input guard keeps transcript still',
       before3 === afterHome3 && afterHome3 === afterEnd3,
       `st ${before3} → Home ${afterHome3} → End ${afterEnd3}`,
     )
@@ -247,12 +245,12 @@ try {
     await sleep(400)
     const aSettled = (await paneOf(SID_A)).st
     check(
-      '4 active pane jumps Home after tab switch',
+      '4', 'active pane jumps Home after tab switch',
       aAfterHome.st === 0 && aSettled === 0,
       `A st: hidden=${aHiddenSt} → pinned@${aAfterSwitch.st} → Home ${aAfterHome.st} → settled ${aSettled}`,
     )
     check(
-      '4b hidden pane B scrollTop unchanged',
+      '4b', 'hidden pane B scrollTop unchanged',
       bAfterHome === bAtSwitch,
       `B st ${bAtSwitch} → ${bAfterHome}`,
     )
@@ -260,7 +258,7 @@ try {
     await sleep(500)
     const bBack = await paneOf(SID_B)
     check(
-      '4c reactivated hidden pane re-pins (no corruption)',
+      '4c', 'reactivated hidden pane re-pins (no corruption)',
       Math.abs(bBack.st - bBack.bottom) <= 2,
       `B st=${bBack.st}, bottom=${bBack.bottom}`,
     )
@@ -274,7 +272,7 @@ try {
     await sleep(500)
     const list5 = await panes()
     check(
-      '5 Alt+W closes tab',
+      '5', 'Alt+W closes tab',
       list5.length === count5 - 1 && !list5.some((p) => p.sid === SID_A),
       `tabs ${count5}→${list5.length}, A gone=${!list5.some((p) => p.sid === SID_A)}`,
     )
@@ -291,7 +289,7 @@ try {
     await sleep(500)
     const list6 = await panes()
     check(
-      '6 Ctrl+W closes tab',
+      '6', 'Ctrl+W closes tab',
       list6.length === count6 - 1 && !list6.some((p) => p.sid === SID_A),
       `tabs ${count6}→${list6.length}, A gone=${!list6.some((p) => p.sid === SID_A)}`,
     )
@@ -299,7 +297,7 @@ try {
     // ---- 7. Focus-mode toggle ------------------------------------------------
     console.log('\nCASE 7 — focus-mode toggle')
     const btn = page.locator('[title^="Focus mode"]')
-    check('7a focus-mode button exists', (await btn.count()) === 1)
+    check('7a', 'focus-mode button exists', (await btn.count()) === 1)
     await page.evaluate(() => {
       window.__unhandled = []
       window.addEventListener('unhandledrejection', (e) => {
@@ -319,7 +317,7 @@ try {
     }
     const unhandled7 = await page.evaluate(() => window.__unhandled || [])
     if (st7.fs && st7.pressed) {
-      check('7 focus-mode ON (fullscreen + pressed)', true)
+      check('7', 'focus-mode ON (fullscreen + pressed)', true)
       await btn.click()
       let off = false
       for (let i = 0; i < 10; i++) {
@@ -329,17 +327,17 @@ try {
         )
         if (off) break
       }
-      check('7b focus-mode OFF restores', off)
+      check('7b', 'focus-mode OFF restores', off)
     } else {
       check(
-        '7 focus-mode graceful no-op',
+        '7', 'focus-mode graceful no-op',
         unhandled7.length === 0,
         `fullscreen unavailable in headless — unhandled=${JSON.stringify(unhandled7)}`,
       )
     }
 
     // ---- 8. No page errors --------------------------------------------------
-    check('8 no pageerror exceptions', pageErrors.length === 0, pageErrors.slice(0, 3).join(' | '))
+    check('8', 'no pageerror exceptions', pageErrors.length === 0, pageErrors.slice(0, 3).join(' | '))
     if (consoleErrors.length) console.log('console errors (non-SSE):', JSON.stringify(consoleErrors.slice(0, 5)))
 
     await screenshot(page, 'hotkeys')
@@ -353,10 +351,15 @@ try {
 // =============================== summary ====================================
 
 console.log('\n================ SUMMARY ================')
-const fails = results.filter((r) => !r.pass).length
-console.log('Checks:', results.length, '| failed:', fails)
+let fails = 0
+for (const r of results) {
+  const tag = r.pass ? 'PASS' : 'FAIL'
+  console.log(`  [${tag}] ${r.name}${r.note ? ` — ${r.note}` : ''}`)
+  if (!r.pass) fails++
+}
 if (pageErrors.length) {
-  console.log(`page errors (${pageErrors.length}):`)
+  console.log(`\npage errors observed (${pageErrors.length}):`)
   for (const e of [...new Set(pageErrors)].slice(0, 5)) console.log('  •', e.slice(0, 220))
 }
+console.log('\nChecks:', results.length, '| failed:', fails)
 process.exitCode = fails ? 1 : 0

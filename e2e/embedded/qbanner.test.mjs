@@ -11,7 +11,7 @@
 import path from 'node:path';
 import fs from 'node:fs';
 import http from 'node:http';
-import { DIST, launchBrowser, screenshot, SHOTS_DIR } from '../helpers/setup.mjs';
+import { DIST, launchBrowser, screenshot, SHOTS_DIR, sleep } from '../helpers/setup.mjs';
 
 const PORT = 8157;
 const BASE = `http://127.0.0.1:${PORT}`;
@@ -191,7 +191,6 @@ const server = http.createServer(async (req, res) => {
 
 // ================================ helpers ====================================
 
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const ctl = (payload) =>
   fetch(`${BASE}/__ctl`, { method: 'POST', body: JSON.stringify(payload) }).then((r) => r.json());
 const snap = () => fetch(`${BASE}/__state`).then((r) => r.json());
@@ -276,11 +275,13 @@ try {
 console.log('\n================ SUMMARY ================');
 let fails = 0;
 for (const r of results) {
+  const tag = r.pass ? 'PASS' : 'FAIL';
+  console.log(`  [${tag}] ${r.name}${r.note ? ` — ${r.note}` : ''}`);
   if (!r.pass) fails++;
 }
 if (pageErrors.length) {
   console.log(`\npage errors observed (${pageErrors.length}):`);
   for (const e of [...new Set(pageErrors)].slice(0, 5)) console.log('  •', e.slice(0, 220));
 }
-console.log('Checks:', results.length, '| failed:', fails);
+console.log('\nChecks:', results.length, '| failed:', fails);
 process.exitCode = fails ? 1 : 0;

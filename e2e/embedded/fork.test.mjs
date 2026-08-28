@@ -9,7 +9,7 @@
 import path from 'node:path';
 import fs from 'node:fs';
 import http from 'node:http';
-import { DIST, launchBrowser, screenshot } from '../helpers/setup.mjs';
+import { DIST, launchBrowser, screenshot, sleep } from '../helpers/setup.mjs';
 
 const PORT = 8150;
 const BASE = `http://127.0.0.1:${PORT}`;
@@ -215,12 +215,10 @@ const server = http.createServer(async (req, res) => {
 const results = [];
 let pageErrors = [];
 
-function check(name, cond, detail = '') {
-  results.push({ name, pass: !!cond, detail });
-  console.log(`  [${cond ? 'PASS' : 'FAIL'}] ${name}${detail ? ` — ${detail}` : ''}`);
+function check(c, name, pass, note = '') {
+  results.push({ c, name, pass: !!pass, note });
+  console.log(`  [${pass ? 'PASS' : 'FAIL'}] ${c} · ${name}${note ? ` — ${note}` : ''}`);
 }
-
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 try {
   await new Promise((r) => server.listen(PORT, '127.0.0.1', r));
@@ -254,7 +252,7 @@ try {
     const second = page.locator('.tabpane:visible .msg.user').nth(1);
     await second.hover();
     const forkBtn = second.locator('button[title^="Fork a new session"]');
-    check('fork button visible on hover', await forkBtn.isVisible());
+    check('T', 'fork button visible on hover', await forkBtn.isVisible());
     const btns = await second.locator('.acts button').count();
     console.log('[2] acts buttons on user row:', btns, '(expect 3: revert/fork/delete)');
     await forkBtn.click();
@@ -269,9 +267,9 @@ try {
     console.log('    user rows in new tab:', forkRows, '(expect 1 — exclusive semantics)');
     console.log('    composer prefilled:', JSON.stringify(inputVal));
 
-    check('exactly 1 user message in fork tab', forkRows === 1, `got ${forkRows}`);
-    check('composer prefilled with forked-from text', inputVal === 'forkprobe message 2');
-    check('active tab title contains "fork"', /fork/i.test(activeTitle.trim()), activeTitle.trim());
+    check('T', 'exactly 1 user message in fork tab', forkRows === 1, `got ${forkRows}`);
+    check('T', 'composer prefilled with forked-from text', inputVal === 'forkprobe message 2');
+    check('T', 'active tab title contains "fork"', /fork/i.test(activeTitle.trim()), activeTitle.trim());
 
     // ---- original tab untouched?
     // The fork tab title contains "(fork" — find the original by excluding it
@@ -280,7 +278,7 @@ try {
     await page.waitForTimeout(1500);
     const origRows = await page.locator('.tabpane:visible .msg.user').count();
     console.log('[4] original tab still has:', origRows, 'user rows (expect 3)');
-    check('source session still has 3 messages', origRows === 3, `got ${origRows}`);
+    check('T', 'source session still has 3 messages', origRows === 3, `got ${origRows}`);
 
     await screenshot(page, 'fork-verify');
   } finally {
@@ -295,11 +293,13 @@ try {
 console.log('\n================ SUMMARY ================');
 let fails = 0;
 for (const r of results) {
+  const tag = r.pass ? 'PASS' : 'FAIL';
+  console.log(`  [${tag}] ${r.name}${r.note ? ` — ${r.note}` : ''}`);
   if (!r.pass) fails++;
 }
-console.log('Checks:', results.length, '| failed:', fails);
 if (pageErrors.length) {
   console.log(`\npage errors observed (${pageErrors.length}):`);
   for (const e of [...new Set(pageErrors)].slice(0, 5)) console.log('  •', e.slice(0, 220));
 }
+console.log('\nChecks:', results.length, '| failed:', fails);
 process.exitCode = fails ? 1 : 0;

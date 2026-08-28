@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import http from 'node:http';
-import { DIST, E2E_DIR, launchBrowser, screenshot } from '../helpers/setup.mjs';
+import { DIST, E2E_DIR, launchBrowser, screenshot, sleep, poll } from '../helpers/setup.mjs';
 
 // Verifies image-read thumbnails + full-size lightbox (fully mocked payloads):
 //  1. completed read of a real PNG → thumbnail <img> with data:image/png src
@@ -18,6 +18,14 @@ const MISSING_IMG = '/workspace/gone.png';
 const TXT_PATH = '/workspace/notes.md';
 
 const PNG_B64 = fs.readFileSync(path.join(E2E_DIR, 'rename-dialog.png')).toString('base64');
+
+const results = [];
+let pageErrors = [];
+
+function check(c, name, pass, note = '') {
+  results.push({ c, name, pass: !!pass, note });
+  console.log(`  [${pass ? 'PASS' : 'FAIL'}] ${c} · ${name}${note ? ` — ${note}` : ''}`);
+}
 
 // ---- minimal dist server ---------------------------------------------------
 const MIME = {
@@ -92,7 +100,7 @@ const MSGS = [
 
 const browser = await launchBrowser();
 const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
-page.on('pageerror', (e) => console.log('PAGEERROR:', e.message));
+page.on('pageerror', (e) => pageErrors.push(e.message));
 
 async function handle(route) {
   const req = route.request();
@@ -120,12 +128,6 @@ async function handle(route) {
 await page.route('**/oc/**', handle);
 await page.route('**/api/**', handle);
 
-let fail = 0;
-const check = (ok, label) => {
-  console.log(ok ? 'PASS' : 'FAIL', label);
-  if (!ok) fail++;
-};
-
 try {
   await page.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 20000 });
   const item = page.locator('.sidebar button.item', { hasText: 'imgthumb render mock' }).first();
@@ -136,7 +138,7 @@ try {
   const thumb = page.locator('#m-msg_a1 .toolcard .imgthumb img').first();
   await thumb.waitFor({ timeout: 8000 });
   const src = await thumb.getAttribute('src');
-  check(src?.startsWith('data:image/png;base64,iVBOR') === true, `[1] thumbnail data:image/png src (${src?.slice(0, 40)}…)`);
+  check('T', 'thumbnail data:image/png src', src?.startsWith('data:image/png;base64,iVBOR') === true, src?.slice(0, 40));
 
   // 2. click opens the lightbox
   await thumb.click();
@@ -144,27 +146,44 @@ try {
   await lbImg.waitFor({ timeout: 4000 });
   const lbSrc = await lbImg.getAttribute('src');
   const cap = await page.locator('.overlay .cap').innerText();
-  check(lbSrc === src, '[2] lightbox shows same image full size');
-  check(cap === PNG_PATH, `[3] caption is file path: ${cap}`);
+  check('T', 'lightbox shows same image', lbSrc === src);
+  check('T', 'caption is file path', cap === PNG_PATH, cap);
   await screenshot(page, 'imgthumb-lightbox');
 
   // 3. Esc closes
   await page.keyboard.press('Escape');
   await page.waitForTimeout(150);
-  check((await page.locator('.overlay').count()) === 0, '[4] Esc closes lightbox');
+  check('T', 'Esc closes lightbox', (await page.locator('.overlay').count()) === 0);
 
   // 4+5. no thumbs for missing image / non-image reads
   const cards = page.locator('#m-msg_a1 .toolcard');
   check(
+    'T',
+    'exactly one thumbnail in the message',
     (await page.locator('#m-msg_a1 .imgthumb').count()) === 1,
-    '[5] exactly one thumbnail in the message (missing/non-image reads render none)',
+    'missing/non-image reads render none',
   );
   console.log('     toolcards:', await cards.count());
 
   await screenshot(page, 'imgthumb');
-  console.log(fail ? `done ${fail} FAIL` : 'done ALL PASS');
-  process.exitCode = fail ? 1 : 0;
 } finally {
-  await browser.close();
-  server.close();
+  try {
+    await browser.close();
+  } finally {
+    await new Promise((r) => server.close(r));
+  }
 }
+
+console.log('\n================ SUMMARY ================');
+let fails = 0;
+for (const r of results) {
+  const tag = r.pass ? 'PASS' : 'FAIL';
+  console.log(`  [${tag}] ${r.name}${r.note ? ` — ${r.note}` : ''}`);
+  if (!r.pass) fails++;
+}
+if (pageErrors.length) {
+  console.log(`\npage errors observed (${pageErrors.length}):`);
+  for (const e of [...new Set(pageErrors)].slice(0, 5)) console.log('  •', e.slice(0, 220));
+}
+console.log('\nChecks:', results.length, '| failed:', fails);
+process.exitCode = fails ? 1 : 0;

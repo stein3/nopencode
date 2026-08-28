@@ -24,7 +24,7 @@
 import path from 'node:path';
 import fs from 'node:fs';
 import http from 'node:http';
-import { DIST, launchBrowser, screenshot, SHOTS_DIR } from '../helpers/setup.mjs';
+import { DIST, launchBrowser, screenshot, SHOTS_DIR, sleep, poll } from '../helpers/setup.mjs';
 
 const PORT = 8144;
 const BASE = `http://127.0.0.1:${PORT}`;
@@ -263,24 +263,13 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-// ================================ helpers ====================================
-
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const poll = async (fn, timeout = 1500, iv = 100) => {
-  const t0 = Date.now();
-  while (Date.now() - t0 < timeout) {
-    if (await fn()) return true;
-    await sleep(iv);
-  }
-  return !!(await fn());
-};
-
 // ================================ checks ====================================
 
 const results = [];
-function check(name, cond, detail = '') {
-  results.push({ name, pass: !!cond, detail });
-  console.log(`  [${cond ? 'PASS' : 'FAIL'}] ${name}${detail ? ` — ${detail}` : ''}`);
+let pageErrors = [];
+function check(c, name, pass, note = '') {
+  results.push({ c, name, pass: !!pass, note });
+  console.log(`  [${pass ? 'PASS' : 'FAIL'}] ${c} · ${name}${note ? ` — ${note}` : ''}`);
 }
 
 // ================================ run =======================================
@@ -313,7 +302,7 @@ try {
 
   const browser = await launchBrowser();
   page = await browser.newPage({ viewport: { width: 1280, height: 800 }, deviceScaleFactor: 2 });
-  page.on('pageerror', (e) => console.log('PAGEERROR:', e.message));
+  page.on('pageerror', (e) => pageErrors.push(e.message));
 
   // --- intercept prompt_async payloads ---------------------------------------
   const bodies = [];
@@ -364,13 +353,15 @@ try {
   await page.reload({ waitUntil: 'domcontentloaded' });
   await sleep(2500);
 
+  try {
+
   // ====================================================================
   // CASE 1 — fresh state: collapsed label "Auto"
   // ====================================================================
   console.log('\nCASE 1 — fresh state');
   await trigger().waitFor({ state: 'visible', timeout: 5000 });
   check(
-    '1.1 collapsed label defaults to "Auto"',
+    '1.1', 'collapsed label defaults to "Auto"',
     ((await trigger().textContent()) ?? '').includes('Auto'),
   );
 
@@ -387,17 +378,17 @@ try {
   }
 
   check(
-    '2.1 all eligible agents present (no missing)',
+    '2.1', 'all eligible agents present (no missing)',
     expectedEligible.every((e) => names.includes(e)),
     `expected=${JSON.stringify(expectedEligible)} got=${JSON.stringify(names.filter((n) => n !== 'Auto'))}`,
   );
   check(
-    '2.2 no subagent/hidden leakage',
+    '2.2', 'no subagent/hidden leakage',
     names.filter((n) => n !== 'Auto' && !expectedEligible.includes(n)).length === 0,
   );
-  check('2.3 Auto row pinned first', names[0] === 'Auto');
+  check('2.3', 'Auto row pinned first', names[0] === 'Auto');
   check(
-    '2.4 menu order matches roster (Auto first, then eligible)',
+    '2.4', 'menu order matches roster (Auto first, then eligible)',
     JSON.stringify(names) === JSON.stringify(expectedMenu),
     `got=${JSON.stringify(names)}`,
   );
@@ -411,7 +402,7 @@ try {
   const bb = await trigger().boundingBox();
   const mb = await page.locator(`${PANE} .toolbar .wrap:first-child .menu`).boundingBox();
   check(
-    '3.1 menu opens upward above button',
+    '3.1', 'menu opens upward above button',
     bb && mb && mb.y + mb.height <= bb.y + 2,
     `menu bottom=${mb ? Math.round(mb.y + mb.height) : '?'}, btn top=${bb ? Math.round(bb.y) : '?'}`,
   );
@@ -419,14 +410,14 @@ try {
   // Esc closes
   await page.keyboard.press('Escape');
   await sleep(150);
-  check('3.2 Escape closes menu', (await page.locator(`${PANE} .toolbar .wrap:first-child .menu`).count()) === 0);
+  check('3.2', 'Escape closes menu', (await page.locator(`${PANE} .toolbar .wrap:first-child .menu`).count()) === 0);
 
   // click-outside closes
   await trigger().click();
   await page.waitForSelector(`${PANE} .toolbar .wrap:first-child .menu button.m`);
   await page.locator(`${PANE} #composer-input`).click();
   await sleep(150);
-  check('3.3 click-outside closes menu', (await page.locator(`${PANE} .toolbar .wrap:first-child .menu`).count()) === 0);
+  check('3.3', 'click-outside closes menu', (await page.locator(`${PANE} .toolbar .wrap:first-child .menu`).count()) === 0);
 
   // ====================================================================
   // CASE 4 — pick Plan → label + payload
@@ -436,10 +427,10 @@ try {
   await page.waitForSelector(`${PANE} .toolbar .wrap:first-child .menu button.m`);
 
   const planRow = page.locator(`${PANE} .toolbar .wrap:first-child .menu button.m`, { hasText: 'Plan' });
-  check('4.1 exactly one Plan row', (await planRow.count()) === 1);
+  check('4.1', 'exactly one Plan row', (await planRow.count()) === 1);
   await planRow.click();
   check(
-    '4.2 collapsed label updates to "Plan"',
+    '4.2', 'collapsed label updates to "Plan"',
     ((await trigger().textContent()) ?? '').includes('Plan'),
   );
 
@@ -448,7 +439,7 @@ try {
   await page.waitForSelector(`${PANE} .toolbar .wrap:first-child .menu button.m`);
   const onRow = await page.locator(`${PANE} .toolbar .wrap:first-child .menu .m.on .nm`).allTextContents();
   check(
-    '4.3 current selection marked in menu',
+    '4.3', 'current selection marked in menu',
     onRow.map((s) => s.trim()).includes('Plan'),
     `onRows=${JSON.stringify(onRow)}`,
   );
@@ -457,15 +448,15 @@ try {
 
   // send → payload
   await send('agent picker probe one');
-  check('4.4 prompt_async intercepted', bodies.length >= 1);
+  check('4.4', 'prompt_async intercepted', bodies.length >= 1);
   const b1 = bodies[bodies.length - 1];
-  check('4.5 payload carries agent:"Plan"', b1?.agent === 'Plan', `got=${JSON.stringify(b1?.agent)}`);
+  check('4.5', 'payload carries agent:"Plan"', b1?.agent === 'Plan', `got=${JSON.stringify(b1?.agent)}`);
   check(
-    '4.6 payload model present',
+    '4.6', 'payload model present',
     !!b1?.model?.providerID && !!b1?.model?.modelID,
     `${b1?.model?.providerID}/${b1?.model?.modelID}`,
   );
-  check('4.7 payload text intact', b1?.parts?.[0]?.text === 'agent picker probe one');
+  check('4.7', 'payload text intact', b1?.parts?.[0]?.text === 'agent picker probe one');
 
   // ====================================================================
   // CASE 5 — Auto row resets label + clears localStorage
@@ -475,10 +466,10 @@ try {
   await page.waitForSelector(`${PANE} .toolbar .wrap:first-child .menu button.m`);
   await page.locator(`${PANE} .toolbar .wrap:first-child .menu button.m.auto`).click();
   await sleep(150);
-  check('5.1 label back to Auto', ((await trigger().textContent()) ?? '').includes('Auto'));
+  check('5.1', 'label back to Auto', ((await trigger().textContent()) ?? '').includes('Auto'));
   const afterAuto = await page.evaluate(() => localStorage.getItem('opencode.sessionAgents'));
   check(
-    '5.2 localStorage cleared on Auto',
+    '5.2', 'localStorage cleared on Auto',
     afterAuto === '{}' || afterAuto === null,
     `got=${afterAuto}`,
   );
@@ -491,7 +482,7 @@ try {
   await page.waitForSelector(`${PANE} .toolbar .wrap:first-child .menu button.m`);
   await page.locator(`${PANE} .toolbar .wrap:first-child .menu button.m`, { hasText: 'Plan' }).first().click();
   await sleep(150);
-  check('6.1 label shows Plan', ((await trigger().textContent()) ?? '').includes('Plan'));
+  check('6.1', 'label shows Plan', ((await trigger().textContent()) ?? '').includes('Plan'));
   const storedRaw = await page.evaluate(() => localStorage.getItem('opencode.sessionAgents'));
   let storedOk = false;
   try {
@@ -499,7 +490,7 @@ try {
     const keys = Object.keys(map);
     storedOk = keys.length === 1 && map[keys[0]] === 'Plan' && !!keys[0];
   } catch {}
-  check('6.2 localStorage single per-session entry', storedOk, `got=${storedRaw}`);
+  check('6.2', 'localStorage single per-session entry', storedOk, `got=${storedRaw}`);
 
   // ====================================================================
   // CASE 7 — sticky across reload
@@ -510,12 +501,12 @@ try {
   await sleep(1500);
   if ((await activeSid()) !== sidA && sidA) await gotoTab(sidA);
   check(
-    '7.1 label persists across reload',
+    '7.1', 'label persists across reload',
     ((await trigger().textContent()) ?? '').includes('Plan'),
   );
   await send('agent picker probe two');
   const b2 = bodies[bodies.length - 1];
-  check('7.2 second send still carries agent:"Plan"', b2?.agent === 'Plan');
+  check('7.2', 'second send still carries agent:"Plan"', b2?.agent === 'Plan');
 
   // ====================================================================
   // CASE 8 — per-session isolation: new tab starts Auto
@@ -524,7 +515,7 @@ try {
   await page.click('button.add');
   await sleep(500);
   check(
-    '8.1 new session starts Auto (no leak from session A)',
+    '8.1', 'new session starts Auto (no leak from session A)',
     ((await trigger().textContent()) ?? '').includes('Auto'),
   );
 
@@ -535,19 +526,19 @@ try {
   await trigger().click();
   await page.waitForSelector(`${PANE} .toolbar .wrap:first-child .menu button.m`);
   const buildRow = page.locator(`${PANE} .toolbar .wrap:first-child .menu button.m`, { hasText: 'Build' });
-  check('9.1 exactly one Build row', (await buildRow.count()) === 1);
+  check('9.1', 'exactly one Build row', (await buildRow.count()) === 1);
   await buildRow.click();
   check(
-    '9.2 pending tab label updates to "Build"',
+    '9.2', 'pending tab label updates to "Build"',
     ((await trigger().textContent()) ?? '').includes('Build'),
   );
 
   await send('agent picker probe three');
   const b3 = bodies[bodies.length - 1];
-  check('9.3 pending tab realized', !!createdSid, `createdSid=${createdSid}`);
-  check('9.4 post-realize send carries agent:"Build"', b3?.agent === 'Build');
+  check('9.3', 'pending tab realized', !!createdSid, `createdSid=${createdSid}`);
+  check('9.4', 'post-realize send carries agent:"Build"', b3?.agent === 'Build');
   check(
-    '9.5 label still "Build" after realize',
+    '9.5', 'label still "Build" after realize',
     ((await trigger().textContent()) ?? '').includes('Build'),
   );
 
@@ -559,7 +550,7 @@ try {
     JSON.parse(localStorage.getItem('opencode.sessionAgents') ?? '{}'),
   );
   check(
-    '10.1 localStorage has per-session entries (A=plan, B=build)',
+    '10.1', 'localStorage has per-session entries (A=plan, B=build)',
     storedMap[sidA] === 'Plan' && storedMap[createdSid] === 'Build',
     `map=${JSON.stringify(storedMap)}`,
   );
@@ -570,7 +561,7 @@ try {
   console.log('\nCASE 11 — switch tabs');
   if (sidA) await gotoTab(sidA);
   check(
-    '11.1 switching tabs restores session A pick (Plan)',
+    '11.1', 'switching tabs restores session A pick (Plan)',
     ((await trigger().textContent()) ?? '').includes('Plan'),
   );
 
@@ -581,15 +572,15 @@ try {
   await trigger().click();
   await page.waitForSelector(`${PANE} .toolbar .wrap:first-child .menu button.m`);
   await page.locator(`${PANE} .toolbar .wrap:first-child .menu button.m.auto`).click();
-  check('12.1 back to Auto on A', ((await trigger().textContent()) ?? '').includes('Auto'));
+  check('12.1', 'back to Auto on A', ((await trigger().textContent()) ?? '').includes('Auto'));
   await gotoTab(createdSid);
   check(
-    '12.2 session B unaffected by A going Auto (still Build)',
+    '12.2', 'session B unaffected by A going Auto (still Build)',
     ((await trigger().textContent()) ?? '').includes('Build'),
   );
   await send('agent picker probe four');
   const b4 = bodies[bodies.length - 1];
-  check('12.3 send from B still carries agent:"Build"', b4?.agent === 'Build');
+  check('12.3', 'send from B still carries agent:"Build"', b4?.agent === 'Build');
 
   // ====================================================================
   // CASE 13 — Auto omits the agent field
@@ -598,10 +589,10 @@ try {
   await trigger().click();
   await page.waitForSelector(`${PANE} .toolbar .wrap:first-child .menu button.m`);
   await page.locator(`${PANE} .toolbar .wrap:first-child .menu button.m.auto`).click();
-  check('13.1 B back to Auto', ((await trigger().textContent()) ?? '').includes('Auto'));
+  check('13.1', 'B back to Auto', ((await trigger().textContent()) ?? '').includes('Auto'));
   await send('agent picker probe five');
   const b5 = bodies[bodies.length - 1];
-  check('13.2 Auto send omits agent field entirely', !('agent' in b5));
+  check('13.2', 'Auto send omits agent field entirely', !('agent' in b5));
 
   // ====================================================================
   // CASE 14 — mobile (360px): compact picker, menu fits viewport
@@ -633,12 +624,12 @@ try {
   const b1m = await mbtn.boundingBox();
   const t1m = await mtb.boundingBox();
   check(
-    '14.1 picker fits within viewport at 360px',
+    '14.1', 'picker fits within viewport at 360px',
     !!b1m && b1m.x >= 0 && b1m.x + b1m.width <= 361,
     `btn right=${b1m ? Math.round(b1m.x + b1m.width) : '?'}, viewport=360`,
   );
   check(
-    '14.2 collapsed control compact at 360px',
+    '14.2', 'collapsed control compact at 360px',
     !!b1m && b1m.width <= 90,
     `width=${b1m ? Math.round(b1m.width) : '?'}px`,
   );
@@ -646,7 +637,7 @@ try {
   await mpane.locator('.wrap .menu').waitFor({ state: 'visible', timeout: 5000 });
   const mobMenu = await mpane.locator('.wrap .menu').boundingBox();
   check(
-    '14.3 mobile menu stays in viewport',
+    '14.3', 'mobile menu stays in viewport',
     mobMenu && mobMenu.x >= 0 && mobMenu.x + mobMenu.width <= 361,
     `width=${mobMenu ? Math.round(mobMenu.width) : '?'}px`,
   );
@@ -658,7 +649,9 @@ try {
   for (const sid of sessionIds) {
     await fetch(`${BASE.replace(PORT, '4096')}/session/${sid}`, { method: 'DELETE' }).catch(() => {});
   }
-  await browser.close();
+  } finally {
+    await browser.close();
+  }
 } finally {
   await new Promise((r) => server.close(r));
 }
@@ -668,7 +661,13 @@ try {
 console.log('\n================ SUMMARY ================');
 let fails = 0;
 for (const r of results) {
+  const tag = r.pass ? 'PASS' : 'FAIL';
+  console.log(`  [${tag}] ${r.c} · ${r.name}${r.note ? ` — ${r.note}` : ''}`);
   if (!r.pass) fails++;
 }
-console.log(`Checks: ${results.length} | failed: ${fails}`);
+if (pageErrors.length) {
+  console.log(`\npage errors observed (${pageErrors.length}):`);
+  for (const e of [...new Set(pageErrors)].slice(0, 5)) console.log('  •', e.slice(0, 220));
+}
+console.log(`\nChecks: ${results.length} | failed: ${fails}`);
 process.exitCode = fails ? 1 : 0;

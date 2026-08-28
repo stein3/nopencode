@@ -254,9 +254,9 @@ const server = http.createServer(async (req, res) => {
 const results = [];
 let pageErrors = [];
 
-function check(name, pass, note = '') {
-  results.push({ name, pass: !!pass, note });
-  console.log(`  [${pass ? 'PASS' : 'FAIL'}] ${name}${note ? ` — ${note}` : ''}`);
+function check(c, name, pass, note = '') {
+  results.push({ c, name, pass: !!pass, note });
+  console.log(`  [${pass ? 'PASS' : 'FAIL'}] ${c} · ${name}${note ? ` — ${note}` : ''}`);
 }
 
 // ================================ run =======================================
@@ -280,15 +280,16 @@ try {
     await page.click(`.sidebar .item[title="model-badge probe"]`);
     await pane.locator('.msg.user').first().waitFor({ timeout: 10000 });
     const userRows = pane.locator('.msg.user');
-    check('[1] probe has 2 user rows', (await userRows.count()) === 2);
+    check('1', 'probe has 2 user rows', (await userRows.count()) === 2);
     for (let i = 0; i < MODELS.length; i++) {
       const badge = userRows.nth(i).locator('.model-id');
       const txt = (await badge.textContent()).trim();
       const tip = await badge.getAttribute('title');
       const want = MODELS[i];
-      check(`[1] user row ${i + 1} badge text`, txt === want.modelID, `got "${txt}" want "${want.modelID}"`);
+      check(`1.${i + 1}`, 'user row badge text', txt === want.modelID, `got "${txt}" want "${want.modelID}"`);
       check(
-        `[1] user row ${i + 1} tooltip is provider/model`,
+        `1.${i + 1}`,
+        'tooltip is provider/model',
         tip === `${want.providerID}/${want.modelID}`,
         `got "${tip}"`,
       );
@@ -305,15 +306,15 @@ try {
       if ((await abadge.count()) === 1) {
         const txt = (await abadge.textContent()).trim();
         const tip = await abadge.getAttribute('title');
-        check('[2] assistant badge text', txt === aidInfo.modelID, `got "${txt}" want "${aidInfo.modelID}"`);
-        check('[2] assistant tooltip provider/model', tip === `${aidInfo.providerID}/${aidInfo.modelID}`, `got "${tip}"`);
+        check('2', 'assistant badge text', txt === aidInfo.modelID, `got "${txt}" want "${aidInfo.modelID}"`);
+        check('2', 'assistant tooltip provider/model', tip === `${aidInfo.providerID}/${aidInfo.modelID}`, `got "${tip}"`);
       } else {
-        check('[2] assistant badge element exists', false, 'no .model-id in assistant row');
+        check('2', 'assistant badge element exists', false, 'no .model-id in assistant row');
       }
     } else {
       // assistant row outside the newest-80 window — accept any visible assistant badge
       const anyBadge = pane.locator('.msg:not(.user) .model-id').first();
-      check('[2] some assistant badge renders', (await anyBadge.count()) === 1);
+      check('2', 'some assistant badge renders', (await anyBadge.count()) === 1);
     }
     // visual parity shot
     const uRow = pane.locator('.msg.user').last();
@@ -326,13 +327,13 @@ try {
     await page.waitForTimeout(500);
     const badges = pane.locator('.msg.user .model-id');
     const n = await badges.count();
-    check('[3] old session shows >=1 user badge', n >= 1, `${n} badges`);
+    check('3', 'old session shows >=1 user badge', n >= 1, `${n} badges`);
     if (n) {
       // textContent: content-visibility:auto skips offscreen paint, which makes
       // innerText '' even though the span exists with correct data
       const txt = (await badges.first().textContent()).trim();
       const tip = await badges.first().getAttribute('title');
-      check('[3] old-session user badge non-empty', !!txt, `"${txt}"`);
+      check('3', 'old-session user badge non-empty', !!txt, `"${txt}"`);
       console.log(`[3] first old-session user badge: "${txt}" title="${tip}"`);
     }
 
@@ -358,6 +359,8 @@ try {
 console.log('\n================ SUMMARY ================');
 let fails = 0;
 for (const r of results) {
+  const tag = r.pass ? 'PASS' : 'FAIL';
+  console.log(`  [${tag}] ${r.name}${r.note ? ` — ${r.note}` : ''}`);
   if (!r.pass) fails++;
 }
 if (pageErrors.length) {

@@ -8,7 +8,7 @@
 import path from 'node:path'
 import fs from 'node:fs'
 import http from 'node:http'
-import { DIST, launchBrowser, screenshot } from '../helpers/setup.mjs'
+import { DIST, launchBrowser, screenshot, sleep } from '../helpers/setup.mjs'
 
 const PORT = 8153
 const BASE = `http://127.0.0.1:${PORT}`
@@ -134,8 +134,6 @@ function check(name, pass, note = '') {
   console.log(`  [${pass ? 'PASS' : 'FAIL'}] ${name}${note ? ` — ${note}` : ''}`)
 }
 
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
-
 // ================================ run =======================================
 
 try {
@@ -206,10 +204,15 @@ try {
 // =============================== summary ====================================
 
 console.log('\n================ SUMMARY ================')
-const fails = results.filter((r) => !r.pass).length
-console.log('Checks:', results.length, '| failed:', fails)
+let fails = 0
+for (const r of results) {
+  const tag = r.pass ? 'PASS' : 'FAIL'
+  console.log(`  [${tag}] ${r.name}${r.note ? ` — ${r.note}` : ''}`)
+  if (!r.pass) fails++
+}
 if (pageErrors.length) {
-  console.log(`page errors (${pageErrors.length}):`)
+  console.log(`\npage errors observed (${pageErrors.length}):`)
   for (const e of [...new Set(pageErrors)].slice(0, 5)) console.log('  •', e.slice(0, 220))
 }
+console.log('\nChecks:', results.length, '| failed:', fails)
 process.exitCode = fails ? 1 : 0

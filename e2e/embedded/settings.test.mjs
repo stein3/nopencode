@@ -21,7 +21,7 @@
 import path from 'node:path';
 import fs from 'node:fs';
 import http from 'node:http';
-import { DIST, SHOTS_DIR, launchBrowser, screenshot } from '../helpers/setup.mjs';
+import { DIST, SHOTS_DIR, launchBrowser, screenshot, sleep } from '../helpers/setup.mjs';
 
 const PORT = 8160;
 const BASE = `http://127.0.0.1:${PORT}`;
@@ -179,8 +179,6 @@ function check(c, name, pass, note = '') {
   results.push({ c, name, pass: !!pass, note });
   console.log(`  [${pass ? 'PASS' : 'FAIL'}] ${c} · ${name}${note ? ` — ${note}` : ''}`);
 }
-
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // ================================ run =======================================
 
@@ -410,6 +408,8 @@ try {
 console.log('\n================ SUMMARY ================');
 let fails = 0;
 for (const r of results) {
+  const tag = r.pass ? 'PASS' : 'FAIL';
+  console.log(`  [${tag}] ${r.name}${r.note ? ` — ${r.note}` : ''}`);
   if (!r.pass) fails++;
 }
 if (pageErrors.length) {

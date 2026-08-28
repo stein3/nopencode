@@ -151,9 +151,9 @@ const server = http.createServer(async (req, res) => {
 const results = [];
 let pageErrors = [];
 
-function check(name, cond, detail = '') {
-  results.push({ name, pass: !!cond, detail });
-  console.log(`  [${cond ? 'PASS' : 'FAIL'}] ${name}${detail ? ` — ${detail}` : ''}`);
+function check(c, name, pass, note = '') {
+  results.push({ c, name, pass: !!pass, note });
+  console.log(`  [${pass ? 'PASS' : 'FAIL'}] ${c} · ${name}${note ? ` — ${note}` : ''}`);
 }
 
 try {
@@ -209,11 +209,13 @@ try {
 console.log('\n================ SUMMARY ================');
 let fails = 0;
 for (const r of results) {
+  const tag = r.pass ? 'PASS' : 'FAIL';
+  console.log(`  [${tag}] ${r.name}${r.note ? ` — ${r.note}` : ''}`);
   if (!r.pass) fails++;
 }
-console.log('Checks:', results.length, '| failed:', fails);
 if (pageErrors.length) {
   console.log(`\npage errors observed (${pageErrors.length}):`);
   for (const e of [...new Set(pageErrors)].slice(0, 5)) console.log('  •', e.slice(0, 220));
 }
+console.log('\nChecks:', results.length, '| failed:', fails);
 process.exitCode = fails ? 1 : 0;

@@ -269,104 +269,118 @@ const server = http.createServer(async (req, res) => {
 
 // ================================ checks ====================================
 
-let npass = 0;
-let nfail = 0;
-function check(name, cond, detail = '') {
-  if (cond) { npass++; console.log(`PASS ${name}${detail ? ' — ' + detail : ''}`); }
-  else { nfail++; console.log(`FAIL ${name}${detail ? ' — ' + detail : ''}`); }
+const results = [];
+let pageErrors = [];
+
+function check(c, name, pass, note = '') {
+  results.push({ c, name, pass: !!pass, note });
+  console.log(`  [${pass ? 'PASS' : 'FAIL'}] ${c} · ${name}${note ? ` — ${note}` : ''}`);
 }
 
 // ================================ run =======================================
-
-const errors = [];
 
 try {
   await new Promise((r) => server.listen(PORT, '127.0.0.1', r));
 
   const browser = await launchBrowser({ headless: true });
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 2 });
-  page.on('pageerror', (e) => errors.push(String(e)));
+  page.on('pageerror', (e) => pageErrors.push(String(e)));
 
-  await page.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 30000 });
+  try {
+    await page.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 30000 });
 
-  // ---- 1) sidebar rows render with tk badges --------------------------------
-  console.log('\nCASE 1 — sidebar tk badges');
-  await page.waitForSelector('.sidebar .item', { timeout: 15000 });
-  await page.waitForTimeout(1200);
-  const rowInfo = await page.evaluate(() => {
-    const rows = [...document.querySelectorAll('.sidebar .item .sub')];
-    const withTk = rows.filter((r) => /tk/.test(r.textContent || ''));
-    return {
-      total: rows.length,
-      withTk: withTk.length,
-      sample: withTk.slice(0, 3).map((r) => r.textContent.trim()),
-    };
-  });
-  console.log('sidebar rows:', JSON.stringify(rowInfo));
-  check('sidebar has rows', rowInfo.total > 0, `${rowInfo.total} rows`);
-  check('at least one row shows tk badge', rowInfo.withTk >= 1, `${rowInfo.withTk} rows with tk`);
-
-  // The two token-bearing sessions should show tk; the zero-tally one should not
-  check('at least 2 rows with tk (probe + extra)', rowInfo.withTk >= 2,
-    `got ${rowInfo.withTk}; sample: ${JSON.stringify(rowInfo.sample)}`);
-
-  // ---- 2) open the Tokens probe session + verify InfoPanel -------------------
-  console.log('\nCASE 2 — InfoPanel token display');
-  await page.getByText('Tokens probe session', { exact: false }).first().click();
-  await page.waitForSelector('.info .grid', { timeout: 15000 });
-  await page.waitForTimeout(3000);
-
-  // InfoPanel refresh + store overlay need a beat
-  await page.waitForFunction(
-    () => {
-      const v = [...document.querySelectorAll('.info .grid .v')].map((e) => e.textContent.trim());
-      return v[0] && v[0] !== '—';
-    },
-    { timeout: 25000 },
-  );
-  await page.waitForTimeout(500);
-
-  const panel = await page.evaluate(() => {
-    const g = [...document.querySelectorAll('.info .grid')];
-    const kv = {};
-    g.forEach((el) => {
-      const ks = el.querySelectorAll('.k, .v');
-      for (let i = 0; i < ks.length; i += 2) kv[ks[i].textContent.trim()] = ks[i + 1]?.textContent.trim();
+    // ---- 1) sidebar rows render with tk badges --------------------------------
+    console.log('\nCASE 1 — sidebar tk badges');
+    await page.waitForSelector('.sidebar .item', { timeout: 15000 });
+    await page.waitForTimeout(1200);
+    const rowInfo = await page.evaluate(() => {
+      const rows = [...document.querySelectorAll('.sidebar .item .sub')];
+      const withTk = rows.filter((r) => /tk/.test(r.textContent || ''));
+      return {
+        total: rows.length,
+        withTk: withTk.length,
+        sample: withTk.slice(0, 3).map((r) => r.textContent.trim()),
+      };
     });
-    return { tokens: kv['tokens'], used: kv['used'], spent: kv['spent'] };
-  });
-  console.log('InfoPanel:', JSON.stringify(panel));
-  check('InfoPanel tokens is not em-dash', panel.tokens && panel.tokens !== '—',
-    panel.tokens ?? 'missing');
-  // fmtK(7500) = "8K" (Math.round(7.5) = 8)
-  check('InfoPanel tokens shows 8K', panel.tokens === '8K', `got "${panel.tokens}"`);
-  check('InfoPanel used has percentage', /\d+%/.test(panel.used) || panel.used === '—',
-    panel.used ?? 'missing');
+    console.log('sidebar rows:', JSON.stringify(rowInfo));
+    check('', 'sidebar has rows', rowInfo.total > 0, `${rowInfo.total} rows`);
+    check('', 'at least one row shows tk badge', rowInfo.withTk >= 1, `${rowInfo.withTk} rows with tk`);
 
-  // ---- 3) footer segment shows the context estimate --------------------------
-  console.log('\nCASE 3 — footer context estimate');
-  const footer = await page.evaluate(() => document.querySelector('.footer')?.textContent?.trim() ?? '');
-  console.log('footer:', JSON.stringify(footer.slice(0, 160)));
-  check('footer rendered', footer.length > 0, footer.slice(0, 120));
+    // The two token-bearing sessions should show tk; the zero-tally one should not
+    check('', 'at least 2 rows with tk (probe + extra)', rowInfo.withTk >= 2,
+      `got ${rowInfo.withTk}; sample: ${JSON.stringify(rowInfo.sample)}`);
 
-  // ---- 4) zero-tally session shows no tk ------------------------------------
-  console.log('\nCASE 4 — zero-tally session has no tk badge');
-  const zeroRow = page.locator('.sidebar .item', { hasText: 'Zero-tally session' });
-  if (await zeroRow.count()) {
-    const zeroSub = zeroRow.locator('.sub');
-    const zeroText = (await zeroSub.textContent()) ?? '';
-    check('zero-tally session has no tk badge', !/tk/.test(zeroText),
-      zeroText.trim());
-  } else {
-    check('zero-tally session row exists', false, 'row not found');
+    // ---- 2) open the Tokens probe session + verify InfoPanel -------------------
+    console.log('\nCASE 2 — InfoPanel token display');
+    await page.getByText('Tokens probe session', { exact: false }).first().click();
+    await page.waitForSelector('.info .grid', { timeout: 15000 });
+    await page.waitForTimeout(3000);
+
+    // InfoPanel refresh + store overlay need a beat
+    await page.waitForFunction(
+      () => {
+        const v = [...document.querySelectorAll('.info .grid .v')].map((e) => e.textContent.trim());
+        return v[0] && v[0] !== '—';
+      },
+      { timeout: 25000 },
+    );
+    await page.waitForTimeout(500);
+
+    const panel = await page.evaluate(() => {
+      const g = [...document.querySelectorAll('.info .grid')];
+      const kv = {};
+      g.forEach((el) => {
+        const ks = el.querySelectorAll('.k, .v');
+        for (let i = 0; i < ks.length; i += 2) kv[ks[i].textContent.trim()] = ks[i + 1]?.textContent.trim();
+      });
+      return { tokens: kv['tokens'], used: kv['used'], spent: kv['spent'] };
+    });
+    console.log('InfoPanel:', JSON.stringify(panel));
+    check('', 'InfoPanel tokens is not em-dash', panel.tokens && panel.tokens !== '—',
+      panel.tokens ?? 'missing');
+    // fmtK(7500) = "8K" (Math.round(7.5) = 8)
+    check('', 'InfoPanel tokens shows 8K', panel.tokens === '8K', `got "${panel.tokens}"`);
+    check('', 'InfoPanel used has percentage', /\d+%/.test(panel.used) || panel.used === '—',
+      panel.used ?? 'missing');
+
+    // ---- 3) footer segment shows the context estimate --------------------------
+    console.log('\nCASE 3 — footer context estimate');
+    const footer = await page.evaluate(() => document.querySelector('.footer')?.textContent?.trim() ?? '');
+    console.log('footer:', JSON.stringify(footer.slice(0, 160)));
+    check('', 'footer rendered', footer.length > 0, footer.slice(0, 120));
+
+    // ---- 4) zero-tally session shows no tk ------------------------------------
+    console.log('\nCASE 4 — zero-tally session has no tk badge');
+    const zeroRow = page.locator('.sidebar .item', { hasText: 'Zero-tally session' });
+    if (await zeroRow.count()) {
+      const zeroSub = zeroRow.locator('.sub');
+      const zeroText = (await zeroSub.textContent()) ?? '';
+      check('', 'zero-tally session has no tk badge', !/tk/.test(zeroText),
+        zeroText.trim());
+    } else {
+      check('', 'zero-tally session row exists', false, 'row not found');
+    }
+
+    await page.screenshot({ path: path.join(SHOTS_DIR, 'tokens-fix.png') });
+  } finally {
+    await browser.close();
   }
-
-  await page.screenshot({ path: path.join(SHOTS_DIR, 'tokens-fix.png') });
-  await browser.close();
-  console.log(errors.length ? '\nPAGE ERRORS: ' + errors.join(' | ') : '\nOK no page errors');
 } finally {
   await new Promise((r) => server.close(r));
 }
 
-console.log(`\nRESULT: ${npass} passed, ${nfail} failed`);
-process.exitCode = nfail ? 1 : 0;
+// =============================== summary ====================================
+
+console.log('\n================ SUMMARY ================');
+let fails = 0;
+for (const r of results) {
+  const tag = r.pass ? 'PASS' : 'FAIL';
+  console.log(`  [${tag}] ${r.name}${r.note ? ` — ${r.note}` : ''}`);
+  if (!r.pass) fails++;
+}
+if (pageErrors.length) {
+  console.log(`\npage errors observed (${pageErrors.length}):`);
+  for (const e of [...new Set(pageErrors)].slice(0, 5)) console.log('  •', e.slice(0, 220));
+}
+console.log('\nChecks:', results.length, '| failed:', fails);
+process.exitCode = fails ? 1 : 0;

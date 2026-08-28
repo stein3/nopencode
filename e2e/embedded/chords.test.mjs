@@ -27,7 +27,7 @@
 import path from 'node:path';
 import fs from 'node:fs';
 import http from 'node:http';
-import { DIST, launchBrowser, screenshot } from '../helpers/setup.mjs';
+import { DIST, launchBrowser, screenshot, sleep, poll } from '../helpers/setup.mjs';
 
 // ========================= tiny static dist server ==========================
 
@@ -88,16 +88,6 @@ function check(c, name, pass, note = '') {
   results.push({ c, name, pass: !!pass, note });
   console.log(`  [${pass ? 'PASS' : 'FAIL'}] ${c} · ${name}${note ? ` — ${note}` : ''}`);
 }
-
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const poll = async (fn, timeout = 1500, iv = 60) => {
-  const t0 = Date.now();
-  while (Date.now() - t0 < timeout) {
-    if (await fn()) return true;
-    await sleep(iv);
-  }
-  return !!(await fn());
-};
 
 // ================================ run =======================================
 

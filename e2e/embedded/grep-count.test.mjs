@@ -157,11 +157,12 @@ const server = http.createServer(async (req, res) => {
 
 // ================================ checks ====================================
 
-let npass = 0;
-let nfail = 0;
-function check(name, cond, detail = '') {
-  if (cond) { npass++; console.log(`PASS ${name}${detail ? ' — ' + detail : ''}`); }
-  else { nfail++; console.log(`FAIL ${name}${detail ? ' — ' + detail : ''}`); }
+const results = [];
+let pageErrors = [];
+
+function check(c, name, pass, note = '') {
+  results.push({ c, name, pass: !!pass, note });
+  console.log(`  [${pass ? 'PASS' : 'FAIL'}] ${c} · ${name}${note ? ` — ${note}` : ''}`);
 }
 
 // ================================ run =======================================
@@ -178,6 +179,7 @@ try {
   // footer) and the sticky composer composites over the element rect. On-screen
   // capture avoids both artifacts.
   const page = await browser.newPage({ viewport: { width: 1280, height: 1900 } });
+  page.on('pageerror', (e) => pageErrors.push(e.message));
 
   // Freeze ALL live churn during capture: SSE events AND busy-flip refetches.
   // Initial loads must pass through, so these routes only start aborting once
@@ -188,92 +190,108 @@ try {
     frozen ? route.abort() : route.fallback(),
   );
 
-  await page.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 20000 });
-  await page.waitForSelector('.sidebar .item', { timeout: 15000 });
-
-  // Open the fixture session via its sidebar row (title attr holds the session title)
-  const row = page.locator(`.sidebar .item[title="${TITLE}"]`);
-  if (!(await row.count())) throw new Error('fixture session not found in sidebar');
-  await row.click();
-
-  // Inactive tab panes stay mounted under display:none — scope to the VISIBLE one
-  const PANE = '.tabpane[style*="flex"]';
   try {
-    await page.waitForSelector(`${PANE} .toolcard`, { timeout: 8000 });
-  } catch {
-    // Pane didn't activate — click the session's tab in the tab bar
-    const tb = page.locator(`.tabbar .tab[title="${TITLE}"]`);
-    if (!(await tb.count())) throw new Error('fixture tab not found in tab bar');
-    await tb.click();
+    await page.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 20000 });
+    await page.waitForSelector('.sidebar .item', { timeout: 15000 });
+
+    // Open the fixture session via its sidebar row (title attr holds the session title)
+    const row = page.locator(`.sidebar .item[title="${TITLE}"]`);
+    if (!(await row.count())) throw new Error('fixture session not found in sidebar');
+    await row.click();
+
+    // Inactive tab panes stay mounted under display:none — scope to the VISIBLE one
+    const PANE = '.tabpane[style*="flex"]';
+    try {
+      await page.waitForSelector(`${PANE} .toolcard`, { timeout: 8000 });
+    } catch {
+      // Pane didn't activate — click the session's tab in the tab bar
+      const tb = page.locator(`.tabbar .tab[title="${TITLE}"]`);
+      if (!(await tb.count())) throw new Error('fixture tab not found in tab bar');
+      await tb.click();
+    }
+    await page.waitForSelector(`${PANE} .toolcard`, { timeout: 15000 });
+
+    // Find a grep tool card
+    const cards = page.locator(`${PANE} .toolcard`);
+    // Freeze live churn only once the FIXTURE session's own content is rendered
+    await page.waitForSelector(`${PANE} .toolcard summary .tname:text-matches("grep", "i")`, { timeout: 15000 });
+    frozen = true;
+
+    const n = await cards.count();
+    let grepIdx = -1;
+    for (let i = 0; i < n; i++) {
+      const t = (await cards.nth(i).locator('summary .tname').textContent()) ?? '';
+      if (/grep/i.test(t)) { grepIdx = i; break; }
+    }
+    if (grepIdx < 0) throw new Error('no grep tool card found in session');
+
+    // Find one that has an output box (errored greps legitimately have none)
+    let outbox = null;
+    for (let i = grepIdx; i < n; i++) {
+      const t = (await cards.nth(i).locator('summary .tname').textContent()) ?? '';
+      if (!/grep/i.test(t)) continue;
+      const ob = cards.nth(i).locator('details.outbox').first();
+      if (await ob.count()) { outbox = ob; break; }
+    }
+    if (!outbox) throw new Error('no completed grep tool card with output box found');
+    await outbox.scrollIntoViewIfNeeded();
+    await outbox.locator('summary').click(); // expand
+    await page.waitForTimeout(200);
+
+    const outText = (await outbox.locator('pre.out').textContent()) ?? '';
+    const footer = outbox.locator('.matchcount');
+    check('A', 'outbox renders', true);
+    check('A', 'matchcount footer present', (await footer.count()) > 0);
+
+    const footText = ((await footer.textContent()) ?? '').trim();
+    const header = outText.match(/^Found (\d+) matches/);
+    check('A', 'output has Found N matches header', !!header, header ? header[1] : '');
+    if (header) {
+      const expect = `(${header[1]} ${Number(header[1]) === 1 ? 'match' : 'matches'})`;
+      check('A', 'footer text matches header count', footText === expect, `footer="${footText}" expect="${expect}"`);
+    }
+
+    // Clear the transcript's stick-to-bottom pin with REAL wheel-up input
+    const paneBox = await page.locator(PANE).boundingBox();
+    await page.mouse.move(paneBox.x + paneBox.width / 2, paneBox.y + paneBox.height / 2);
+    await page.mouse.wheel(0, -800);
+    await page.waitForTimeout(100);
+
+    // Align the outbox top for screenshot
+    await outbox.evaluate((el) => el.scrollIntoView({ block: 'start' }));
+    if ((await outbox.getAttribute('open')) === null) await outbox.locator('summary').click();
+    const bbox = await outbox.boundingBox();
+    if (!bbox || bbox.height < 40)
+      throw new Error(`outbox bbox too small: ${JSON.stringify(bbox)}`);
+
+    // Whole box must sit above the sticky composer
+    const compBox = await page.locator(`${PANE} #composer-input`).boundingBox();
+    if (compBox && bbox.y + bbox.height > compBox.y - 8)
+      throw new Error(`outbox bottom (${bbox.y + bbox.height}) reaches composer top (${compBox.y})`);
+
+    await page.waitForTimeout(100);
+    fs.mkdirSync(SHOTS_DIR, { recursive: true });
+    await outbox.screenshot({ path: `${SHOTS_DIR}/grep-matchcount-${Date.now()}.png` });
+    await page.screenshot({ path: `${SHOTS_DIR}/grep-matchcount-full.png` });
+  } finally {
+    await browser.close();
   }
-  await page.waitForSelector(`${PANE} .toolcard`, { timeout: 15000 });
-
-  // Find a grep tool card
-  const cards = page.locator(`${PANE} .toolcard`);
-  // Freeze live churn only once the FIXTURE session's own content is rendered
-  await page.waitForSelector(`${PANE} .toolcard summary .tname:text-matches("grep", "i")`, { timeout: 15000 });
-  frozen = true;
-
-  const n = await cards.count();
-  let grepIdx = -1;
-  for (let i = 0; i < n; i++) {
-    const t = (await cards.nth(i).locator('summary .tname').textContent()) ?? '';
-    if (/grep/i.test(t)) { grepIdx = i; break; }
-  }
-  if (grepIdx < 0) throw new Error('no grep tool card found in session');
-
-  // Find one that has an output box (errored greps legitimately have none)
-  let outbox = null;
-  for (let i = grepIdx; i < n; i++) {
-    const t = (await cards.nth(i).locator('summary .tname').textContent()) ?? '';
-    if (!/grep/i.test(t)) continue;
-    const ob = cards.nth(i).locator('details.outbox').first();
-    if (await ob.count()) { outbox = ob; break; }
-  }
-  if (!outbox) throw new Error('no completed grep tool card with output box found');
-  await outbox.scrollIntoViewIfNeeded();
-  await outbox.locator('summary').click(); // expand
-  await page.waitForTimeout(200);
-
-  const outText = (await outbox.locator('pre.out').textContent()) ?? '';
-  const footer = outbox.locator('.matchcount');
-  check('outbox renders', true);
-  check('matchcount footer present', (await footer.count()) > 0);
-
-  const footText = ((await footer.textContent()) ?? '').trim();
-  const header = outText.match(/^Found (\d+) matches/);
-  check('output has Found N matches header', !!header, header ? header[1] : '');
-  if (header) {
-    const expect = `(${header[1]} ${Number(header[1]) === 1 ? 'match' : 'matches'})`;
-    check('footer text matches header count', footText === expect, `footer="${footText}" expect="${expect}"`);
-  }
-
-  // Clear the transcript's stick-to-bottom pin with REAL wheel-up input
-  const paneBox = await page.locator(PANE).boundingBox();
-  await page.mouse.move(paneBox.x + paneBox.width / 2, paneBox.y + paneBox.height / 2);
-  await page.mouse.wheel(0, -800);
-  await page.waitForTimeout(100);
-
-  // Align the outbox top for screenshot
-  await outbox.evaluate((el) => el.scrollIntoView({ block: 'start' }));
-  if ((await outbox.getAttribute('open')) === null) await outbox.locator('summary').click();
-  const bbox = await outbox.boundingBox();
-  if (!bbox || bbox.height < 40)
-    throw new Error(`outbox bbox too small: ${JSON.stringify(bbox)}`);
-
-  // Whole box must sit above the sticky composer
-  const compBox = await page.locator(`${PANE} #composer-input`).boundingBox();
-  if (compBox && bbox.y + bbox.height > compBox.y - 8)
-    throw new Error(`outbox bottom (${bbox.y + bbox.height}) reaches composer top (${compBox.y})`);
-
-  await page.waitForTimeout(100);
-  fs.mkdirSync(SHOTS_DIR, { recursive: true });
-  await outbox.screenshot({ path: `${SHOTS_DIR}/grep-matchcount-${Date.now()}.png` });
-  await page.screenshot({ path: `${SHOTS_DIR}/grep-matchcount-full.png` });
-  await browser.close();
 } finally {
   await new Promise((r) => server.close(r));
 }
 
-console.log(`\nRESULT: ${npass} passed, ${nfail} failed`);
-process.exitCode = nfail ? 1 : 0;
+// =============================== summary ====================================
+
+console.log('\n================ SUMMARY ================');
+let fails = 0;
+for (const r of results) {
+  const tag = r.pass ? 'PASS' : 'FAIL';
+  console.log(`  [${tag}] ${r.name}${r.note ? ` — ${r.note}` : ''}`);
+  if (!r.pass) fails++;
+}
+if (pageErrors.length) {
+  console.log(`\npage errors observed (${pageErrors.length}):`);
+  for (const e of [...new Set(pageErrors)].slice(0, 5)) console.log('  •', e.slice(0, 220));
+}
+console.log('\nChecks:', results.length, '| failed:', fails);
+process.exitCode = fails ? 1 : 0;

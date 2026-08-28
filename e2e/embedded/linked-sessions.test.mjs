@@ -25,7 +25,7 @@
 import path from 'node:path';
 import fs from 'node:fs';
 import http from 'node:http';
-import { DIST, launchBrowser, createChecker, screenshot, SHOTS_DIR } from '../helpers/setup.mjs';
+import { DIST, launchBrowser, sleep, poll, screenshot, SHOTS_DIR } from '../helpers/setup.mjs';
 
 const PORT = 8133;
 const BASE = `http://127.0.0.1:${PORT}`;
@@ -211,16 +211,14 @@ const server = http.createServer(async (req, res) => {
 
 // ================================ checks ====================================
 
-const { check, summary } = createChecker();
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-async function poll(fn, timeout = 4000, iv = 150) {
-  const t0 = Date.now();
-  while (Date.now() - t0 < timeout) {
-    if (await fn()) return true;
-    await sleep(iv);
-  }
-  return !!(await fn());
+const results = [];
+let pageErrors = [];
+
+function check(c, name, pass, note = '') {
+  results.push({ c, name, pass: !!pass, note });
+  console.log(`  [${pass ? 'PASS' : 'FAIL'}] ${c} · ${name}${note ? ` — ${note}` : ''}`);
 }
+
 const rowLoc = (page, title) => page.locator(`.info .kid[title="${title}"]`);
 
 // ================================ run =======================================
@@ -231,7 +229,7 @@ try {
   await new Promise((r) => server.listen(PORT, '127.0.0.1', r));
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
   const page = await ctx.newPage();
-  page.on('pageerror', (e) => console.log('PAGEERROR:', e.message));
+  page.on('pageerror', (e) => pageErrors.push(e.message));
 
   await page.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 20000 });
   await page.waitForSelector('.sidebar .item', { timeout: 10000 });
@@ -240,9 +238,10 @@ try {
 
   // ---- L1: three linked rows with correct dots/labels/titles ---------------
   const secTexts = await page.$$eval('.info .sec', (els) => els.map((e) => e.textContent.trim()));
-  check('L1 Linked Sessions section present', secTexts.includes('Linked Sessions'), secTexts.join('|'));
+  check('L1', 'Linked Sessions section present', secTexts.includes('Linked Sessions'), secTexts.join('|'));
   check(
-    'L1 Context/Todo sections still present',
+    'L1',
+    'Context/Todo sections still present',
     secTexts.includes('Context') && secTexts.includes('Todo'),
   );
   await poll(() => page.$('.info .kid') !== null);
@@ -262,20 +261,22 @@ try {
       };
     }),
   );
-  check('L1 exactly 3 rows', rows.length === 3, JSON.stringify(rows.map((r) => r.title)));
+  check('L1', 'exactly 3 rows', rows.length === 3, JSON.stringify(rows.map((r) => r.title)));
   const byTitle = Object.fromEntries(rows.map((r) => [r.tt, r]));
-  check('L1 perm dot on c1', byTitle['Hunt regressions']?.dot === 'perm', byTitle['Hunt regressions']?.dot);
-  check('L1 @explore label on c1', byTitle['Hunt regressions']?.ag === '@explore');
-  check('L1 busy dot on c2', byTitle['Refactor auth flow']?.dot === 'busy', byTitle['Refactor auth flow']?.dot);
-  check('L1 @general label on c2', byTitle['Refactor auth flow']?.ag === '@general');
-  check('L1 c3 starts busy', byTitle['Sweep docs']?.dot === 'busy', byTitle['Sweep docs']?.dot);
+  check('L1', 'perm dot on c1', byTitle['Hunt regressions']?.dot === 'perm', byTitle['Hunt regressions']?.dot);
+  check('L1', '@explore label on c1', byTitle['Hunt regressions']?.ag === '@explore');
+  check('L1', 'busy dot on c2', byTitle['Refactor auth flow']?.dot === 'busy', byTitle['Refactor auth flow']?.dot);
+  check('L1', '@general label on c2', byTitle['Refactor auth flow']?.ag === '@general');
+  check('L1', 'c3 starts busy', byTitle['Sweep docs']?.dot === 'busy', byTitle['Sweep docs']?.dot);
   check(
-    'L1 titles suffix-stripped',
+    'L1',
+    'titles suffix-stripped',
     rows.every((r) => !/@\w+ subagent\)/.test(r.tt)),
     rows.map((r) => r.tt).join(' | '),
   );
   check(
-    'L1 relTime rendered on every row',
+    'L1',
+    'relTime rendered on every row',
     rows.every((r) => /\d|^now/i.test(r.rt)),
     rows.map((r) => r.rt).join(','),
   );
@@ -284,7 +285,7 @@ try {
     minw: getComputedStyle(el).minWidth,
     to: getComputedStyle(el).textOverflow,
   }));
-  check('L1 .ttext ellipsis styling', ttCss.minw === '0px' && ttCss.to === 'ellipsis', JSON.stringify(ttCss));
+  check('L1', '.ttext ellipsis styling', ttCss.minw === '0px' && ttCss.to === 'ellipsis', JSON.stringify(ttCss));
 
   await page.locator('.info').screenshot({ path: path.join(SHOTS_DIR, 'linked-panel.png') });
 
@@ -298,23 +299,23 @@ try {
       .catch(() => '');
     return lbl.includes('Hunt regressions');
   }, 8000);
-  check('L2 clicked sub becomes active tab', activated);
+  check('L2', 'clicked sub becomes active tab', activated);
   await page.waitForSelector('.tabpane[style*="flex"] .msg', { timeout: 10000 });
-  check('L2 transcript rendered', true);
+  check('L2', 'transcript rendered', true);
   await screenshot(page, 'linked-opened');
 
   // ---- L3: childless active session → section absent -----------------------
   await page.click('.sidebar .item[title="Solo session"]');
   await sleep(600);
   const soloSecs = await page.$$eval('.info .sec', (els) => els.map((e) => e.textContent.trim()));
-  check('L3 no Linked section on childless session', !soloSecs.includes('Linked Sessions'), soloSecs.join('|'));
-  check('L3 zero kid rows', (await page.$$eval('.info .kid', (els) => els.length)) === 0);
+  check('L3', 'no Linked section on childless session', !soloSecs.includes('Linked Sessions'), soloSecs.join('|'));
+  check('L3', 'zero kid rows', (await page.$$eval('.info .kid', (els) => els.length)) === 0);
 
   // ---- L4: pending-* tab → section absent ----------------------------------
   await page.click('.sidebar .new'); // creates + activates a pending-* tab
   await sleep(600);
   const pendSecs = await page.$$eval('.info .sec', (els) => els.map((e) => e.textContent.trim()));
-  check('L4 no Linked section on pending tab', !pendSecs.includes('Linked Sessions'), pendSecs.join('|'));
+  check('L4', 'no Linked section on pending tab', !pendSecs.includes('Linked Sessions'), pendSecs.join('|'));
 
   // ---- L5: busy→idle flip surfaces as unread dot ---------------------------
   // c3 goes idle while NOT open → Sidebar's real poll-diff marks it unread;
@@ -334,7 +335,7 @@ try {
       c.includes('unread'),
     ),
   );
-  check('L5 c3 shows unread dot after idle flip', flipped);
+  check('L5', 'c3 shows unread dot after idle flip', flipped);
   const dots = await page.$$eval('.info .kid', (els) =>
     els.map((el) => ({
       tt: el.querySelector('.ttext')?.textContent.trim(),
@@ -344,9 +345,10 @@ try {
     })),
   );
   const d3 = dots.find((d) => d.tt === 'Sweep docs');
-  check('L5 c3 dot is exactly unread', d3?.dot === 'unread', d3?.dot);
+  check('L5', 'c3 dot is exactly unread', d3?.dot === 'unread', d3?.dot);
   check(
-    'L5 precedence intact (c1 perm, c2 busy)',
+    'L5',
+    'precedence intact (c1 perm, c2 busy)',
     dots.find((d) => d.tt === 'Hunt regressions')?.dot === 'perm' &&
       dots.find((d) => d.tt === 'Refactor auth flow')?.dot === 'busy',
     JSON.stringify(dots),
@@ -356,6 +358,21 @@ try {
   await ctx.close();
 } finally {
   await browser.close();
-  server.close();
+  await new Promise((r) => server.close(r));
 }
-process.exit(summary());
+
+// =============================== summary ====================================
+
+console.log('\n================ SUMMARY ================');
+let fails = 0;
+for (const r of results) {
+  const tag = r.pass ? 'PASS' : 'FAIL';
+  console.log(`  [${tag}] ${r.name}${r.note ? ` — ${r.note}` : ''}`);
+  if (!r.pass) fails++;
+}
+if (pageErrors.length) {
+  console.log(`\npage errors observed (${pageErrors.length}):`);
+  for (const e of [...new Set(pageErrors)].slice(0, 5)) console.log('  •', e.slice(0, 220));
+}
+console.log('\nChecks:', results.length, '| failed:', fails);
+process.exitCode = fails ? 1 : 0;

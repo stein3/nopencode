@@ -11,7 +11,7 @@
 import path from 'node:path';
 import fs from 'node:fs';
 import http from 'node:http';
-import { DIST, launchBrowser, screenshot } from '../helpers/setup.mjs';
+import { DIST, launchBrowser, screenshot, sleep } from '../helpers/setup.mjs';
 
 const PORT = 8165;
 const BASE = `http://127.0.0.1:${PORT}`;
@@ -189,8 +189,6 @@ function check(c, name, pass, note = '') {
   results.push({ c, name, pass: !!pass, note });
   console.log(`  [${pass ? 'PASS' : 'FAIL'}] ${c} · ${name}${note ? ` — ${note}` : ''}`);
 }
-
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // ================================ run =======================================
 

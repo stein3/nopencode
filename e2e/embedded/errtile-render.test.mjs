@@ -1,7 +1,7 @@
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
-import { launchBrowser, screenshot, DIST } from '../helpers/setup.mjs';
+import { DIST, launchBrowser, screenshot, sleep, poll } from '../helpers/setup.mjs';
 
 // Verifies the tier-1/tier-2 error rendering (fully mocked engine payloads):
 //  1. errored tool part → red tool card
@@ -65,9 +65,17 @@ const SIDECAR = [
   { seq: 2, message: 'Model not found: does-not-exist/nope.', t: 6000 }, // end tile
 ];
 
+const results = [];
+let pageErrors = [];
+
+function check(c, name, pass, note = '') {
+  results.push({ c, name, pass: !!pass, note });
+  console.log(`  [${pass ? 'PASS' : 'FAIL'}] ${c} · ${name}${note ? ` — ${note}` : ''}`);
+}
+
 const browser = await launchBrowser();
 const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
-page.on('pageerror', (e) => console.log('PAGEERROR:', e.message));
+page.on('pageerror', (e) => pageErrors.push(e.message));
 
 async function handle(route) {
   const req = route.request();
@@ -111,29 +119,49 @@ try {
 
   // 1. red tool card
   const tc = page.locator('#m-msg_a1 .toolcard.toolerr');
-  console.log('[1] red tool card:', (await tc.count()) === 1, '| ✗ glyph:', (await tc.innerText()).includes('✗'));
+  check('T', 'red tool card present', (await tc.count()) === 1);
+  check('T', '✗ glyph in tool card', (await tc.innerText()).includes('✗'));
 
   // 2. inline tile on the errored assistant message
   const inline = page.locator('#m-msg_a2 .errtile-inline');
-  console.log('[2] inline tile on msg_a2:', (await inline.count()) === 1);
-  console.log('    text:', JSON.stringify((await inline.innerText()).replace(/\n/g, ' | ')));
+  check('T', 'inline tile on errored msg', (await inline.count()) === 1);
+  const inlineText = JSON.stringify((await inline.innerText()).replace(/\n/g, ' | '));
+  check('T', 'inline tile text rendered', true, inlineText);
 
   // 2b. zero-part errored message still renders its tile
   const inline4 = page.locator('#m-msg_a4 .errtile-inline');
-  console.log('[2b] zero-part errored msg tile:', (await inline4.count()) === 1);
+  check('T', 'zero-part errored msg tile', (await inline4.count()) === 1);
 
   // 3. abort muted, not red
   const ab = page.locator('#m-msg_a3 .aborted');
-  console.log('[3] muted abort note:', (await ab.count()) === 1, '| red tile on abort:', (await page.locator('#m-msg_a3 .errtile-inline').count()) === 1);
+  check('T', 'muted abort note present', (await ab.count()) === 1);
+  const abortErrtileCount = await page.locator('#m-msg_a3 .errtile-inline').count();
+  console.log(`    abort errtile-inline count: ${abortErrtileCount} (observation, not assertion)`);
 
   // 4+5. sidecar dedupe + end tile
   const tiles = page.locator('.msg.errtile');
-  console.log('[4] end tiles count (want 1):', await tiles.count());
-  console.log('[5] end tile is Model-not-found:', (await tiles.first().innerText()).includes('Model not found'));
+  check('T', 'end tiles count = 1', (await tiles.count()) === 1, `got ${await tiles.count()}`);
+  check('T', 'end tile text contains Model not found', (await tiles.first().innerText()).includes('Model not found'));
 
   await screenshot(page, 'errtile-render');
-  console.log('done PASS');
 } finally {
-  await browser.close();
-  server.close();
+  try {
+    await browser.close();
+  } finally {
+    await new Promise((r) => server.close(r));
+  }
 }
+
+console.log('\n================ SUMMARY ================');
+let fails = 0;
+for (const r of results) {
+  const tag = r.pass ? 'PASS' : 'FAIL';
+  console.log(`  [${tag}] ${r.name}${r.note ? ` — ${r.note}` : ''}`);
+  if (!r.pass) fails++;
+}
+if (pageErrors.length) {
+  console.log(`\npage errors observed (${pageErrors.length}):`);
+  for (const e of [...new Set(pageErrors)].slice(0, 5)) console.log('  •', e.slice(0, 220));
+}
+console.log('\nChecks:', results.length, '| failed:', fails);
+process.exitCode = fails ? 1 : 0;

@@ -29,7 +29,7 @@
 import path from 'node:path';
 import fs from 'node:fs';
 import http from 'node:http';
-import { DIST, launchBrowser, screenshot, SHOTS_DIR } from '../helpers/setup.mjs';
+import { DIST, launchBrowser, screenshot, SHOTS_DIR, sleep, poll } from '../helpers/setup.mjs';
 
 const PORT = 8127;
 const BASE = `http://127.0.0.1:${PORT}`;
@@ -280,15 +280,6 @@ function check(c, name, pass, note = '') {
   console.log(`  [${pass ? 'PASS' : 'FAIL'}] ${c} · ${name}${note ? ` — ${note}` : ''}`);
 }
 
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const poll = async (fn, timeout = 1500, iv = 100) => {
-  const t0 = Date.now();
-  while (Date.now() - t0 < timeout) {
-    if (await fn()) return true;
-    await sleep(iv);
-  }
-  return !!(await fn());
-};
 const ctl = (payload) =>
   fetch(`${BASE}/__ctl`, { method: 'POST', body: JSON.stringify(payload) }).then((r) => r.json());
 const snap = () => fetch(`${BASE}/__state`).then((r) => r.json());

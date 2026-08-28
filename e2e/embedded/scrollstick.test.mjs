@@ -26,7 +26,7 @@
 import path from 'node:path';
 import fs from 'node:fs';
 import http from 'node:http';
-import { DIST, launchBrowser, screenshot } from '../helpers/setup.mjs';
+import { DIST, launchBrowser, screenshot, sleep } from '../helpers/setup.mjs';
 
 const PORT = 8139;
 const BASE = `http://127.0.0.1:${PORT}`;
@@ -209,7 +209,6 @@ function check(c, name, pass, note = '') {
   results.push({ c, name, pass: !!pass, note });
   console.log(`  [${pass ? 'PASS' : 'FAIL'}] ${c} · ${name}${note ? ` — ${note}` : ''}`);
 }
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // distance-from-bottom of the ACTIVE pane's transcript scroller
 async function distFromBottom(page) {
@@ -239,7 +238,6 @@ const ctl = (payload) =>
 
 // ================================ run =======================================
 
-let failures = 0;
 try {
   await new Promise((r) => server.listen(PORT, '127.0.0.1', r));
 
@@ -328,9 +326,21 @@ try {
   }
 } finally {
   stopBurst();
-  server.close();
+  await new Promise((r) => server.close(r));
 }
 
-failures = results.filter((r) => !r.pass).length;
-console.log(`\n${results.length - failures}/${results.length} checks passed`);
-process.exit(failures ? 1 : 0);
+// =============================== summary ====================================
+
+let fails = 0;
+console.log('\n================ SUMMARY ================');
+for (const r of results) {
+  const tag = r.pass ? 'PASS' : 'FAIL';
+  console.log(`  [${tag}] ${r.name}${r.note ? ` — ${r.note}` : ''}`);
+  if (!r.pass) fails++;
+}
+if (pageErrors.length) {
+  console.log(`\npage errors observed (${pageErrors.length}):`);
+  for (const e of [...new Set(pageErrors)].slice(0, 5)) console.log('  •', e.slice(0, 220));
+}
+console.log('\nChecks:', results.length, '| failed:', fails);
+process.exitCode = fails ? 1 : 0;

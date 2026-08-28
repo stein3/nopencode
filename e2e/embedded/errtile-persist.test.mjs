@@ -13,7 +13,7 @@
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
-import { DIST, launchBrowser } from '../helpers/setup.mjs';
+import { DIST, launchBrowser, sleep, poll } from '../helpers/setup.mjs';
 
 const PORT = 8141;
 const BASE = `http://127.0.0.1:${PORT}`;
@@ -163,15 +163,6 @@ const server = http.createServer(async (req, res) => {
 
 // ================================ helpers ===================================
 
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const poll = async (fn, timeout = 1500, iv = 100) => {
-  const t0 = Date.now();
-  while (Date.now() - t0 < timeout) {
-    if (await fn()) return true;
-    await sleep(iv);
-  }
-  return !!(await fn());
-};
 const ctl = (payload) =>
   fetch(`${BASE}/__ctl`, { method: 'POST', body: JSON.stringify(payload) }).then((r) => r.json());
 
@@ -180,9 +171,9 @@ const ctl = (payload) =>
 const results = [];
 let pageErrors = [];
 
-function check(name, pass, note = '') {
-  results.push({ name, pass: !!pass, note });
-  console.log(`  [${pass ? 'PASS' : 'FAIL'}] ${name}${note ? ` — ${note}` : ''}`);
+function check(c, name, pass, note = '') {
+  results.push({ c, name, pass: !!pass, note });
+  console.log(`  [${pass ? 'PASS' : 'FAIL'}] ${c} · ${name}${note ? ` — ${note}` : ''}`);
 }
 
 async function openProbe(page) {
@@ -304,6 +295,8 @@ try {
 console.log('\n================ SUMMARY ================');
 let fails = 0;
 for (const r of results) {
+  const tag = r.pass ? 'PASS' : 'FAIL';
+  console.log(`  [${tag}] ${r.name}${r.note ? ` — ${r.note}` : ''}`);
   if (!r.pass) fails++;
 }
 if (pageErrors.length) {

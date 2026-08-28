@@ -160,6 +160,24 @@ export async function cleanup(sids, engineUrl = ENGINE) {
   }
 }
 
+// ---- shared timing helpers -------------------------------------------------
+
+/** Promise-based sleep. */
+export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Poll a predicate until it returns truthy or timeout expires.
+ * Returns the final predicate result.
+ */
+export const poll = async (fn, timeout = 1500, iv = 100) => {
+  const t0 = Date.now();
+  while (Date.now() - t0 < timeout) {
+    if (await fn()) return true;
+    await sleep(iv);
+  }
+  return !!(await fn());
+};
+
 // ---- test bookkeeping ------------------------------------------------------
 
 export function createChecker() {

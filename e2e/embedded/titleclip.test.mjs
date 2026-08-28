@@ -24,7 +24,7 @@
 import path from 'node:path';
 import fs from 'node:fs';
 import http from 'node:http';
-import { DIST, launchBrowser, createChecker, screenshot, SHOTS_DIR } from '../helpers/setup.mjs';
+import { DIST, launchBrowser, sleep, SHOTS_DIR } from '../helpers/setup.mjs';
 
 const PORT = 8131;
 const BASE = `http://127.0.0.1:${PORT}`;
@@ -140,8 +140,13 @@ const server = http.createServer((req, res) => {
 
 // ================================ checks ====================================
 
-const { check, summary } = createChecker();
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const results = [];
+let pageErrors = [];
+
+function check(c, name, pass, note = '') {
+  results.push({ c, name, pass: !!pass, note });
+  console.log(`  [${pass ? 'PASS' : 'FAIL'}] ${c} · ${name}${note ? ` — ${note}` : ''}`);
+}
 
 // geometry of an element inside the page
 const box = (handle, sel) =>
@@ -156,8 +161,8 @@ async function insideClip(row, sidebarBox, sel, label) {
   const b = await box(row, sel);
   const inTitle = b.l >= tb.l - 0.6 && b.r <= tb.r + 0.6 && b.t >= tb.t - 0.6 && b.b <= tb.b + 0.6;
   const inSide = b.r <= sidebarBox.r - 0.5 && b.l >= sidebarBox.l;
-  check(`${label} inside .title clip box`, inTitle, JSON.stringify(b));
-  check(`${label} inside visible sidebar`, inSide, `badge.r=${b.r.toFixed(1)} side.r=${sidebarBox.r.toFixed(1)}`);
+  check(label, 'inside .title clip box', inTitle, JSON.stringify(b));
+  check(label, 'inside visible sidebar', inSide, `badge.r=${b.r.toFixed(1)} side.r=${sidebarBox.r.toFixed(1)}`);
 }
 
 // aggregate light must sit fully inside the line-1 clip owner (.title) AND the
@@ -167,8 +172,8 @@ async function insideGutter(row, sidebarBox, sel, label) {
   const b = await box(row, sel);
   const inTitle = b.l >= tb.l - 0.6 && b.r <= tb.r + 0.6 && b.t >= tb.t - 0.6 && b.b <= tb.b + 0.6;
   const inSide = b.r <= sidebarBox.r - 0.5 && b.l >= sidebarBox.l;
-  check(`${label} inside .title clip box`, inTitle, JSON.stringify(b));
-  check(`${label} inside visible sidebar`, inSide, `badge.r=${b.r.toFixed(1)} side.r=${sidebarBox.r.toFixed(1)}`);
+  check(label, 'inside .title clip box', inTitle, JSON.stringify(b));
+  check(label, 'inside visible sidebar', inSide, `badge.r=${b.r.toFixed(1)} side.r=${sidebarBox.r.toFixed(1)}`);
 }
 
 async function ttextEllipsizes(row, label) {
@@ -179,9 +184,9 @@ async function ttextEllipsizes(row, label) {
     ow: getComputedStyle(el).overflow,
     minw: getComputedStyle(el).minWidth,
   }));
-  check(`${label} .ttext overflows (scrollWidth > clientWidth)`, s.sw > s.cw, `sw=${s.sw} cw=${s.cw}`);
-  check(`${label} .ttext paints ellipsis`, s.to === 'ellipsis' && s.ow === 'hidden', JSON.stringify(s));
-  check(`${label} .ttext actually shrank (not zero-width)`, s.cw > 40, `cw=${s.cw}`);
+  check(label, '.ttext overflows (scrollWidth > clientWidth)', s.sw > s.cw, `sw=${s.sw} cw=${s.cw}`);
+  check(label, '.ttext paints ellipsis', s.to === 'ellipsis' && s.ow === 'hidden', JSON.stringify(s));
+  check(label, '.ttext actually shrank (not zero-width)', s.cw > 40, `cw=${s.cw}`);
 }
 
 // ================================ run =======================================
@@ -192,7 +197,7 @@ try {
   await new Promise((r) => server.listen(PORT, '127.0.0.1', r));
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
   const page = await ctx.newPage();
-  page.on('pageerror', (e) => console.log('PAGEERROR:', e.message));
+  page.on('pageerror', (e) => pageErrors.push(e.message));
 
   await page.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 20000 });
   await page.waitForSelector('.sidebar .item', { timeout: 10000 });
@@ -205,15 +210,15 @@ try {
   await sleep(600);
 
   const row = await page.$('.sidebar .item[title^="Investigate flaky"]');
-  check('long-title row rendered', row !== null);
+  check('T1', 'long-title row rendered', row !== null);
   const sideBox = await page.$eval('.sidebar', (el) => {
     const r = el.getBoundingClientRect();
     return { l: r.left, r: r.right, t: r.top, b: r.bottom };
   });
 
-  check('kidcount present in tree mode', (await row.$('.kidcount')) !== null);
-  check('kidcount reads 2', (await row.$eval('.kidcount', (el) => el.textContent.trim())) === '2');
-  check('aggdot.busy present in tree mode', (await row.$('.aggdot.busy')) !== null);
+  check('T1', 'kidcount present in tree mode', (await row.$('.kidcount')) !== null);
+  check('T1', 'kidcount reads 2', (await row.$eval('.kidcount', (el) => el.textContent.trim())) === '2');
+  check('T1', 'aggdot.busy present in tree mode', (await row.$('.aggdot.busy')) !== null);
   await insideClip(row, sideBox, '.kidcount', 'T1 kidcount');
   await insideGutter(row, sideBox, '.aggdot.busy', 'T1 aggdot');
   await ttextEllipsizes(row, 'T1');
@@ -228,7 +233,7 @@ try {
   });
   const horiz = [geo.chev.left, geo.dot.left, geo.tt.left, geo.kc.left];
   const hsorted = [...horiz].sort((a, b) => a - b);
-  check('T1 line-1 order chev<dot<title<count', horiz.every((l, i) => Math.abs(l - hsorted[i]) < 0.6), JSON.stringify(geo));
+  check('T1', 'line-1 order chev<dot<title<count', horiz.every((l, i) => Math.abs(l - hsorted[i]) < 0.6), JSON.stringify(geo));
 
   // 2026-08 layout pass: aggregate light is INLINE on LINE 1 — immediately
   // LEFT of the count chip, vertically fully inside the title row
@@ -240,12 +245,14 @@ try {
     return { dot: bb('.dot'), agg: bb('.aggdot'), kc: bb('.kidcount'), row1: bb('.row1') };
   });
   check(
-    'T1 aggdot fully inside line 1 (.row1)',
+    'T1',
+    'aggdot fully inside line 1 (.row1)',
     light.agg !== null && light.agg.top >= light.row1.top - 0.6 && light.agg.bottom <= light.row1.bottom + 0.6,
     JSON.stringify(light),
   );
   check(
-    'T1 aggdot sits LEFT of kidcount',
+    'T1',
+    'aggdot sits LEFT of kidcount',
     light.agg !== null && light.kc !== null && light.agg.right <= light.kc.left + 0.6,
     JSON.stringify(light),
   );
@@ -261,8 +268,8 @@ try {
       sr: g('.stime') ? g('.stime').getBoundingClientRect().right : null,
     };
   });
-  check('T1 meta left == title left', cols.ml !== null && Math.abs(cols.ml - cols.tl) < 1.5, JSON.stringify(cols));
-  check('T1 #subs right == time right', cols.kr !== null && Math.abs(cols.kr - cols.sr) < 1.5, JSON.stringify(cols));
+  check('T1', 'meta left == title left', cols.ml !== null && Math.abs(cols.ml - cols.tl) < 1.5, JSON.stringify(cols));
+  check('T1', '#subs right == time right', cols.kr !== null && Math.abs(cols.kr - cols.sr) < 1.5, JSON.stringify(cols));
 
   // timestamp never shrinks — lives at the END of line 2 (.sub), stays visible
   const mrow = await row.$eval('.stime', (el) => {
@@ -270,21 +277,22 @@ try {
     const p = el.closest('.sub').getBoundingClientRect();
     return { mr: r.right, pr: p.right, mw: r.width };
   });
-  check('T1 .stime inside .sub (flex:none held)', mrow.mr <= mrow.pr + 0.6 && mrow.mw > 10, JSON.stringify(mrow));
+  check('T1', '.stime inside .sub (flex:none held)', mrow.mr <= mrow.pr + 0.6 && mrow.mw > 10, JSON.stringify(mrow));
 
   await page.locator('.sidebar').screenshot({ path: path.join(SHOTS_DIR, 'titleclip-tree.png') });
 
   // ---- T2: hide mode — light + count chip survive, chevron doesn't ---------
   await page.check('.hidesub input');
   await sleep(400);
-  check('T2 aggdot.busy still present', (await row.$('.aggdot.busy')) !== null);
-  check('T2 kidcount still present', (await row.$('.kidcount')) !== null);
+  check('T2', 'aggdot.busy still present', (await row.$('.aggdot.busy')) !== null);
+  check('T2', 'kidcount still present', (await row.$('.kidcount')) !== null);
   check(
-    'T2 kidcount tooltip says hidden',
+    'T2',
+    'kidcount tooltip says hidden',
     (await row.$eval('.kidcount', (el) => el.title)) === '2 subagents · hidden',
   );
-  check('T2 chevron gone', (await row.$('.chev')) === null);
-  check('T2 no sub rows anywhere', (await page.$$eval('.item.child, .sub-row', (els) => els.length)) === 0);
+  check('T2', 'chevron gone', (await row.$('.chev')) === null);
+  check('T2', 'no sub rows anywhere', (await page.$$eval('.item.child, .sub-row', (els) => els.length)) === 0);
   await insideGutter(row, sideBox, '.aggdot.busy', 'T2 aggdot');
   await ttextEllipsizes(row, 'T2');
 
@@ -293,14 +301,29 @@ try {
     tx: el.querySelector('.ttext').getBoundingClientRect().left,
     mx: el.querySelector('.smeta').getBoundingClientRect().left,
   }));
-  check('T2 chevron column reclaimed (title moved left)', flat.tx < cols.tl - 15, `tree=${cols.tl.toFixed(1)} flat=${flat.tx.toFixed(1)}`);
-  check('T2 meta still aligned with title', Math.abs(flat.mx - flat.tx) < 1.5, JSON.stringify(flat));
+  check('T2', 'chevron column reclaimed (title moved left)', flat.tx < cols.tl - 15, `tree=${cols.tl.toFixed(1)} flat=${flat.tx.toFixed(1)}`);
+  check('T2', 'meta still aligned with title', Math.abs(flat.mx - flat.tx) < 1.5, JSON.stringify(flat));
 
   await page.locator('.sidebar').screenshot({ path: path.join(SHOTS_DIR, 'titleclip-hidden.png') });
 
   await ctx.close();
 } finally {
   await browser.close();
-  server.close();
+  await new Promise((r) => server.close(r));
 }
-process.exit(summary());
+
+// =============================== summary ====================================
+
+console.log('\n================ SUMMARY ================');
+let fails = 0;
+for (const r of results) {
+  const tag = r.pass ? 'PASS' : 'FAIL';
+  console.log(`  [${tag}] ${r.name}${r.note ? ` — ${r.note}` : ''}`);
+  if (!r.pass) fails++;
+}
+if (pageErrors.length) {
+  console.log(`\npage errors observed (${pageErrors.length}):`);
+  for (const e of [...new Set(pageErrors)].slice(0, 5)) console.log('  •', e.slice(0, 220));
+}
+console.log('\nChecks:', results.length, '| failed:', fails);
+process.exitCode = fails ? 1 : 0;

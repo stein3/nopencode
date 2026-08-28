@@ -16,7 +16,7 @@
 import path from 'node:path';
 import fs from 'node:fs';
 import http from 'node:http';
-import { DIST, launchBrowser, createChecker, screenshot, SHOTS_DIR } from '../helpers/setup.mjs';
+import { DIST, launchBrowser, sleep, screenshot, SHOTS_DIR } from '../helpers/setup.mjs';
 
 const PORT = 8143;
 const BASE = `http://127.0.0.1:${PORT}`;
@@ -145,8 +145,13 @@ const server = http.createServer(async (req, res) => {
 
 // ================================ checks ====================================
 
-const { check, summary } = createChecker();
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const results = [];
+let pageErrors = [];
+
+function check(c, name, pass, note = '') {
+  results.push({ c, name, pass: !!pass, note });
+  console.log(`  [${pass ? 'PASS' : 'FAIL'}] ${c} · ${name}${note ? ` — ${note}` : ''}`);
+}
 
 // ================================ run =======================================
 
@@ -156,7 +161,7 @@ try {
   const browser = await launchBrowser();
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, deviceScaleFactor: 2 });
   const page = await ctx.newPage();
-  page.on('pageerror', (e) => console.log('PAGEERROR:', e.message));
+  page.on('pageerror', (e) => pageErrors.push(e.message));
 
   try {
     await page.goto(`${BASE}/`, { waitUntil: 'domcontentloaded', timeout: 20000 });
@@ -178,20 +183,20 @@ try {
 
     // M1: flat list, no .prov headers, every row has nm+pv
     const provHeaders = await page.locator('.menu .prov').count();
-    check(provHeaders === 0, 'no provider group headers (flat list)');
+    check('M1', 'no provider group headers (flat list)', provHeaders === 0);
     const rows = await page.locator('.menu .m').all();
-    check(rows.length > 3, `flat rows rendered (${rows.length})`);
+    check('M1', `flat rows rendered (${rows.length})`, rows.length > 3);
     for (const r of rows.slice(0, 5)) {
       const nm = await r.locator('.nm').textContent();
       const pv = await r.locator('.pv').textContent();
-      check(!!nm?.trim() && !!pv?.trim(), `row has model name + provider tag: "${nm}" / "${pv}"`);
+      check('M1', `row has model name + provider tag: "${nm}" / "${pv}"`, !!nm?.trim() && !!pv?.trim());
     }
 
     // M2: alphabetical when no recents
     const names0 = [];
     for (const r of rows) names0.push(((await r.locator('.nm').textContent()) ?? '').trim());
     const sorted0 = [...names0].sort((a, b) => a.localeCompare(b));
-    check(JSON.stringify(names0) === JSON.stringify(sorted0), 'initial order is alphabetical');
+    check('M2', 'initial order is alphabetical', JSON.stringify(names0) === JSON.stringify(sorted0));
 
     // M3: pick two models -> they float to top in reverse-pick order
     const pickNth = async (n) => {
@@ -212,8 +217,9 @@ try {
       topTwo.push(((await r.locator('.nm').textContent()) ?? '').trim());
     }
     check(
-      topTwo[0] === secondPick && topTwo[1] === firstPick,
+      'M3',
       `MRU order after picks: [${topTwo}] == [${secondPick}, ${firstPick}]`,
+      topTwo[0] === secondPick && topTwo[1] === firstPick,
     );
 
     // M4: rest still alphabetical
@@ -223,8 +229,9 @@ try {
     }
     const tail = allNames.slice(2);
     check(
-      JSON.stringify(tail) === JSON.stringify([...tail].sort((a, b) => a.localeCompare(b))),
+      'M4',
       'tail remains alphabetical',
+      JSON.stringify(tail) === JSON.stringify([...tail].sort((a, b) => a.localeCompare(b))),
     );
 
     // M5: provider tag styling: smaller font + dim color vs model name
@@ -239,12 +246,13 @@ try {
         pvColor: ps.color,
       };
     });
-    check(styles.pvSize < styles.nmSize, `provider tag smaller (${styles.pvSize}px < ${styles.nmSize}px)`);
+    check('M5', `provider tag smaller (${styles.pvSize}px < ${styles.nmSize}px)`, styles.pvSize < styles.nmSize);
     const rgb = (c) => c.match(/\d+/g).slice(0, 3).map(Number);
     const lum = (c) => rgb(c).reduce((a, b) => a + b, 0) / 3;
     check(
-      lum(styles.pvColor) < lum(styles.nmColor),
+      'M5',
       `provider tag darker/lighter (${styles.pvColor} vs ${styles.nmColor})`,
+      lum(styles.pvColor) < lum(styles.nmColor),
     );
 
     // M6: persistence across reload
@@ -257,8 +265,9 @@ try {
       persisted.push(((await r.locator('.nm').textContent()) ?? '').trim());
     }
     check(
-      persisted[0] === secondPick && persisted[1] === firstPick,
+      'M6',
       `order persists across reload: [${persisted}]`,
+      persisted[0] === secondPick && persisted[1] === firstPick,
     );
 
     // screenshot of open menu
@@ -273,4 +282,15 @@ try {
 // =============================== summary ====================================
 
 console.log('\n================ SUMMARY ================');
-process.exit(summary());
+let fails = 0;
+for (const r of results) {
+  const tag = r.pass ? 'PASS' : 'FAIL';
+  console.log(`  [${tag}] ${r.name}${r.note ? ` — ${r.note}` : ''}`);
+  if (!r.pass) fails++;
+}
+if (pageErrors.length) {
+  console.log(`\npage errors observed (${pageErrors.length}):`);
+  for (const e of [...new Set(pageErrors)].slice(0, 5)) console.log('  •', e.slice(0, 220));
+}
+console.log('\nChecks:', results.length, '| failed:', fails);
+process.exitCode = fails ? 1 : 0;

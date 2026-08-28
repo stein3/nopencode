@@ -7,7 +7,7 @@
 import path from 'node:path'
 import fs from 'node:fs'
 import http from 'node:http'
-import { DIST, launchBrowser, screenshot } from '../helpers/setup.mjs'
+import { DIST, launchBrowser, screenshot, sleep } from '../helpers/setup.mjs'
 
 const PORT = 8155
 const BASE = `http://127.0.0.1:${PORT}`
@@ -100,12 +100,10 @@ const server = http.createServer(async (req, res) => {
 const results = []
 let pageErrors = []
 
-function check(name, pass, note = '') {
-  results.push({ name, pass: !!pass, note })
-  console.log(`  [${pass ? 'PASS' : 'FAIL'}] ${name}${note ? ` — ${note}` : ''}`)
+function check(c, name, pass, note = '') {
+  results.push({ c, name, pass: !!pass, note })
+  console.log(`  [${pass ? 'PASS' : 'FAIL'}] ${c} · ${name}${note ? ` — ${note}` : ''}`)
 }
-
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
 // ================================ run =======================================
 
@@ -116,6 +114,7 @@ try {
 
   const browser = await launchBrowser()
 
+  try {
   // ---- Page A: real environment (keyboard closed) ----------------------------
   console.log('\nPAGE A — real environment')
   const ctxA = await browser.newContext({ viewport: VP })
@@ -126,22 +125,22 @@ try {
   await sleep(1500)
 
   const meta = await pageA.evaluate(() => document.querySelector('meta[name="viewport"]')?.content ?? '')
-  check('b1 meta has interactive-widget=resizes-content', meta.includes('interactive-widget=resizes-content'), meta)
-  check('b2 meta has viewport-fit=cover', meta.includes('viewport-fit=cover'), '')
+  check('b1', 'meta has interactive-widget=resizes-content', meta.includes('interactive-widget=resizes-content'), meta)
+  check('b2', 'meta has viewport-fit=cover', meta.includes('viewport-fit=cover'), '')
 
   const aState = await pageA.evaluate(() => ({
     h: getComputedStyle(document.querySelector('.app')).height,
     vvh: document.documentElement.style.getPropertyValue('--vvh'),
     innerH: window.innerHeight,
   }))
-  check('c1 .app height == viewport (1280px)', aState.h === `${VP.height}px`, `got ${aState.h}, innerHeight=${aState.innerH}`)
-  check('c2 --vvh absent when keyboard closed', aState.vvh === '', `got "${aState.vvh}"`)
+  check('c1', '.app height == viewport (1280px)', aState.h === `${VP.height}px`, `got ${aState.h}, innerHeight=${aState.innerH}`)
+  check('c2', '--vvh absent when keyboard closed', aState.vvh === '', `got "${aState.vvh}"`)
 
   await pageA.locator('.tabpane[style*="flex"]').waitFor({ state: 'visible', timeout: 10000 })
   await pageA.locator('.tabpane[style*="flex"] #composer-input').click()
   await sleep(150)
   const focused = await pageA.evaluate(() => document.activeElement?.id === 'composer-input')
-  check('c3 composer textarea focusable', focused)
+  check('c3', 'composer textarea focusable', focused)
   await screenshot(pageA, 'kbd-before')
 
   // ---- Page B: stubbed visualViewport (fallback path) -----------------------
@@ -182,7 +181,7 @@ try {
   }))
   if (bOpen.h !== '840px') okOpen = false
   detOpen = `--vvh="${bOpen.vvh}" .app=${bOpen.h}`
-  check('d1 keyboard-open: --vvh=840px and .app height 840px', okOpen, detOpen)
+  check('d1', 'keyboard-open: --vvh=840px and .app height 840px', okOpen, detOpen)
   await screenshot(pageB, 'kbd-open')
 
   // keyboard closed: vv.height 1280 → kb=0 → property removed
@@ -196,7 +195,7 @@ try {
     h: getComputedStyle(document.querySelector('.app')).height,
   }))
   if (bClosed.h !== `${VP.height}px`) okClosed = false
-  check('d2 keyboard-closed: --vvh removed, .app back to 1280px', okClosed, `--vvh="${bClosed.vvh}" .app=${bClosed.h}`)
+  check('d2', 'keyboard-closed: --vvh removed, .app back to 1280px', okClosed, `--vvh="${bClosed.vvh}" .app=${bClosed.h}`)
 
   // pinch-zoom guard: scale 1.5 must not update anything
   await pageB.evaluate(() => {
@@ -209,7 +208,7 @@ try {
     vvh: document.documentElement.style.getPropertyValue('--vvh'),
     h: getComputedStyle(document.querySelector('.app')).height,
   }))
-  check('d3 pinch-zoom (scale 1.5): no update fires', bPinch.vvh === '' && bPinch.h === `${VP.height}px`, `--vvh="${bPinch.vvh}" .app=${bPinch.h}`)
+  check('d3', 'pinch-zoom (scale 1.5): no update fires', bPinch.vvh === '' && bPinch.h === `${VP.height}px`, `--vvh="${bPinch.vvh}" .app=${bPinch.h}`)
 
   // scroll wiring: keyboard "open" (height 840), scroll event only
   await pageB.evaluate(() => {
@@ -222,15 +221,16 @@ try {
     await pageB.waitForFunction(() => document.documentElement.style.getPropertyValue('--vvh') === '840px', null, { timeout: 4000 })
   } catch { okScroll = false }
   const bScroll = await pageB.evaluate(() => document.documentElement.style.getPropertyValue('--vvh'))
-  check('d4 scroll event alone drives update via listener', okScroll, `--vvh="${bScroll}"`)
+  check('d4', 'scroll event alone drives update via listener', okScroll, `--vvh="${bScroll}"`)
   await pageB.evaluate(() => { window.__vvState.height = 1280; window.__vvDispatch('scroll') })
   await pageB.waitForFunction(() => document.documentElement.style.getPropertyValue('--vvh') === '', null, { timeout: 4000 }).catch(() => {})
   await screenshot(pageB, 'kbd-after')
 
   // ---- global ---------------------------------------------------------------
-  check('e0 no page errors on either page', pageErrors.length === 0, pageErrors.join(' | '))
-
-  await browser.close()
+  check('E', 'no page errors on either page', pageErrors.length === 0, pageErrors.join(' | '))
+  } finally {
+    await browser.close()
+  }
 } finally {
   await new Promise((r) => server.close(r))
 }
@@ -238,10 +238,15 @@ try {
 // =============================== summary ====================================
 
 console.log('\n================ SUMMARY ================')
-const fails = results.filter((r) => !r.pass).length
-console.log('Checks:', results.length, '| failed:', fails)
+let fails = 0
+for (const r of results) {
+  const tag = r.pass ? 'PASS' : 'FAIL'
+  console.log(`  [${tag}] ${r.name}${r.note ? ` — ${r.note}` : ''}`)
+  if (!r.pass) fails++
+}
 if (pageErrors.length) {
-  console.log(`page errors (${pageErrors.length}):`)
+  console.log(`\npage errors observed (${pageErrors.length}):`)
   for (const e of [...new Set(pageErrors)].slice(0, 5)) console.log('  •', e.slice(0, 220))
 }
+console.log('\nChecks:', results.length, '| failed:', fails)
 process.exitCode = fails ? 1 : 0

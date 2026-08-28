@@ -15,7 +15,7 @@
 import path from 'node:path';
 import fs from 'node:fs';
 import http from 'node:http';
-import { DIST, launchBrowser, createChecker, screenshot, SHOTS_DIR } from '../helpers/setup.mjs';
+import { DIST, launchBrowser, sleep, screenshot, SHOTS_DIR } from '../helpers/setup.mjs';
 
 const PORT = 8142;
 const BASE = `http://127.0.0.1:${PORT}`;
@@ -138,8 +138,13 @@ const server = http.createServer(async (req, res) => {
 
 // ================================ checks ====================================
 
-const { check, summary } = createChecker();
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const results = [];
+let pageErrors = [];
+
+function check(c, name, pass, note = '') {
+  results.push({ c, name, pass: !!pass, note });
+  console.log(`  [${pass ? 'PASS' : 'FAIL'}] ${c} · ${name}${note ? ` — ${note}` : ''}`);
+}
 
 // ================================ run =======================================
 
@@ -148,7 +153,7 @@ try {
 
   const browser = await launchBrowser();
   const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
-  page.on('pageerror', (e) => console.log('PAGEERROR:', e.message));
+  page.on('pageerror', (e) => pageErrors.push(e.message));
 
   try {
     await page.goto(`${BASE}/`, { waitUntil: 'domcontentloaded', timeout: 20000 });
@@ -220,4 +225,15 @@ try {
 // =============================== summary ====================================
 
 console.log('\n================ SUMMARY ================');
-process.exit(summary());
+let fails = 0;
+for (const r of results) {
+  const tag = r.pass ? 'PASS' : 'FAIL';
+  console.log(`  [${tag}] ${r.name}${r.note ? ` — ${r.note}` : ''}`);
+  if (!r.pass) fails++;
+}
+if (pageErrors.length) {
+  console.log(`\npage errors observed (${pageErrors.length}):`);
+  for (const e of [...new Set(pageErrors)].slice(0, 5)) console.log('  •', e.slice(0, 220));
+}
+console.log('\nChecks:', results.length, '| failed:', fails);
+process.exitCode = fails ? 1 : 0;
