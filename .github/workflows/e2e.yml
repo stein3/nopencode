@@ -115,6 +115,9 @@ jobs:
           sleep 2
           curl -sf http://127.0.0.1:8123/healthz && echo "chatserver ready"
 
+      - name: Seed test sessions
+        run: node e2e/seed-ci.mjs http://127.0.0.1:4096
+
       - name: Run integration tests
         run: |
           results=""
