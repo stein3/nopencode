@@ -1,4 +1,4 @@
-import { tabs, sessionTodos, patchMetrics, metricsFromMessages, tokenTally, markSessionUnread, patchEngineRetry, clearEngineRetry, markSessionListDirty } from './stores'
+import { tabs, sessionTodos, patchMetrics, metricsFromMessages, tokenTally, markSessionUnread, patchEngineRetry, clearEngineRetry, markSessionListDirty, sessionListDirty } from './stores'
 import { oc, hist } from './api'
 import { refreshPermissions } from './permissions'
 import { refreshQuestions } from './questions'
@@ -295,7 +295,14 @@ export function startEvents() {
       const tally = tokenTally(p.info.tokens)
       if (tally !== undefined) patchMetrics(sid, { tokens: tally })
       scheduleRefetch(sid)
-    } else if (type === 'session.updated' && p.info) {
+    } else     if (type === 'session.deleted' && p.sessionID) {
+      // close the tab if the deleted session was open
+      if (tabs.isopen(p.sessionID)) tabs.close(p.sessionID)
+      // bump dirty so sidebar reloads
+      sessionListDirty.update((n) => n + 1)
+      return
+    }
+    if (type === 'session.updated' && p.info) {
       // carries authoritative revert state: set by a revert, cleared when the
       // next prompt prunes the reverted messages server-side
       tabs.patch(sid, { revert: p.info.revert ?? null })

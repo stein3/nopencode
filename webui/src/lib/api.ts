@@ -182,6 +182,8 @@ export const oc = {
       method: 'PATCH',
       body: JSON.stringify({ title }),
     }),
+  deleteSession: (sessionId: string) =>
+    req<unknown>(`/oc/session/${sessionId}`, { method: 'DELETE' }),
   mcps: () => req<Record<string, any>>('/oc/mcp').catch(() => ({})),
   mcpToggle: (name: string, connect: boolean) =>
     req<unknown>(`/oc/mcp/${encodeURIComponent(name)}/${connect ? 'connect' : 'disconnect'}`, {

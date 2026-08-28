@@ -8,6 +8,35 @@
 
   export let onOpenHistory: (id: string, anchor?: string) => void
   export let onNewChat: () => void
+  export let onCloseSession: (id: string) => void
+
+  // inline two-step delete confirm (matches Settings danger-zone pattern)
+  let pendingDeleteId: string | null = null
+  let deleteTimer: ReturnType<typeof setTimeout> | undefined
+
+  function requestDelete(id: string) {
+    if (pendingDeleteId === id) return // already confirming this one
+    pendingDeleteId = id
+    clearTimeout(deleteTimer)
+    deleteTimer = setTimeout(() => { pendingDeleteId = null }, 6000)
+  }
+
+  function cancelDelete() {
+    pendingDeleteId = null
+    clearTimeout(deleteTimer)
+  }
+
+  async function confirmDelete(id: string) {
+    pendingDeleteId = null
+    clearTimeout(deleteTimer)
+    try {
+      await oc.deleteSession(id)
+      onCloseSession(id)
+      sessionListDirty.update((n) => n + 1)
+    } catch (e: any) {
+      console.error('delete failed', e)
+    }
+  }
 
   let sessions: HistSession[] = []
   let hits: SearchHit[] = []
@@ -649,6 +678,22 @@
               {/if}
             </span>
           </span>
+          {#if pendingDeleteId === d.s.id}
+            <span class="delconfirm">
+              <button class="delbtn yes" title="Confirm delete" on:click|stopPropagation={() => confirmDelete(d.s.id)}>Yes</button>
+              <button class="delbtn no" title="Cancel" on:click|stopPropagation={cancelDelete}>No</button>
+            </span>
+          {:else}
+            <button class="delbtn" title="Delete session" on:click|stopPropagation={() => requestDelete(d.s.id)}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="3 6 5 6 21 6"/>
+                <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+                <path d="M10 11v6"/>
+                <path d="M14 11v6"/>
+                <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
+              </svg>
+            </button>
+          {/if}
           <span class="sub"
             ><span
                 class="smeta"
@@ -1094,5 +1139,72 @@
     border-radius: 4px;
     padding: 0 4px;
     font-size: 10px;
+  }
+  /* delete button: absolutely positioned on the right edge of the row
+     so it never takes flex space or shifts kidcount/stime */
+  .delbtn {
+    position: absolute;
+    right: 4px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 24px;
+    height: 24px;
+    border: none;
+    border-radius: 4px;
+    background: var(--bg-panel);
+    color: var(--fg-dim);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    line-height: 1;
+    opacity: 0;
+    transition: opacity 0.12s;
+    z-index: 1;
+  }
+  .item:hover > .delbtn,
+  .delconfirm .delbtn {
+    opacity: 1;
+  }
+  .delbtn:hover {
+    background: var(--bg-hover);
+    color: var(--fg);
+  }
+  .delbtn.yes {
+    position: static;
+    transform: none;
+    color: var(--err);
+    font-size: 11px;
+    width: auto;
+    padding: 0 6px;
+    background: var(--bg-panel);
+  }
+  .delbtn.yes:hover {
+    background: rgba(244, 135, 113, 0.15);
+  }
+  .delbtn.no {
+    position: static;
+    transform: none;
+    color: var(--fg-dim);
+    font-size: 11px;
+    width: auto;
+    padding: 0 6px;
+    background: var(--bg-panel);
+  }
+  .delbtn.no:hover {
+    background: var(--bg-hover);
+    color: var(--fg);
+  }
+  .delconfirm {
+    position: absolute;
+    right: 4px;
+    top: 50%;
+    transform: translateY(-50%);
+    display: inline-flex;
+    gap: 2px;
+    z-index: 1;
+    background: var(--bg-panel);
+    border-radius: 4px;
   }
 </style>
