@@ -8,8 +8,77 @@ on:
 
 jobs:
   embedded:
-    name: Embedded Tests (no engine)
+    name: "${{ matrix.name }}"
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: agent-label
+            file: agent-label.test.mjs
+          - name: agent-picker
+            file: agent-picker.test.mjs
+          - name: chords
+            file: chords.test.mjs
+          - name: errtile
+            file: errtile.test.mjs
+          - name: errtile-persist
+            file: errtile-persist.test.mjs
+          - name: errtile-render
+            file: errtile-render.test.mjs
+          - name: fork
+            file: fork.test.mjs
+          - name: grep-count
+            file: grep-count.test.mjs
+          - name: hidelight
+            file: hidelight.test.mjs
+          - name: hotkeys
+            file: hotkeys.test.mjs
+          - name: imgthumb
+            file: imgthumb.test.mjs
+          - name: kbd
+            file: kbd.test.mjs
+          - name: label
+            file: label.test.mjs
+          - name: linked-sessions
+            file: linked-sessions.test.mjs
+          - name: model-badge
+            file: model-badge.test.mjs
+          - name: model-picker
+            file: model-picker.test.mjs
+          - name: modelid
+            file: modelid.test.mjs
+          - name: mru
+            file: mru.test.mjs
+          - name: palette-sid
+            file: palette-sid.test.mjs
+          - name: qbanner
+            file: qbanner.test.mjs
+          - name: question-picker
+            file: question-picker.test.mjs
+          - name: queue-fix
+            file: queue-fix.test.mjs
+          - name: scrollstick
+            file: scrollstick.test.mjs
+          - name: search-groups
+            file: search-groups.test.mjs
+          - name: settings
+            file: settings.test.mjs
+          - name: settings-cmd
+            file: settings-cmd.test.mjs
+          - name: stall-retry
+            file: stall-retry.test.mjs
+          - name: subs
+            file: subs.test.mjs
+          - name: tasknotice
+            file: tasknotice.test.mjs
+          - name: titleclip
+            file: titleclip.test.mjs
+          - name: tokens
+            file: tokens.test.mjs
+          - name: uploads
+            file: uploads.test.mjs
+
     steps:
       - uses: actions/checkout@v4
 
@@ -37,204 +106,5 @@ jobs:
         working-directory: e2e
         run: npx playwright install --with-deps chromium
 
-      - name: Run embedded tests
-        run: |
-          results=""
-          total=0; passed=0; failed_count=0
-          fail_out=""
-          for f in e2e/embedded/*.test.mjs; do
-            name=$(basename "$f")
-            echo "::group::$name"
-            if output=$(node "$f" 2>&1); then
-              results="$results | $name | ✅ pass |\n"
-              passed=$((passed + 1))
-              echo "::endgroup::"
-            else
-              code=$?
-              results="$results | $name | ❌ fail (exit $code) |\n"
-              echo "::error file=$f::$name failed with exit code $code"
-              echo "$output"
-              fail_out="$fail_out\n--- $name (exit $code) ---\n$output\n"
-              failed_count=$((failed_count + 1))
-            fi
-            total=$((total + 1))
-          done
-          if [ $failed_count -gt 0 ]; then
-            echo "::group::Failed test output (replay)"
-            echo -e "$fail_out"
-            echo "::endgroup::"
-          fi
-          echo ""
-          echo "### Embedded test results" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Test | Result |" >> $GITHUB_STEP_SUMMARY
-          echo "|------|--------|" >> $GITHUB_STEP_SUMMARY
-          echo -e "$results" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**$passed/$total passed, $failed_count failed**" >> $GITHUB_STEP_SUMMARY
-          echo ""
-          echo "=== SUMMARY: $passed/$total passed, $failed_count failed ==="
-          [ $failed_count -eq 0 ]
-
-  integration:
-    name: "Integration (${{ matrix.name }})"
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: group-1
-            tests: >-
-              agent-label.test.mjs
-              agent-picker.test.mjs
-              agentpicker.test.mjs
-              errtile.test.mjs
-              errtile-persist.test.mjs
-              fork.test.mjs
-              hotkeys.test.mjs
-              kbd.test.mjs
-          - name: group-2
-            tests: >-
-              label.test.mjs
-              model-badge.test.mjs
-              model-picker.test.mjs
-              modelid.test.mjs
-              mru.test.mjs
-              nest.test.mjs
-              palette-sid.test.mjs
-              qbanner.test.mjs
-          - name: group-3
-            tests: >-
-              search-groups.test.mjs
-              settings.test.mjs
-              settings-cmd.test.mjs
-              subs.test.mjs
-              subs2.test.mjs
-              subs3.test.mjs
-              uploads.test.mjs
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Cache npm downloads
-        uses: actions/cache@v4
-        with:
-          path: ~/.npm
-          key: npm-${{ runner.os }}-${{ hashFiles('webui/package-lock.json', 'e2e/package-lock.json') }}
-          restore-keys: |
-            npm-${{ runner.os }}-
-
-      - name: Install webui dependencies
-        working-directory: webui
-        run: npm ci
-
-      - name: Build webui
-        working-directory: webui
-        run: npm run build
-
-      - name: Cache Playwright Chromium
-        id: cache-playwright
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ hashFiles('e2e/package-lock.json') }}
-
-      - name: Install Chromium
-        working-directory: e2e
-        run: npx playwright install --with-deps chromium
-
-      - name: Cache opencode engine
-        id: cache-engine
-        uses: actions/cache@v4
-        with:
-          path: ~/.npm-global/lib/node_modules/opencode-ai
-          key: opencode-ai-1.18.18
-
-      - name: Install opencode engine
-        run: npm install -g opencode-ai@1.18.18
-
-      - name: Install e2e dependencies
-        working-directory: e2e
-        run: npm ci
-
-      - name: Start opencode engine
-        run: |
-          opencode serve --port 4096 &
-          sleep 3
-          curl -sf http://127.0.0.1:4096/doc > /dev/null && echo "engine ready"
-
-      - name: Start chatserver
-        run: |
-          OC_ENGINE=http://127.0.0.1:4096 \
-          PORT=8123 HOST=127.0.0.1 \
-          python3 chatserver.py &
-          sleep 2
-          curl -sf http://127.0.0.1:8123/healthz && echo "chatserver ready"
-
-      - name: Seed test sessions
-        run: node e2e/seed-ci.mjs http://127.0.0.1:4096
-
-      - name: Run integration tests
-        run: |
-          results=""
-          total=0; passed=0; failed_count=0
-          fail_out=""
-          for name in ${{ matrix.tests }}; do
-            f="e2e/integration/$name"
-            echo "::group::$name"
-            if output=$(node "$f" 2>&1); then
-              results="$results | $name | ✅ pass |\n"
-              passed=$((passed + 1))
-              echo "::endgroup::"
-            else
-              code=$?
-              results="$results | $name | ❌ fail (exit $code) |\n"
-              echo "::error file=$f::$name failed with exit code $code"
-              echo "$output"
-              fail_out="$fail_out\n--- $name (exit $code) ---\n$output\n"
-              failed_count=$((failed_count + 1))
-            fi
-            total=$((total + 1))
-          done
-          if [ $failed_count -gt 0 ]; then
-            echo "::group::Failed test output (replay)"
-            echo -e "$fail_out"
-            echo "::endgroup::"
-          fi
-          echo ""
-          echo "### Integration test results (${{ matrix.name }})" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Test | Result |" >> $GITHUB_STEP_SUMMARY
-          echo "|------|--------|" >> $GITHUB_STEP_SUMMARY
-          echo -e "$results" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**$passed/$total passed, $failed_count failed**" >> $GITHUB_STEP_SUMMARY
-          echo ""
-          echo "=== SUMMARY: $passed/$total passed, $failed_count failed ==="
-          [ $failed_count -eq 0 ]
-
-      - name: Cleanup
-        if: always()
-        run: pkill -f 'opencode serve' || true
-
-  integration-result:
-    name: Integration Tests
-    if: always()
-    needs: [integration]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Check results
-        run: |
-          if [ "${{ needs.integration.result }}" = "failure" ]; then
-            echo "::error::One or more integration test groups failed"
-            exit 1
-          fi
-          echo "All integration test groups passed"
+      - name: Run ${{ matrix.name }}
+        run: node e2e/embedded/${{ matrix.file }}
