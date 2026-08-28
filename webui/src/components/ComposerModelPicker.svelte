@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { oc } from '../lib/api'
-  import { selectedModel, recentModels, recordRecent, preferredDefaultModel, sessionModels, setSessionModel } from '../lib/stores'
+  import { selectedModel, recentModels, recordRecent, preferredDefaultModel, sessionModels, setSessionModel, modelPickerOpen } from '../lib/stores'
   import type { ModelRef } from '../lib/stores'
 
   // Per-session model pick — scoped to THIS pane's tab/session.
@@ -10,6 +10,9 @@
   let providers: { id: string; name?: string; models: Record<string, any> }[] = []
   let open = false
   let wrap: HTMLDivElement
+
+  // ctrl+x m chord sets this store — consume it to open the picker
+  modelPickerOpen.subscribe((v) => { if (v) { open = true; modelPickerOpen.set(false) } })
 
   interface ModelItem {
     pid: string

@@ -346,6 +346,7 @@ def load_messages(sid, limit=None):
                     # mid-turn failures: engine stamps the error on the assistant
                     # message (TUI renders it inline too); absent on instant fails
                     "error": md.get("error"),
+                    "tokens": md.get("tokens"),
                     "parts": [],
                 }
             )
@@ -380,6 +381,7 @@ def load_messages(sid, limit=None):
                     "type": ptype,
                     "text": pd.get("text"),
                     "tool": tool or None,
+                    "state": state or None,
                     "state_summary": summary[:120],
                     # engine-injected subagent task results (synthetic user msgs)
                     "synthetic": True if pd.get("synthetic") else None,

@@ -1,0 +1,110 @@
+name: E2E Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  embedded:
+    name: "${{ matrix.name }}"
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: agent-label
+            file: agent-label.test.mjs
+          - name: agent-picker
+            file: agent-picker.test.mjs
+          - name: chords
+            file: chords.test.mjs
+          - name: errtile
+            file: errtile.test.mjs
+          - name: errtile-persist
+            file: errtile-persist.test.mjs
+          - name: errtile-render
+            file: errtile-render.test.mjs
+          - name: fork
+            file: fork.test.mjs
+          - name: grep-count
+            file: grep-count.test.mjs
+          - name: hidelight
+            file: hidelight.test.mjs
+          - name: hotkeys
+            file: hotkeys.test.mjs
+          - name: imgthumb
+            file: imgthumb.test.mjs
+          - name: kbd
+            file: kbd.test.mjs
+          - name: label
+            file: label.test.mjs
+          - name: linked-sessions
+            file: linked-sessions.test.mjs
+          - name: model-badge
+            file: model-badge.test.mjs
+          - name: model-picker
+            file: model-picker.test.mjs
+          - name: modelid
+            file: modelid.test.mjs
+          - name: mru
+            file: mru.test.mjs
+          - name: palette-sid
+            file: palette-sid.test.mjs
+          - name: qbanner
+            file: qbanner.test.mjs
+          - name: question-picker
+            file: question-picker.test.mjs
+          - name: queue-fix
+            file: queue-fix.test.mjs
+          - name: scrollstick
+            file: scrollstick.test.mjs
+          - name: search-groups
+            file: search-groups.test.mjs
+          - name: settings
+            file: settings.test.mjs
+          - name: settings-cmd
+            file: settings-cmd.test.mjs
+          - name: stall-retry
+            file: stall-retry.test.mjs
+          - name: subs
+            file: subs.test.mjs
+          - name: tasknotice
+            file: tasknotice.test.mjs
+          - name: titleclip
+            file: titleclip.test.mjs
+          - name: tokens
+            file: tokens.test.mjs
+          - name: uploads
+            file: uploads.test.mjs
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Cache npm downloads
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-${{ hashFiles('webui/package-lock.json', 'e2e/package-lock.json') }}
+          restore-keys: |
+            npm-${{ runner.os }}-
+
+      - name: Build webui
+        working-directory: webui
+        run: npm ci && npm run build
+
+      - name: Install dependencies
+        working-directory: e2e
+        run: npm ci
+
+      - name: Install Chromium
+        working-directory: e2e
+        run: npx playwright install --with-deps chromium
+
+      - name: Run ${{ matrix.name }}
+        run: node e2e/embedded/${{ matrix.file }}

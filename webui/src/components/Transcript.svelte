@@ -183,14 +183,23 @@
   }
 
   let lastTop = 0
+  let followRan = false
+  let scrolledByFollow = false
   function onScroll() {
     // offsetParent is null under display:none — restore/clamp noise, not user
     if (!scroller || !scroller.offsetParent) return
     const goingUp = scroller.scrollTop < lastTop
     lastTop = scroller.scrollTop
-    // Upward motion never re-arms the pin (#7); downward motion re-arms only
-    // by landing in the bottom corner (scroll clamped at the end of content).
-    if (!goingUp && nearBottom(scroller)) stuck = true
+    // Re-arm the pin when the user scrolls down to the bottom corner, BUT
+    // suppress when the scroll came from follow() (issue #7).  follow() writes
+    // scrollTop asynchronously → onScroll fires in a separate task.  The
+    // followRan/scrolledByFollow pair tracks this across two frames: follow()
+    // sets followRan before the write, onScroll sees it and marks consumed via
+    // scrolledByFollow; both reset at the start of the next follow() call.
+    if (!goingUp && nearBottom(scroller) && !(followRan && !scrolledByFollow)) {
+      stuck = true
+    }
+    if (followRan) scrolledByFollow = true
     void maybeLoadOlder()
   }
 
@@ -230,10 +239,15 @@
 
   function follow(force = false) {
     if ((!stuck && !force) || !scroller) return
+    followRan = false
+    scrolledByFollow = false
     requestAnimationFrame(() => {
       if (!scroller?.offsetParent) return
       if (tab.jumpTo) return // an anchor jump owns scrolling until it parks
-      if (stuck || force) scroller.scrollTop = scroller.scrollHeight
+      if (stuck || force) {
+        followRan = true
+        scroller.scrollTop = scroller.scrollHeight
+      }
     })
   }
 
@@ -272,7 +286,15 @@
   })
 
   onMount(() => {
-    const ro = new ResizeObserver(() => follow())
+    const ro = new ResizeObserver(() => {
+      // When feed grows and the reader is near the bottom, re-arm the pin so
+      // follow() keeps the view glued.  This covers the gap where onScroll
+      // suppresses re-arming because follow() wrote scrollTop in the same
+      // frame (issue #7 fix).  Only re-arm when already pinned — a reader
+      // who scrolled up stays unpinned even as content arrives.
+      if (stuck && scroller?.offsetParent && nearBottom(scroller)) stuck = true
+      follow()
+    })
     if (feed) ro.observe(feed)
     follow()
     void maybeLoadOlder() // short windows can sit near the top without any scroll event
