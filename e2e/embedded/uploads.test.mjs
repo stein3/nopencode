@@ -298,6 +298,9 @@ try {
   await new Promise((r) => server.close(r));
 }
 
+// Clean up fixture directory created during setup
+try { fs.rmSync(TMP, { recursive: true, force: true }); } catch {}
+
 // =============================== summary ====================================
 
 console.log('\n================ SUMMARY ================');
