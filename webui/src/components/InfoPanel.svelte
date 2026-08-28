@@ -130,6 +130,7 @@
 
   let kids: HistSession[] = []
   let busyKids: Record<string, boolean> = {}
+  let parentSession: HistSession | null = null
 
   function kidTitle(s: HistSession): string {
     if (!s.parent) return s.title || s.id.slice(0, 14)
@@ -143,6 +144,7 @@
   function clearLinked() {
     kids = []
     busyKids = {}
+    parentSession = null
   }
 
   async function refreshLinked() {
@@ -155,6 +157,8 @@
       const all = await hist.sessions()
       if ((tab?.id ?? '') !== cur) return // panel switched sessions meanwhile
       kids = all.filter((s) => s.parent === cur).sort((a, b) => b.updated - a.updated)
+      const curSess = all.find((s) => s.id === cur)
+      parentSession = curSess?.parent ? all.find((s) => s.id === curSess.parent) ?? null : null
     } catch {
       /* keep previous list */
     }
@@ -192,6 +196,21 @@
             ? 'unread'
             : '',
   }))
+
+  $: parentRow = parentSession
+    ? {
+        s: parentSession,
+        dot: $permissions.some((p) => p.sessionID === parentSession!.id)
+          ? 'perm'
+          : $pendingQuestions.some((q) => q.sessionID === parentSession!.id)
+            ? 'ask'
+            : busyKids[parentSession!.id]
+              ? 'busy'
+              : $sessionUnread.has(parentSession!.id)
+                ? 'unread'
+                : '',
+      }
+    : null
 
   const statusIcon: Record<string, string> = {
     completed: '☑',
@@ -238,6 +257,16 @@
         <span class="t" class:done={td.status === 'completed'}>{td.content ?? td.title ?? td.description ?? '(unnamed)'}</span>
       </div>
     {/each}
+  {/if}
+
+  {#if parentRow}
+    <div class="sec">Parent Session</div>
+    <button class="kid" on:click={() => onOpen?.(parentRow.s.id)} title={parentRow.s.title}>
+      <span class="dot {parentRow.dot}"></span>
+      <span class="ag">{kidLabel(parentRow.s)}</span>
+      <span class="ttext">{kidTitle(parentRow.s)}</span>
+      <span class="rt">{relTime(parentRow.s.updated)}</span>
+    </button>
   {/if}
 
   {#if kidRows.length}
