@@ -727,6 +727,37 @@
       alert(`fork failed: ${e.message ?? e}`)
     }
   }
+
+  async function copyMessage(mid: string) {
+    const m = tab.messages.find((x) => x.id === mid)
+    if (!m) return
+    const text = (m.parts ?? [])
+      .filter((p) => p.type === 'text' && (p.text ?? '').trim())
+      .map((p) => p.text ?? '')
+      .join('\n\n')
+    if (!text.trim()) {
+      toast('no text to copy')
+      return
+    }
+    try {
+      await navigator.clipboard.writeText(text)
+      toast('copied')
+    } catch {
+      try {
+        const ta = document.createElement('textarea')
+        ta.value = text
+        ta.style.position = 'fixed'
+        ta.style.opacity = '0'
+        document.body.appendChild(ta)
+        ta.select()
+        document.execCommand('copy')
+        ta.remove()
+        toast('copied')
+      } catch {
+        toast('copy failed')
+      }
+    }
+  }
 </script>
 
 <svelte:window on:keydown={onKey} />
@@ -785,12 +816,15 @@
         {#if queuedIds.has(m.id)}
           <span class="qbadge" title="waiting for the current reply to finish">queued</span>
         {/if}
-        {#if m.role === 'user' && !tn}
-          <span class="acts">
+        <span class="acts">
+          {#if !tn}
+            <button class="act" title="Copy message text" on:click={() => copyMessage(m.id)}>📋</button>
+          {/if}
+          {#if m.role === 'user' && !tn}
             <button class="act" title="Revert session to before this message" on:click={() => revertTo(m.id)}>↩</button>
             <button class="act" title="Fork a new session from before this message" on:click={() => forkFrom(m.id)}>⑂</button>
-          </span>
-        {/if}
+          {/if}
+        </span>
       </div>
       <div class="body">
         {#each partsOf(m) as p (p.id)}
