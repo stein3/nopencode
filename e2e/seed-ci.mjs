@@ -58,10 +58,11 @@ async function seed() {
   //    The engine API rejects type:'tool' parts (400), so we create the
   //    session via API then inject the tool-card message directly in sqlite.
   const grepSess = await post('/session', { title: 'Grep match count in opencode output' });
-  await post(`/session/${grepSess.id}/message`, {
+  const grepUserMsg = await post(`/session/${grepSess.id}/message`, {
     parts: [{ type: 'text', text: 'search for the pattern' }],
     noReply: true,
   });
+  const grepUserMsgId = grepUserMsg?.info?.id ?? '';
   console.log(`  seeded: grep session base (${grepSess.id})`);
 
   // 3. Subagent sessions for subs2.test.mjs (need parent_id to show as .sub-row)
@@ -87,10 +88,11 @@ async function seed() {
   //    inject a fake assistant message + token-bearing part directly in
   //    opencode.db — no LLM turn needed.
   const tokSess = await post('/session', { title: 'Tokens probe session' });
-  await post(`/session/${tokSess.id}/message`, {
+  const tokUserMsg = await post(`/session/${tokSess.id}/message`, {
     parts: [{ type: 'text', text: 'token probe' }],
     noReply: true,
   });
+  const tokUserMsgId = tokUserMsg?.info?.id ?? '';
   console.log(`  seeded: tokens probe session (${tokSess.id})`);
 
   // Inject fake messages directly in sqlite (engine API rejects type:'tool' parts).
@@ -107,6 +109,8 @@ async function seed() {
     const grepMsgData = JSON.stringify({
       role: 'assistant', agent: 'orchestrator',
       model: { providerID: 'opencode-go', modelID: 'mimo-v2.5' },
+      time: { created: now },
+      parentID: grepUserMsgId,
     });
     const grepTextData = JSON.stringify({ type: 'text', text: 'Found 3 matches\n  Line 12: foo\n  Line 45: bar\n  Line 78: baz' });
     const grepToolData = JSON.stringify({
@@ -128,6 +132,8 @@ async function seed() {
     const tokMsgData = JSON.stringify({
       role: 'assistant', agent: 'orchestrator',
       model: { providerID: 'opencode-go', modelID: 'mimo-v2.5' },
+      time: { created: now },
+      parentID: tokUserMsgId,
       tokens: { input: 1500, output: 800, reasoning: 200, cache: { read: 5000, write: 0 } },
     });
     const tokPartData = JSON.stringify({ type: 'text', text: 'fake assistant response for token seeding' });
@@ -158,7 +164,7 @@ grep_txt = 'prt_seed_grep_text_${now}'
 grep_tool = 'prt_seed_grep_tool_${now}'
 grep_sid = '${grepSess.id}'
 cur.execute('INSERT INTO message (id,session_id,time_created,time_updated,data) VALUES(?,?,?,?,?)',
-  (grep_msg, grep_sid, now, now, json.dumps({'role':'assistant','agent':'orchestrator','model':{'providerID':'opencode-go','modelID':'mimo-v2.5'}})))
+  (grep_msg, grep_sid, now, now, json.dumps({'role':'assistant','agent':'orchestrator','model':{'providerID':'opencode-go','modelID':'mimo-v2.5'},'time':{'created':now},'parentID':'${grepUserMsgId}'})))
 cur.execute('INSERT INTO part (id,message_id,session_id,time_created,time_updated,data) VALUES(?,?,?,?,?,?)',
   (grep_txt, grep_msg, grep_sid, now, now, json.dumps({'type':'text','text':'Found 3 matches\\n  Line 12: foo\\n  Line 45: bar\\n  Line 78: baz'})))
 cur.execute('INSERT INTO part (id,message_id,session_id,time_created,time_updated,data) VALUES(?,?,?,?,?,?)',
@@ -169,7 +175,7 @@ tok_msg = '${tokMsgId}'
 tok_part = 'prt_seed_tokens_${now}'
 tok_sid = '${tokSess.id}'
 cur.execute('INSERT INTO message (id,session_id,time_created,time_updated,data) VALUES(?,?,?,?,?)',
-  (tok_msg, tok_sid, now, now, json.dumps({'role':'assistant','agent':'orchestrator','model':{'providerID':'opencode-go','modelID':'mimo-v2.5'},'tokens':{'input':1500,'output':800,'reasoning':200,'cache':{'read':5000,'write':0}}})))
+  (tok_msg, tok_sid, now, now, json.dumps({'role':'assistant','agent':'orchestrator','model':{'providerID':'opencode-go','modelID':'mimo-v2.5'},'time':{'created':now},'parentID':'${tokUserMsgId}','tokens':{'input':1500,'output':800,'reasoning':200,'cache':{'read':5000,'write':0}}})))
 cur.execute('INSERT INTO part (id,message_id,session_id,time_created,time_updated,data) VALUES(?,?,?,?,?,?)',
   (tok_part, tok_msg, tok_sid, now, now, json.dumps({'type':'text','text':'fake assistant response for token seeding'})))
 

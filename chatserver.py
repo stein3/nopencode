@@ -346,6 +346,7 @@ def load_messages(sid, limit=None):
                     # mid-turn failures: engine stamps the error on the assistant
                     # message (TUI renders it inline too); absent on instant fails
                     "error": md.get("error"),
+                    "tokens": md.get("tokens"),
                     "parts": [],
                 }
             )
