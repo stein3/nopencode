@@ -22,8 +22,8 @@ const rowInfo = await page.evaluate(() => {
 console.log('sidebar rows:', JSON.stringify(rowInfo))
 if (rowInfo.withTk === 0) throw new Error('no sidebar row shows a tk badge')
 
-// 2) open the previously-broken session (zero-token newest message)
-await page.getByText('Healthscape dark and light theme options', { exact: false }).first().click()
+// 2) open the seeded session with fake tokens
+await page.getByText('Tokens probe session', { exact: false }).first().click()
 await page.waitForSelector('.info .grid', { timeout: 15000 })
 // InfoPanel refresh + store overlay need a beat
 await page.waitForFunction(

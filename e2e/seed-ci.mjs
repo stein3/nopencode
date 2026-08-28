@@ -30,18 +30,16 @@ async function seed() {
   const genericTitles = [
     'Test session alpha',
     'Test session beta',
-    'Healthscape dark and light theme options', // needed by tokens.test.mjs
   ];
   for (const title of genericTitles) {
     const s = await post('/session', { title });
-    // Add a user + assistant message so message_count > 0 and sidebar shows them
     await post(`/session/${s.id}/message`, {
       parts: [{ type: 'text', text: `probe for ${title}` }],
       noReply: true,
     });
     await post(`/session/${s.id}/message`, {
       parts: [{ type: 'text', text: `response for ${title}` }],
-      model: { providerID: 'opencode', modelID: 'x-preview-f-free' },
+      noReply: true,
     });
     console.log(`  seeded: ${title} (${s.id})`);
   }
@@ -52,7 +50,6 @@ async function seed() {
     parts: [{ type: 'text', text: 'search for the pattern' }],
     noReply: true,
   });
-  // Assistant message with a grep tool card containing "Found N matches"
   await post(`/session/${grepSess.id}/message`, {
     parts: [
       {
@@ -69,7 +66,7 @@ async function seed() {
         },
       },
     ],
-    model: { providerID: 'opencode', modelID: 'x-preview-f-free' },
+    noReply: true,
   });
   console.log(`  seeded: grep session (${grepSess.id})`);
 
@@ -90,49 +87,57 @@ async function seed() {
   });
   console.log(`  seeded: subagent sessions (parent=${parentSess.id}, sub=${subSess.id})`);
 
-  // Give the engine a moment to flush to opencode.db
-  await sleep(500);
+  // 4. Fake a session with tokens for tokens.test.mjs.
+  //    The chatserver computes sidebar tk badges from assistant messages
+  //    with positive token sums.  We create a session via the API, then
+  //    inject a fake assistant message + token-bearing part directly in
+  //    opencode.db — no LLM turn needed.
+  const tokSess = await post('/session', { title: 'Tokens probe session' });
+  await post(`/session/${tokSess.id}/message`, {
+    parts: [{ type: 'text', text: 'token probe' }],
+    noReply: true,
+  });
+  console.log(`  seeded: tokens probe session (${tokSess.id})`);
 
-  // 4. Write token tallies directly to opencode.db for tokens.test.mjs
-  //    The engine API doesn't support setting tokens on messages, so we
-  //    update the assistant messages' data JSON directly in sqlite.
+  // Inject a fake assistant message with token tallies directly in sqlite.
   const DB_PATH = process.env.OPENCODE_DB || '/home/node/.local/share/opencode/opencode.db';
   try {
     const { DatabaseSync } = await import('node:sqlite');
     const db = new DatabaseSync(DB_PATH);
-    // Find the "Healthscape dark and light theme options" session's assistant message
-    const rows = db.prepare(
-      `SELECT m.id, m.data FROM message m
-       JOIN session s ON s.id = m.session_id
-       WHERE s.title LIKE '%Healthscape dark%'
-         AND json_extract(m.data, '$.role') = 'assistant'`
-    ).all();
-    for (const row of rows) {
-      const data = JSON.parse(row.data);
-      if (!data.tokens || (data.tokens.input === 0 && data.tokens.output === 0)) {
-        data.tokens = { input: 1500, output: 800, reasoning: 200, cache: { read: 5000, write: 0 } };
-        db.prepare('UPDATE message SET data = ? WHERE id = ?').run(JSON.stringify(data), row.id);
-        console.log(`  seeded tokens on message ${row.id}`);
-      }
-    }
+    const fakeMsgId = 'msg_seed_tokens_' + Date.now();
+    const fakePartId = 'prt_seed_tokens_' + Date.now();
+    const now = Date.now();
+    const msgData = JSON.stringify({
+      role: 'assistant',
+      agent: 'orchestrator',
+      model: { providerID: 'opencode-go', modelID: 'mimo-v2.5' },
+      tokens: { input: 1500, output: 800, reasoning: 200, cache: { read: 5000, write: 0 } },
+    });
+    const partData = JSON.stringify({ type: 'text', text: 'fake assistant response for token seeding' });
+    db.prepare('INSERT INTO message (id, session_id, time_created, time_updated, data) VALUES (?,?,?,?,?)')
+      .run(fakeMsgId, tokSess.id, now, now, msgData);
+    db.prepare('INSERT INTO part (id, message_id, session_id, time_created, time_updated, data) VALUES (?,?,?,?,?,?)')
+      .run(fakePartId, fakeMsgId, tokSess.id, now, now, partData);
+    console.log(`  injected fake assistant message with tokens (${fakeMsgId})`);
     db.close();
   } catch (e) {
-    // node:sqlite may not be available; fall back to python3
     console.log('  node:sqlite unavailable, trying python3 fallback:', e.message);
     const { execSync } = await import('node:child_process');
+    const fakeMsgId = 'msg_seed_tokens_' + Date.now();
+    const fakePartId = 'prt_seed_tokens_' + Date.now();
+    const now = Date.now();
     execSync(`python3 -c "
-import sqlite3, json
+import sqlite3, json, time
 conn = sqlite3.connect('${DB_PATH}')
 cur = conn.cursor()
-cur.execute('''SELECT m.id, m.data FROM message m
-  JOIN session s ON s.id = m.session_id
-  WHERE s.title LIKE '%Healthscape dark%'
-    AND json_extract(m.data, '$.role') = 'assistant' ''')
-for row in cur.fetchall():
-    data = json.loads(row[1])
-    if not data.get('tokens') or (data['tokens'].get('input',0)==0 and data['tokens'].get('output',0)==0):
-        data['tokens'] = {'input':1500,'output':800,'reasoning':200,'cache':{'read':5000,'write':0}}
-        cur.execute('UPDATE message SET data=? WHERE id=?', (json.dumps(data), row[0]))
+now = int(time.time()*1000)
+msg_id = '${fakeMsgId}'
+part_id = '${fakePartId}'
+sid = '${tokSess.id}'
+msg_data = json.dumps({'role':'assistant','agent':'orchestrator','model':{'providerID':'opencode-go','modelID':'mimo-v2.5'},'tokens':{'input':1500,'output':800,'reasoning':200,'cache':{'read':5000,'write':0}}})
+part_data = json.dumps({'type':'text','text':'fake assistant response for token seeding'})
+cur.execute('INSERT INTO message (id,session_id,time_created,time_updated,data) VALUES(?,?,?,?,?)', (msg_id,sid,now,now,msg_data))
+cur.execute('INSERT INTO part (id,message_id,session_id,time_created,time_updated,data) VALUES(?,?,?,?,?,?)', (part_id,msg_id,sid,now,now,part_data))
 conn.commit()
 conn.close()
 "`, { stdio: 'pipe' });
