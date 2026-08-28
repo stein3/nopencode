@@ -248,6 +248,15 @@ export function startEvents() {
       return
     }
 
+    // A brand-new session anywhere (fork, subagent spawn, /new) — the info
+    // panel's linked list + sidebar need the row immediately. Must run BEFORE
+    // the isopen guard: a child session is never an open tab, so its own
+    // events are dropped below and the panel would otherwise wait out the
+    // 30s poll. Rare event → the dirty bump is cheap.
+    if (type === 'session.created' && p.sessionID) {
+      markSessionListDirty()
+    }
+
     if (!sid) return
     if (!tabs.isopen(sid)) return
     if (type === 'session.idle') {

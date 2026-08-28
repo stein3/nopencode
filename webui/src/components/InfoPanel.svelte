@@ -11,6 +11,7 @@
     permissions,
     pendingQuestions,
     sessionUnread,
+    sessionListDirty,
   } from '../lib/stores'
   import { relTime } from '../lib/util'
   import type { Tab } from '../lib/stores'
@@ -87,7 +88,7 @@
       refresh()
       refreshLinked()
     }, 30000)
-    return () => clearInterval(iv)
+    return () => { clearInterval(iv); clearTimeout(linkedDirtyTimer) }
   })
   $: limit = getContextLimit($selectedModel)
 
@@ -179,6 +180,14 @@
     lastLinkId = linkId
     clearLinked()
     refreshLinked()
+  }
+
+  let linkedDirtyTimer: ReturnType<typeof setTimeout> | undefined
+  $: if ($sessionListDirty > 0 && !linkedDirtyTimer) {
+    linkedDirtyTimer = setTimeout(() => {
+      linkedDirtyTimer = undefined
+      refreshLinked()
+    }, 250)
   }
 
   // dot precedence perm > ask > busy > unread — resolved per row here so the
