@@ -1171,6 +1171,7 @@
     color: var(--fg);
   }
   .delbtn.yes {
+    position: static;
     color: var(--err);
     font-size: 11px;
     width: auto;
@@ -1181,6 +1182,7 @@
     background: rgba(244, 135, 113, 0.15);
   }
   .delbtn.no {
+    position: static;
     color: var(--fg-dim);
     font-size: 11px;
     width: auto;
