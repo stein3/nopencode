@@ -8,7 +8,7 @@
 import path from 'node:path';
 import fs from 'node:fs';
 import http from 'node:http';
-import { DIST, launchBrowser, SHOTS_DIR } from '../helpers/setup.mjs';
+import { DIST, launchBrowser, SHOTS_DIR, poll } from '../helpers/setup.mjs';
 
 const PORT = 8152;
 const BASE = `http://127.0.0.1:${PORT}`;
@@ -280,7 +280,19 @@ try {
     await page.click(`.sidebar .item[title="model-badge probe"]`);
     await pane.locator('.msg.user').first().waitFor({ timeout: 10000 });
     const userRows = pane.locator('.msg.user');
-    check('1', 'probe has 2 user rows', (await userRows.count()) === 2);
+    // Poll for the count to settle at exactly 2 — the message list renders rows
+    // incrementally and a debounced refetch can briefly duplicate them, so a
+    // single count() was racy (flaky "probe has 2 user rows"). Wait for the
+    // stable value instead.
+    const ok = await poll(async () => {
+      try {
+        return (await userRows.count()) === 2;
+      } catch {
+        return false;
+      }
+    }, 6000);
+    const nUser = await userRows.count();
+    check('1', 'probe has 2 user rows', ok, `count=${nUser}`);
     for (let i = 0; i < MODELS.length; i++) {
       const badge = userRows.nth(i).locator('.model-id');
       const txt = (await badge.textContent()).trim();
