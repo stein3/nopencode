@@ -25,6 +25,7 @@
   import { installVisualViewportFix } from './lib/visualViewport'
   import { focusMode, initKbdLock, enableFocusMode, disableFocusMode } from './lib/kbdlock'
   import { msgModel } from './lib/util'
+  import { sidePanel, SWIPE_EDGE, SWIPE_DIST } from './lib/sidePanel'
 
   let composers: Record<string, Composer> = {}
   let sidebarEl: Sidebar | undefined
@@ -277,19 +278,19 @@
       },
     })
     const removeKbdLock = initKbdLock()
-    window.addEventListener('touchstart', swipeStart, { passive: true })
-    window.addEventListener('touchmove', swipeMove, { passive: true })
-    window.addEventListener('touchend', swipeEnd)
-    window.addEventListener('touchcancel', swipeEnd)
+    window.addEventListener('touchstart', edgeSwipeStart, { passive: true })
+    window.addEventListener('touchmove', edgeSwipeMove, { passive: true })
+    window.addEventListener('touchend', edgeSwipeEnd)
+    window.addEventListener('touchcancel', edgeSwipeEnd)
     return () => {
       removeHotkeys()
       removeKbdLock()
       window.removeEventListener('oc:new-chat', onNewChatEvent)
       document.removeEventListener('oc:focus-sidebar', onFocusSidebar)
-      window.removeEventListener('touchstart', swipeStart)
-      window.removeEventListener('touchmove', swipeMove)
-      window.removeEventListener('touchend', swipeEnd)
-      window.removeEventListener('touchcancel', swipeEnd)
+      window.removeEventListener('touchstart', edgeSwipeStart)
+      window.removeEventListener('touchmove', edgeSwipeMove)
+      window.removeEventListener('touchend', edgeSwipeEnd)
+      window.removeEventListener('touchcancel', edgeSwipeEnd)
     }
   })
 
@@ -357,89 +358,52 @@
     if (dragHasFiles(e)) e.preventDefault()
   }
 
-  // ---- mobile edge swipes: open/close the panels ---------------------------
+  // ---- mobile edge swipes: OPEN the panels ---------------------------------
   // Left edge → sidebar, right edge → info panel. Only horizontal-dominant
-  // drags count, so normal vertical scrolling is untouched. Open gestures
-  // must start within SWIPE_EDGE of a screen edge; close gestures start
-  // anywhere over the already-open panel. The zone is deliberately wide:
-  // starting a touch within a few px of the bezel fights the browser's own
-  // back/forward edge swipes.
-  const SWIPE_EDGE = 80
-  const SWIPE_DIST = 46
+  // drags count, so normal vertical scrolling is untouched. (Close gestures
+  // now live in the per-drawer `sidePanel` action on each panel's root — see
+  // src/lib/sidePanel.ts — so every side drawer, including the newer MCP and
+  // Diff panes, owns its own swipe-to-close.)
+  let openTouch: number | null = null
+  let openX = 0
+  let openY = 0
 
-  let swipeTouch: number | null = null
-  let swipeX = 0
-  let swipeY = 0
-  let swipeFromLeft = false
-  let swipeFromRight = false
-  let swipeOverSidebar = false
-  let swipeOverInfo = false
-
-  function inHorizScroller(el: Element | null): boolean {
-    let n = el as HTMLElement | null
-    while (n && n !== document.body) {
-      if (n.scrollWidth > n.clientWidth + 1 && /(auto|scroll)/.test(getComputedStyle(n).overflowX))
-        return true
-      n = n.parentElement
-    }
-    return false
-  }
-
-  function swipeStart(e: TouchEvent) {
-    if (swipeTouch !== null) return // one gesture at a time
+  function edgeSwipeStart(e: TouchEvent) {
+    if (openTouch !== null) return // one gesture at a time
     if (!window.matchMedia('(max-width: 900px)').matches) return
     const t = e.changedTouches[0]
     const el = t.target as Element | null
-    // the wide catch area now overlaps content — never hijack drags that
-    // belong to form controls, editable text, or horizontally-scrollable
-    // blocks like code
-    if (
-      el?.closest?.('input, textarea, select') ||
-      (el as HTMLElement | null)?.isContentEditable ||
-      inHorizScroller(el)
-    )
+    // never hijack drags that belong to form controls or editable text
+    if (el?.closest?.('input, textarea, select') || (el as HTMLElement | null)?.isContentEditable)
       return
-    swipeOverSidebar = !!el?.closest?.('.sidebar')
-    swipeOverInfo = !!el?.closest?.('aside.info')
-    swipeFromLeft = t.clientX <= SWIPE_EDGE
-    swipeFromRight = window.innerWidth - t.clientX <= SWIPE_EDGE
-    const actionable =
-      ($sidebarOpen && swipeOverSidebar) ||
-      ($infoOpen && swipeOverInfo) ||
-      (!$sidebarOpen && swipeFromLeft) ||
-      (!$infoOpen && swipeFromRight)
-    if (!actionable) return
-    swipeTouch = t.identifier
-    swipeX = t.clientX
-    swipeY = t.clientY
+    const fromLeft = t.clientX <= SWIPE_EDGE
+    const fromRight = window.innerWidth - t.clientX <= SWIPE_EDGE
+    const canOpen = (fromLeft && !$sidebarOpen) || (fromRight && !$infoOpen)
+    if (!canOpen) return
+    openTouch = t.identifier
+    openX = t.clientX
+    openY = t.clientY
   }
 
-  function swipeMove(e: TouchEvent) {
-    if (swipeTouch === null) return
-    const t = Array.from(e.changedTouches).find((x) => x.identifier === swipeTouch)
+  function edgeSwipeMove(e: TouchEvent) {
+    if (openTouch === null) return
+    const t = Array.from(e.changedTouches).find((x) => x.identifier === openTouch)
     if (!t) return
-    const dx = t.clientX - swipeX
-    const dy = t.clientY - swipeY
+    const dx = t.clientX - openX
+    const dy = t.clientY - openY
     // commit once the drag is clearly horizontal and long enough
     if (Math.abs(dx) < SWIPE_DIST || Math.abs(dx) < Math.abs(dy) * 1.4) return
-    swipeTouch = null // consumed — one gesture, at most one action
-    if ($sidebarOpen && swipeOverSidebar) {
-      if (dx < 0) sidebarOpen.set(false) // push the drawer away
-    } else if (!$sidebarOpen && swipeFromLeft && dx > 0) {
-      sidebarOpen.set(true)
-    } else if ($infoOpen && swipeOverInfo) {
-      if (dx > 0) infoOpen.set(false)
-    } else if (!$infoOpen && swipeFromRight && dx < 0) {
-      infoOpen.set(true)
-    }
+    openTouch = null // consumed — one gesture, at most one action
+    if (!$sidebarOpen && dx > 0) sidebarOpen.set(true)
+    else if (!$infoOpen && dx < 0) infoOpen.set(true)
   }
 
-  function swipeEnd(e: TouchEvent) {
+  function edgeSwipeEnd(e: TouchEvent) {
     if (
-      swipeTouch !== null &&
-      Array.from(e.changedTouches).some((x) => x.identifier === swipeTouch)
+      openTouch !== null &&
+      Array.from(e.changedTouches).some((x) => x.identifier === openTouch)
     )
-      swipeTouch = null
+      openTouch = null
   }
 </script>
 
@@ -553,7 +517,7 @@
     <McpPanel />
   {/if}
   {#if diffOpen}
-    <div class="diffwrap">
+    <div class="diffwrap" use:sidePanel={{ side: 'right', getOpen: () => diffOpen, setOpen: (v) => (diffOpen = v) }}>
       {#await import('./components/DiffPane.svelte') then DiffPane}
         <DiffPane.default
           sessionId={tabs.snapshot(tabs.getActive())?.pending ? '' : tabs.getActive()}

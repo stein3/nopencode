@@ -1,7 +1,8 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { oc } from '../lib/api'
-  import { toast } from '../lib/stores'
+  import { mcpOpen, toast } from '../lib/stores'
+import { sidePanel } from '../lib/sidePanel'
 
   interface McpServer {
     type?: string
@@ -52,7 +53,7 @@
   onMount(refresh)
 </script>
 
-<aside class="mcp">
+<aside class="mcp" use:sidePanel={{ side: 'right', getOpen: () => $mcpOpen, setOpen: (v) => mcpOpen.set(v) }}>
   <div class="head">
     <span class="ttl">MCP Servers</span>
     <button class="refresh" title="Refresh" on:click={refresh}>↻</button>

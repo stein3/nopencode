@@ -1,7 +1,8 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte'
   import { oc, hist, type HistSession, type SearchHit } from '../lib/api'
-  import { searchQuery, sessionMetrics, permissions, pendingQuestions, tabs, sessionUnread, markSessionUnread, hideSubagents, subExpanded, settingsOpen, sessionListDirty, sessionKidMap, sessionMeta, toggleStar, addTag, removeTag, setFolder, allTags, allFolders, type SessionMeta } from '../lib/stores'
+  import { searchQuery, sessionMetrics, permissions, pendingQuestions, tabs, sessionUnread, markSessionUnread, hideSubagents, subExpanded, settingsOpen, sessionListDirty, sessionKidMap, sessionMeta, toggleStar, addTag, removeTag, setFolder, allTags, allFolders, sidebarOpen, type SessionMeta } from '../lib/stores'
+import { sidePanel } from '../lib/sidePanel'
   import { relTime } from '../lib/util'
   import TagPopover from './TagPopover.svelte'
 
@@ -673,7 +674,7 @@
 
 <svelte:window on:keydown={onNavKey} />
 
-<aside class="sidebar">
+<aside class="sidebar" use:sidePanel={{ side: 'left', getOpen: () => $sidebarOpen, setOpen: (v) => sidebarOpen.set(v) }}>
   <div class="top">
     <button class="gear" title="Settings" aria-label="Settings" on:click={() => settingsOpen.set(true)}>
       <!-- inline gear (no external icon assets) -->
