@@ -1,5 +1,62 @@
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
+
+// --- Security hardening -----------------------------------------------------
+// All model/user HTML rendered via {@html} flows through md() -> this
+// sanitizer. Strict allowlist + forbidden style/script/event handlers is the
+// primary XSS *and* CSS-injection defense. The app's own styles are external
+// CSS files; untrusted content is never allowed to carry <style> or style=.
+DOMPurify.addHook('afterSanitizeAttributes', (node: Element) => {
+  if (node.tagName === 'A') {
+    node.setAttribute('target', '_blank')
+    node.setAttribute('rel', 'noopener noreferrer')
+  }
+})
+
+// Block javascript:/data:/vbscript: and any other dangerous URI schemes in
+// href/src. Only a known-safe allowlist of schemes is permitted.
+const PURIFY_URI_REGEXP =
+  /^(?:(?:(?:f|ht)tps?|mailto|tel|callto|sms|cid|xmpp|matrix):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i
+
+const PURIFY_CONFIG = {
+  ALLOWED_TAGS: [
+    'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+    'p', 'br', 'hr',
+    'strong', 'em', 'b', 'i', 'u', 's', 'del', 'ins', 'mark',
+    'ul', 'ol', 'li',
+    'blockquote', 'pre', 'code',
+    'a',
+    'table', 'thead', 'tbody', 'tr', 'th', 'td',
+    'img',
+    'div', 'span', 'details', 'summary',
+  ],
+  ALLOWED_ATTR: [
+    'href', 'title', 'alt', 'src', 'width', 'height',
+    'colspan', 'rowspan', 'align', 'valign',
+    'open',
+    'class',
+  ],
+  ALLOWED_URI_REGEXP: PURIFY_URI_REGEXP,
+  // CSS-injection surface: never let untrusted content become CSS.
+  FORBID_TAGS: [
+    'style', 'script', 'iframe', 'object', 'embed', 'applet',
+    'form', 'input', 'textarea', 'select', 'button',
+    'meta', 'link', 'base', 'svg', 'foreignObject', 'math',
+  ],
+  FORBID_ATTR: ['style'],
+  ALLOW_DATA_ATTR: false,
+  ALLOW_ARIA_ATTR: false,
+}
+
+// Trusted Types: DOMPurify's RETURN_TRUSTED_TYPE returns a TrustedHTML object
+// when the browser supports Trusted Types (Chrome/Edge). The CSP
+// `require-trusted-types-for 'script'` then enforces that every innerHTML sink
+// (Svelte's {@html}) only receives TrustedHTML. On browsers without TT support
+// the config option is a no-op and returns a plain string.
+const PURIFY_CONFIG_WITH_TT = {
+  ...PURIFY_CONFIG,
+  RETURN_TRUSTED_TYPE: true,
+}
 // lib/common = ~35 popular languages; keeps the bundle small vs full hljs
 import hljs from 'highlight.js/lib/common'
 
@@ -49,7 +106,7 @@ marked.use({ renderer, breaks: true, gfm: true })
 export function md(src: string, live = false): string {
   liveParse = live
   try {
-    return DOMPurify.sanitize(marked.parse(src, { async: false }) as string)
+    return DOMPurify.sanitize(marked.parse(src, { async: false }) as string, PURIFY_CONFIG_WITH_TT)
   } finally {
     liveParse = false
   }
