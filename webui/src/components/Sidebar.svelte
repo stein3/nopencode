@@ -1290,6 +1290,7 @@
     color: var(--fg-dim);
     font-size: 11.5px;
     white-space: nowrap;
+    position: relative;
   }
   /* hide-subagents mode: chevrons never render, so the reserved chevron
      column is reclaimed and line 1's prefix shrinks to just the dot column.
@@ -1380,7 +1381,8 @@
     font-size: 10px;
   }
   .delbtn {
-    position: static;
+    position: absolute;
+    right: 46px;
     width: 24px;
     height: 24px;
     border: none;
@@ -1426,7 +1428,8 @@
     color: var(--fg);
   }
   .delconfirm {
-    position: static;
+    position: absolute;
+    right: 46px;
     display: inline-flex;
     gap: 2px;
     background: var(--bg-panel);
@@ -1496,7 +1499,8 @@
 
   /* ---- star button ------------------------------------------------------- */
   .star {
-    flex: none;
+    position: absolute;
+    right: 86px;
     width: 20px;
     height: 20px;
     border: none;
@@ -1523,7 +1527,8 @@
 
   /* ---- folder button ------------------------------------------------------ */
   .folderbtn {
-    flex: none;
+    position: absolute;
+    right: 66px;
     width: 20px;
     height: 20px;
     border: none;
