@@ -1,8 +1,9 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte'
   import { oc, hist, type HistSession, type SearchHit } from '../lib/api'
-  import { searchQuery, sessionMetrics, permissions, pendingQuestions, tabs, sessionUnread, markSessionUnread, hideSubagents, subExpanded, settingsOpen, sessionListDirty, sessionKidMap } from '../lib/stores'
+  import { searchQuery, sessionMetrics, permissions, pendingQuestions, tabs, sessionUnread, markSessionUnread, hideSubagents, subExpanded, settingsOpen, sessionListDirty, sessionKidMap, sessionMeta, toggleStar, addTag, removeTag, setFolder, allTags, allFolders, type SessionMeta } from '../lib/stores'
   import { relTime } from '../lib/util'
+  import TagPopover from './TagPopover.svelte'
 
   const activeStore = tabs.active
 
@@ -309,6 +310,109 @@
       .sort((a, b) => b.updated - a.updated)
   }
 
+  // ---- session organization: stars, tags, folders, filters ------------------
+  let filterStarred = false
+  let filterTags: Set<string> = new Set()
+  let filterFolders: Set<string> = new Set()
+
+  // tag popover state
+  let tagPopoverSid: string | null = null
+  let tagPopoverAnchor: HTMLElement | null = null
+
+  // folder picker state
+  let folderPickerSid: string | null = null
+  let folderPickerAnchor: HTMLElement | null = null
+  let newFolderName = ''
+
+  // collect all unique tags and folders from sessionMeta (reactive)
+  $: uniqueTags = allTags($sessionMeta)
+  $: uniqueFolders = allFolders($sessionMeta)
+
+  // any active filters?
+  $: hasFilters = filterStarred || filterTags.size > 0 || filterFolders.size > 0
+
+  function toggleFilterTag(tag: string) {
+    const next = new Set(filterTags)
+    if (next.has(tag)) next.delete(tag)
+    else next.add(tag)
+    filterTags = next
+  }
+
+  function toggleFilterFolder(folder: string) {
+    const next = new Set(filterFolders)
+    if (next.has(folder)) next.delete(folder)
+    else next.add(folder)
+    filterFolders = next
+  }
+
+  function clearFilters() {
+    filterStarred = false
+    filterTags = new Set()
+    filterFolders = new Set()
+  }
+
+  // apply organization filters to displayRows
+  function applyOrgFilters(rows: Disp[]): Disp[] {
+    if (!hasFilters) return rows
+    return rows.filter((d) => {
+      const m = $sessionMeta[d.s.id]
+      if (filterStarred && !m?.star) return false
+      if (filterTags.size > 0) {
+        const tags = m?.tags
+        if (!tags) return false
+        for (const ft of filterTags) {
+          if (!tags.includes(ft)) return false
+        }
+      }
+      if (filterFolders.size > 0) {
+        const folder = m?.folder
+        if (!folder || !filterFolders.has(folder)) return false
+      }
+      return true
+    })
+  }
+
+  function openTagPopover(e: Event, sid: string) {
+    e.stopPropagation()
+    tagPopoverSid = sid
+    tagPopoverAnchor = e.currentTarget as HTMLElement
+  }
+
+  function closeTagPopover() {
+    tagPopoverSid = null
+    tagPopoverAnchor = null
+  }
+
+  function openFolderPicker(e: MouseEvent, sid: string) {
+    e.stopPropagation()
+    folderPickerSid = folderPickerSid === sid ? null : sid
+    folderPickerAnchor = e.currentTarget as HTMLElement
+    newFolderName = ''
+  }
+
+  function closeFolderPicker() {
+    folderPickerSid = null
+    folderPickerAnchor = null
+    newFolderName = ''
+  }
+
+  function assignFolder(folder: string) {
+    if (folderPickerSid) setFolder(folderPickerSid, folder)
+    closeFolderPicker()
+  }
+
+  function createAndAssignFolder() {
+    const name = newFolderName.trim()
+    if (!name || !folderPickerSid) return
+    setFolder(folderPickerSid, name)
+    closeFolderPicker()
+  }
+
+  function clearFolder() {
+    if (folderPickerSid) setFolder(folderPickerSid, undefined)
+    closeFolderPicker()
+  }
+
   // ---- subagent sessions (@explore / @general / …) -------------------------
   // Engine marks them with a parentID; titles carry a redundant
   // " (@explore subagent)" suffix that the badge replaces.
@@ -423,6 +527,36 @@
         .map((d) => ({ ...d, subsHidden: true }))
     : flattenTree(roots, kidsMap, $subExpanded, busyMap, permSet, qSet, $sessionUnread)
 
+  // apply organization filters (star, tag, folder)
+  $: filteredRows = applyOrgFilters(displayRows)
+
+  // group filtered rows by folder (folders appear as section headers)
+  // unfoldered sessions stay inline; starred sessions without a folder stay inline
+  interface FolderGroup {
+    name: string
+    rows: Disp[]
+  }
+
+  $: folderGroups = (() => {
+    const map = new Map<string, Disp[]>()
+    const noFolder: Disp[] = []
+    for (const d of filteredRows) {
+      const folder = $sessionMeta[d.s.id]?.folder
+      if (folder) {
+        const arr = map.get(folder)
+        if (arr) arr.push(d)
+        else map.set(folder, [d])
+      } else {
+        noFolder.push(d)
+      }
+    }
+    const groups: FolderGroup[] = []
+    for (const [name, rows] of [...map].sort((a, b) => a[0].localeCompare(b[0]))) {
+      groups.push({ name, rows })
+    }
+    return { groups, noFolder }
+  })()
+
   // ---- session list keyboard navigation (Alt+Up/Down) ----------------------
   // navOrder is a snapshot of session IDs taken on the first Alt+press; it
   // freezes the sort order so the focus row doesn't jump while navigating.
@@ -432,7 +566,7 @@
   let navTimer: ReturnType<typeof setTimeout> | undefined
 
   export function navSession(dir: 1 | -1) {
-    const visible = new Set(displayRows.map((d) => d.s.id))
+    const visible = new Set(filteredRows.map((d) => d.s.id))
     if (!visible.size) return
 
     // break focus on the composer so Enter/Escape fall through to the
@@ -443,7 +577,7 @@
     }
 
     // first press: snapshot the current display order
-    if (!navOrder) navOrder = displayRows.map((d) => d.s.id)
+    if (!navOrder) navOrder = filteredRows.map((d) => d.s.id)
 
     // if the previously focused session disappeared (deleted / filtered out),
     // re-anchor at the same positional index (clamped to nearest visible)
@@ -571,6 +705,42 @@
     {/if}
   </div>
 
+  {#if !q.length && (uniqueTags.length || uniqueFolders.length)}
+    <div class="filterbar">
+      <button
+        class="filterchip"
+        class:active={filterStarred}
+        title="Show only starred sessions"
+        on:click={() => { filterStarred = !filterStarred }}
+      >
+        <span class="ficon">{filterStarred ? '★' : '☆'}</span>
+      </button>
+      {#each uniqueTags as tag}
+        <button
+          class="filterchip tagchip"
+          class:active={filterTags.has(tag)}
+          title="Filter by tag: {tag}"
+          on:click={() => toggleFilterTag(tag)}
+        >
+          {#if filterTags.has(tag)}<span class="ficon">✓</span>{/if}{tag}
+        </button>
+      {/each}
+      {#each uniqueFolders as folder}
+        <button
+          class="filterchip folderchip"
+          class:active={filterFolders.has(folder)}
+          title="Filter by folder: {folder}"
+          on:click={() => toggleFilterFolder(folder)}
+        >
+          {#if filterFolders.has(folder)}<span class="ficon">✓</span>{/if}📁 {folder}
+        </button>
+      {/each}
+      {#if hasFilters}
+        <button class="filterclear" title="Clear all filters" on:click={clearFilters}>×</button>
+      {/if}
+    </div>
+  {/if}
+
   <div class="list" class:flat={$hideSubagents}>
     {#if q.length >= 2}
       {#if searching}
@@ -606,7 +776,7 @@
           <input type="checkbox" bind:checked={$hideSubagents} /> hide subagents
         </label>
       </div>
-      {#each displayRows as d (d.s.id)}
+      {#each filteredRows as d (d.s.id)}
         <button
           class="item"
           class:sub-row={isSub(d.s)}
@@ -676,8 +846,37 @@
                   >{d.kids}</span
                 >
               {/if}
+              <!-- star button: always visible when starred, hover-reveal otherwise -->
+              <button
+                class="star"
+                class:starred={$sessionMeta[d.s.id]?.star}
+                title={$sessionMeta[d.s.id]?.star ? 'Unstar session' : 'Star session'}
+                on:click|stopPropagation={() => toggleStar(d.s.id)}
+              >
+                {$sessionMeta[d.s.id]?.star ? '★' : '☆'}
+              </button>
             </span>
           </span>
+          <!-- tag chips row (only when tags exist) -->
+          {#if $sessionMeta[d.s.id]?.tags?.length}
+            <span class="tagrow">
+              {#each $sessionMeta[d.s.id].tags as tag}
+                <span
+                  class="tagspan"
+                  role="button"
+                  tabindex="-1"
+                  title="Tag: {tag}"
+                  on:click|stopPropagation={(e) => openTagPopover(e, d.s.id)}
+                  on:keydown|stopPropagation={(e) => { if (e.key === 'Enter') openTagPopover(e, d.s.id) }}
+                >{tag}</span>
+              {/each}
+              <button
+                class="addtagbtn"
+                title="Add tag"
+                on:click|stopPropagation={(e) => openTagPopover(e, d.s.id)}
+              >+</button>
+            </span>
+          {/if}
           {#if pendingDeleteId === d.s.id}
             <span class="delconfirm">
               <button class="delbtn yes" title="Confirm delete" on:click|stopPropagation={() => confirmDelete(d.s.id)}>Yes</button>
@@ -716,6 +915,40 @@
     <kbd>Alt+T/W</kbd> tabs ·
     <kbd>Alt+←→</kbd> cycle · <kbd>Alt+↑↓</kbd> sessions
   </div>
+
+  {#if tagPopoverSid && tagPopoverAnchor}
+    <TagPopover sid={tagPopoverSid} anchor={tagPopoverAnchor} onClose={closeTagPopover} />
+  {/if}
+
+  {#if folderPickerSid && folderPickerAnchor}
+    {@const frect = folderPickerAnchor.getBoundingClientRect()}
+    <div
+      class="folderpicker"
+      style="position:fixed;top:{Math.min(frect.bottom + 4, window.innerHeight - 220)}px;left:{Math.min(frect.left, window.innerWidth - 200)}px;z-index:100"
+    >
+      <div class="fpheader">Move to folder</div>
+      {#if $sessionMeta[folderPickerSid]?.folder}
+        <button class="fpopt" on:click={clearFolder}>
+          <span class="fpclear">✕</span> Remove from folder
+        </button>
+      {/if}
+      {#each uniqueFolders as folder}
+        <button
+          class="fpopt"
+          class:current={folder === $sessionMeta[folderPickerSid]?.folder}
+          on:click={() => assignFolder(folder)}
+        >📁 {folder}</button>
+      {/each}
+      <div class="fpnew">
+        <input
+          bind:value={newFolderName}
+          placeholder="New folder…"
+          on:keydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); createAndAssignFolder() } if (e.key === 'Escape') closeFolderPicker() }}
+        />
+        <button class="fpnewbtn" disabled={!newFolderName.trim()} on:click={createAndAssignFolder}>+</button>
+      </div>
+    </div>
+  {/if}
 </aside>
 
 <style>
@@ -1206,5 +1439,232 @@
     z-index: 1;
     background: var(--bg-panel);
     border-radius: 4px;
+  }
+
+  /* ---- filter bar -------------------------------------------------------- */
+  .filterbar {
+    display: flex;
+    gap: 4px;
+    padding: 6px 10px;
+    overflow-x: auto;
+    scrollbar-width: none;
+    flex-wrap: wrap;
+  }
+  .filterbar::-webkit-scrollbar {
+    display: none;
+  }
+  .filterchip {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    padding: 3px 8px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: var(--bg);
+    color: var(--fg-dim);
+    font-size: 11px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background 0.12s, border-color 0.12s, color 0.12s;
+  }
+  .filterchip:hover {
+    background: var(--bg-hover);
+    border-color: var(--accent);
+    color: var(--fg);
+  }
+  .filterchip.active {
+    background: color-mix(in srgb, var(--accent) 15%, transparent);
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  .filterchip .ficon {
+    font-size: 10px;
+    line-height: 1;
+  }
+  .filterclear {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    border: none;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--fg-dim);
+    font-size: 14px;
+    cursor: pointer;
+    align-self: center;
+  }
+  .filterclear:hover {
+    background: var(--bg-hover);
+    color: var(--fg);
+  }
+
+  /* ---- star button ------------------------------------------------------- */
+  .star {
+    flex: none;
+    width: 20px;
+    height: 20px;
+    border: none;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--fg-dim);
+    font-size: 13px;
+    line-height: 1;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    opacity: 0;
+    transition: opacity 0.12s, color 0.12s;
+  }
+  .item:hover .star,
+  .star.starred {
+    opacity: 1;
+  }
+  .star.starred {
+    color: var(--accent);
+  }
+  .star:hover {
+    background: var(--bg-hover);
+    color: var(--accent);
+  }
+
+  /* ---- tag chips --------------------------------------------------------- */
+  .tagrow {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 3px;
+    padding-left: calc(var(--chevw) + var(--rowgap) + var(--dotw) + var(--rowgap));
+  }
+  .tagspan {
+    display: inline-flex;
+    align-items: center;
+    padding: 1px 6px;
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    color: var(--fg-dim);
+    font-size: 10px;
+    cursor: pointer;
+    white-space: nowrap;
+    line-height: 1.5;
+    transition: background 0.12s;
+  }
+  .tagspan:hover {
+    background: color-mix(in srgb, var(--accent) 22%, transparent);
+    color: var(--fg);
+  }
+  .addtagbtn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    border: 1px dashed var(--border);
+    border-radius: 8px;
+    background: transparent;
+    color: var(--fg-dim);
+    font-size: 11px;
+    cursor: pointer;
+    padding: 0;
+    line-height: 1;
+    opacity: 0;
+    transition: opacity 0.12s;
+  }
+  .item:hover .addtagbtn {
+    opacity: 1;
+  }
+  .addtagbtn:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+
+  /* ---- folder picker popover --------------------------------------------- */
+  .folderpicker {
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.25);
+    min-width: 180px;
+    max-width: 240px;
+    font-size: 12px;
+    padding: 6px;
+  }
+  .fpheader {
+    padding: 4px 8px 2px;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--fg-dim);
+  }
+  .fpopt {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    padding: 5px 8px;
+    background: transparent;
+    border: none;
+    border-radius: 4px;
+    color: var(--fg);
+    font-size: 12px;
+    cursor: pointer;
+    text-align: left;
+  }
+  .fpopt:hover {
+    background: var(--bg-hover);
+  }
+  .fpopt.current {
+    color: var(--accent);
+  }
+  .fpclear {
+    color: var(--fg-dim);
+    font-size: 11px;
+  }
+  .fpnew {
+    display: flex;
+    gap: 4px;
+    padding-top: 4px;
+    border-top: 1px solid var(--border);
+    margin-top: 2px;
+  }
+  .fpnew input {
+    flex: 1;
+    min-width: 0;
+    background: var(--bg);
+    color: var(--fg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 4px 6px;
+    font-size: 11.5px;
+    outline: none;
+  }
+  .fpnew input:focus {
+    border-color: var(--accent);
+  }
+  .fpnewbtn {
+    flex: none;
+    width: 26px;
+    background: var(--accent);
+    color: var(--bg-panel);
+    border: none;
+    border-radius: 4px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+  }
+  .fpnewbtn:hover:not(:disabled) {
+    filter: brightness(1.15);
+  }
+  .fpnewbtn:disabled {
+    opacity: 0.4;
+    cursor: default;
   }
 </style>
