@@ -602,6 +602,10 @@ export function toggleInfo() {
     return !v
   })
 }
+export function closeInfo() {
+  infoOpen.set(false)
+  try { localStorage.setItem(INFO_KEY, '0') } catch {}
+}
 
 const MCP_KEY = 'opencode.mcpOpen'
 export const mcpOpen = writable(
@@ -620,6 +624,10 @@ export function toggleMcp() {
     } catch {}
     return !v
   })
+}
+export function closeMcp() {
+  mcpOpen.set(false)
+  try { localStorage.setItem(MCP_KEY, '0') } catch {}
 }
 
 // ---- selected model (persisted) ----
