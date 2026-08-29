@@ -368,8 +368,26 @@ try {
     }, 6000);
     check('C', 'SSE-arrived notice rendered as .subres', !!arrived);
     if (arrived) {
-      const roleT3 = (await rowT3.locator('.role.subrole').innerText()).replace(/\s+/g, ' ').trim();
-      check('C', 'live notice labeled "✓ subagent"', /✓\s*subagent/i.test(roleT3), roleT3);
+      // The .subres class and the .role.subrole text land in separate DOM writes
+      // during the SSE part→meta flip (upsertPart seeds role:'assistant', then
+      // message.updated corrects it to 'user' which makes taskNoticeOf truthy).
+      // Poll for the *label* to actually read "✓ subagent" instead of reading it
+      // on the first frame the class appears — otherwise a slow CI run can sample
+      // the row before its label text node is committed (empty innerText → flake).
+      const labelOk = await poll(async () => {
+        try {
+          const role = (await rowT3.locator('.role.subrole').innerText()).replace(/\s+/g, ' ').trim();
+          return /✓\s*subagent/i.test(role);
+        } catch {
+          return false;
+        }
+      }, 6000);
+      const roleT3 = await rowT3
+        .locator('.role.subrole')
+        .innerText()
+        .then((t) => t.replace(/\s+/g, ' ').trim())
+        .catch(() => '');
+      check('C', 'live notice labeled "✓ subagent"', labelOk, roleT3);
       check('C', 'live notice collapsed by default', (await rowT3.locator('details.tnote').evaluate((el) => el.open)) === false);
     }
     await sleep(700); // cover refetch debounce settling
