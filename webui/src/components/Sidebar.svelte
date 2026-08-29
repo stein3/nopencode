@@ -354,21 +354,28 @@ import { sidePanel } from '../lib/sidePanel'
   }
 
   // apply organization filters to displayRows
-  function applyOrgFilters(rows: Disp[]): Disp[] {
-    if (!hasFilters) return rows
+  // All filter state passed explicitly so Svelte tracks them as reactive deps
+  function applyOrgFilters(
+    rows: Disp[],
+    starred: boolean,
+    tags: Set<string>,
+    folders: Set<string>,
+    meta: Record<string, any>,
+  ): Disp[] {
+    if (!starred && tags.size === 0 && folders.size === 0) return rows
     return rows.filter((d) => {
-      const m = $sessionMeta[d.s.id]
-      if (filterStarred && !m?.star) return false
-      if (filterTags.size > 0) {
-        const tags = m?.tags
-        if (!tags) return false
-        for (const ft of filterTags) {
-          if (!tags.includes(ft)) return false
+      const m = meta[d.s.id]
+      if (starred && !m?.star) return false
+      if (tags.size > 0) {
+        const t = m?.tags
+        if (!t) return false
+        for (const ft of tags) {
+          if (!t.includes(ft)) return false
         }
       }
-      if (filterFolders.size > 0) {
+      if (folders.size > 0) {
         const folder = m?.folder
-        if (!folder || !filterFolders.has(folder)) return false
+        if (!folder || !folders.has(folder)) return false
       }
       return true
     })
@@ -530,7 +537,8 @@ import { sidePanel } from '../lib/sidePanel'
     : flattenTree(roots, kidsMap, $subExpanded, busyMap, permSet, qSet, $sessionUnread)
 
   // apply organization filters (star, tag, folder)
-  $: filteredRows = applyOrgFilters(displayRows)
+  // All filter state passed explicitly so Svelte tracks reactivity
+  $: filteredRows = applyOrgFilters(displayRows, filterStarred, filterTags, filterFolders, $sessionMeta)
 
   // group filtered rows by folder (folders appear as section headers)
   // unfoldered sessions stay inline; starred sessions without a folder stay inline
