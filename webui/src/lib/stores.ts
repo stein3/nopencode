@@ -611,6 +611,10 @@ const MCP_KEY = 'opencode.mcpOpen'
 export const mcpOpen = writable(
   (() => {
     try {
+      // On small/mobile viewports, never auto-open the MCP panel on load —
+      // it dominates the narrow screen. Desktop respects the persisted choice.
+      const isMobile = typeof window !== 'undefined' && window.matchMedia('(max-width: 600px)').matches
+      if (isMobile) return false
       return localStorage.getItem(MCP_KEY) === '1'
     } catch {
       return false
