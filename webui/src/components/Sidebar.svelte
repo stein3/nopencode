@@ -327,6 +327,7 @@
   // collect all unique tags and folders from sessionMeta (reactive)
   $: uniqueTags = allTags($sessionMeta)
   $: uniqueFolders = allFolders($sessionMeta)
+  $: hasStars = Object.values($sessionMeta).some((m) => m?.star)
 
   // any active filters?
   $: hasFilters = filterStarred || filterTags.size > 0 || filterFolders.size > 0
@@ -705,7 +706,7 @@
     {/if}
   </div>
 
-  {#if !q.length && (uniqueTags.length || uniqueFolders.length)}
+  {#if !q.length && (hasStars || uniqueTags.length || uniqueFolders.length)}
     <div class="filterbar">
       <button
         class="filterchip"
@@ -732,7 +733,7 @@
           title="Filter by folder: {folder}"
           on:click={() => toggleFilterFolder(folder)}
         >
-          {#if filterFolders.has(folder)}<span class="ficon">✓</span>{/if}📁 {folder}
+          {#if filterFolders.has(folder)}<span class="ficon">✓</span>{/if}🏷️ {folder}
         </button>
       {/each}
       {#if hasFilters}
@@ -878,6 +879,11 @@
               >
                 {$sessionMeta[d.s.id]?.star ? '★' : '☆'}
               </button>
+              <button
+                class="folderbtn"
+                title="Move to folder"
+                on:click={(e) => openFolderPicker(e, d.s.id)}
+              >🏷️</button>
               {#if pendingDeleteId === d.s.id}
                 <span class="delconfirm">
                   <button class="delbtn yes" title="Confirm delete" on:click|stopPropagation={() => confirmDelete(d.s.id)}>Yes</button>
@@ -937,7 +943,7 @@
           class="fpopt"
           class:current={folder === $sessionMeta[folderPickerSid]?.folder}
           on:click={() => assignFolder(folder)}
-        >📁 {folder}</button>
+        >🏷️ {folder}</button>
       {/each}
       <div class="fpnew">
         <input
@@ -1511,6 +1517,28 @@
     color: var(--accent);
   }
   .star:hover {
+    background: var(--bg-hover);
+    color: var(--accent);
+  }
+
+  /* ---- folder button ------------------------------------------------------ */
+  .folderbtn {
+    flex: none;
+    width: 20px;
+    height: 20px;
+    border: none;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--fg-dim);
+    font-size: 13px;
+    line-height: 1;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+  }
+  .folderbtn:hover {
     background: var(--bg-hover);
     color: var(--accent);
   }
