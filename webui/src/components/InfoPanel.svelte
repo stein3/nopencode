@@ -12,9 +12,11 @@
     pendingQuestions,
     sessionUnread,
     sessionListDirty,
+    infoOpen,
   } from '../lib/stores'
   import { relTime } from '../lib/util'
   import type { Tab } from '../lib/stores'
+import { sidePanel } from '../lib/sidePanel'
 
   export let tab: Tab | null
   // linked-session rows open the child session (App wires this to openHistory)
@@ -229,7 +231,7 @@
   }
 </script>
 
-<aside class="info">
+<aside class="info" use:sidePanel={{ side: 'right', getOpen: () => $infoOpen, setOpen: (v) => infoOpen.set(v) }}>
   <div class="head">
     <span class="ttl" title={tab?.title}>{tab?.title ?? 'no session'}</span>
     {#if tab?.id}
