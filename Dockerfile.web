@@ -1,0 +1,17 @@
+# Build the webui (dist is not committed to the repo), then ship a slim python
+# image that serves it and proxies live traffic to the engine.
+# The engine backend URL is supplied at RUNTIME via the OC_ENGINE env var
+# (see compose.yaml) — nothing here is baked in.
+FROM node:23-slim AS webui-build
+WORKDIR /build/webui
+COPY webui/package.json webui/package-lock.json ./
+RUN npm ci --no-audit --no-fund
+COPY webui/ .
+RUN npm run build
+
+FROM python:3.12-slim
+WORKDIR /app
+COPY chatserver.py /app/chatserver.py
+COPY --from=webui-build /build/webui/dist /app/webui/dist
+EXPOSE 7683
+CMD ["python3", "/app/chatserver.py"]
