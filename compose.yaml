@@ -85,11 +85,11 @@ services:
     <<: *limits
     mem_limit: 256m
     cpus: 0.5
-    image: nopencode:latest
+    image: opencode-web:latest
     container_name: opencode-web
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.web
     restart: unless-stopped
     entrypoint: ["python3"]
     command: ["/app/chatserver.py"]
@@ -100,6 +100,10 @@ services:
     environment:
       - PORT=7683
       - OC_ENGINE=http://opencode-engine:4096
+      # chatserver.py defaults OC_DB to ~/.local/share/opencode/opencode.db.
+      # This image runs as root (python:3.12-slim), so ~ would resolve to /root;
+      # pin it to the mounted share (the old monolithic image ran as USER node).
+      - OC_DB=/home/node/.local/share/opencode/opencode.db
     depends_on:
       - opencode-engine
 
