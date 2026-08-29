@@ -603,6 +603,25 @@ export function toggleInfo() {
   })
 }
 
+const MCP_KEY = 'opencode.mcpOpen'
+export const mcpOpen = writable(
+  (() => {
+    try {
+      return localStorage.getItem(MCP_KEY) === '1'
+    } catch {
+      return false
+    }
+  })(),
+)
+export function toggleMcp() {
+  mcpOpen.update((v) => {
+    try {
+      localStorage.setItem(MCP_KEY, v ? '0' : '1')
+    } catch {}
+    return !v
+  })
+}
+
 // ---- selected model (persisted) ----
 export interface ModelRef {
   providerID: string

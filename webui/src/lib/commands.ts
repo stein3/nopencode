@@ -14,6 +14,7 @@ import {
   modelPickerOpen,
   renameTarget,
   settingsOpen,
+  mcpOpen,
   cmdVersion,
   type DialogSpec,
 } from './stores'
@@ -382,24 +383,7 @@ registry.builtins = [
     title: 'Toggle MCPs',
     category: 'System',
     run: async () => {
-      const mcps = (await oc.mcps()) as Record<string, any>
-      const names = Object.keys(mcps ?? {})
-      if (!names.length) return toast('no MCP servers configured')
-      const connected = (m: any) => m?.status === 'connected' || m?.enabled === true
-      openDialog({
-        title: 'MCP servers',
-        rows: names.map((n) => ({
-          label: n,
-          desc: `${mcps[n]?.type ?? 'local'} · ${connected(mcps[n]) ? 'connected' : mcps[n]?.status || 'disconnected'}`,
-          onPick: () => {
-            const on = connected(mcps[n])
-            oc.mcpToggle(n, !on)
-              .then(() => toast(`${n} ${!on ? 'connect requested' : 'disconnect requested'}`))
-              .catch((e) => toast(`toggle failed: ${e.message ?? e}`))
-          },
-        })),
-        note: 'click a server to connect/disconnect',
-      })
+      mcpOpen.set(true)
     },
   },
   {
