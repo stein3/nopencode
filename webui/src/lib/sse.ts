@@ -153,6 +153,14 @@ export function pumpQueue(sid: string) {
 }
 
 function scheduleRefetch(sessionId: string) {
+  // Never refetch while a turn is streaming. GET /message returns the engine's
+  // server-persisted snapshot, which for an in-progress reasoning part (and the
+  // turn's messages overall) can lag the SSE deltas already accumulated locally.
+  // Replacing Tab.messages with that snapshot mid-turn blanks the live thinking
+  // text and the recent history until the turn finishes — the bug this fixes.
+  // Deltas + message.part.updated keep the transcript current; once busy flips
+  // false a refetch reconciles against the now-complete engine state.
+  if (tabs.snapshot(sessionId)?.busy) return
   tabs.patch(sessionId, { dirty: true })
   const prev = timers.get(sessionId)
   if (prev) clearTimeout(prev)
@@ -328,14 +336,7 @@ export function startEvents() {
       // assistant message info carries the live token tally + per-message cost
       const tally = tokenTally(p.info.tokens)
       if (tally !== undefined) patchMetrics(sid, { tokens: tally })
-      // Don't refetch mid-stream: GET /message returns the engine's
-      // server-persisted snapshot, which for an in-progress reasoning part can
-      // carry less text than the deltas already accumulated locally. Refetching
-      // here (with dirty:true forcing a wholesale message replacement) would
-      // overwrite the live thinking text and make it vanish. Deltas +
-      // message.part.updated keep the message current during the turn; final
-      // reconciliation happens on session.idle via Footer's refresh().
-      if (!tabs.snapshot(sid)?.busy) scheduleRefetch(sid)
+      scheduleRefetch(sid)
     } else     if (type === 'session.deleted' && p.sessionID) {
       // close the tab if the deleted session was open
       if (tabs.isopen(p.sessionID)) tabs.close(p.sessionID)
