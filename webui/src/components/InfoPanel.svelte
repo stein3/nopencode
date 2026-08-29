@@ -121,7 +121,7 @@
     return sum
   })()
   $: usedTokens = ownTokens + rolledUpTokens
-  $: pct = limit ? Math.min(100, (usedTokens / limit) * 100) : 0
+  $: pct = limit ? Math.min(100, (ownTokens / limit) * 100) : 0
   // rolled-up cost from linked HistSession children (fetched via refreshLinked)
   $: rolledUpCost = kids.reduce((s, k) => s + (k.cost ?? 0), 0)
 
