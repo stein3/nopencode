@@ -820,6 +820,147 @@ export function clearRecentModels() {
   }
 }
 
+// ---- per-session metadata (stars, tags, folders) ----------------------------
+// Client-only organization: stars (favorites), tags, and folder assignments.
+// Persisted in localStorage like sessionAgents/sessionModels — same recency
+// cap, same wipe-on-clearLocalData path (already covered by the opencode.*
+// prefix match).
+export interface SessionMeta {
+  star?: boolean
+  tags?: string[]
+  folder?: string
+}
+
+const SESSION_META_KEY = 'opencode.sessionMeta'
+const SESSION_META_CAP = 200
+
+function loadSessionMeta(): Record<string, SessionMeta> {
+  try {
+    const raw = localStorage.getItem(SESSION_META_KEY)
+    const obj = raw ? JSON.parse(raw) : null
+    if (obj && typeof obj === 'object' && !Array.isArray(obj)) {
+      const out: Record<string, SessionMeta> = {}
+      for (const [k, v] of Object.entries(obj)) {
+        if (k && typeof v === 'object' && v !== null) out[k] = v as SessionMeta
+      }
+      return out
+    }
+  } catch {
+    /* private mode */
+  }
+  return {}
+}
+
+function persistSessionMeta(all: Record<string, SessionMeta>) {
+  try {
+    localStorage.setItem(SESSION_META_KEY, JSON.stringify(all))
+  } catch {
+    /* private mode */
+  }
+}
+
+export const sessionMeta = writable<Record<string, SessionMeta>>(loadSessionMeta())
+
+// Sync read for paths outside Svelte reactivity
+export function getSessionMeta(sid: string): SessionMeta | undefined {
+  if (!sid) return undefined
+  let v: SessionMeta | undefined
+  sessionMeta.subscribe((all) => (v = all[sid]))()
+  return v
+}
+
+// Recency-capped mutation — re-appends the sid as most-recently-updated
+function mutateMeta(sid: string, patch: SessionMeta) {
+  if (!sid) return
+  sessionMeta.update((all) => {
+    const next: Record<string, SessionMeta> = {}
+    for (const [k, v] of Object.entries(all)) if (k !== sid) next[k] = v
+    next[sid] = { ...next[sid], ...patch }
+    const keys = Object.keys(next)
+    for (const k of keys.slice(0, Math.max(0, keys.length - SESSION_META_CAP))) delete next[k]
+    persistSessionMeta(next)
+    return next
+  })
+}
+
+export function toggleStar(sid: string) {
+  if (!sid) return
+  sessionMeta.update((all) => {
+    const cur = all[sid]
+    const starred = !(cur?.star)
+    const next: Record<string, SessionMeta> = {}
+    for (const [k, v] of Object.entries(all)) if (k !== sid) next[k] = v
+    if (starred) next[sid] = { ...cur, star: true }
+    else if (cur) {
+      const { star: _, ...rest } = cur
+      if (rest.tags?.length || rest.folder) next[sid] = rest
+    }
+    const keys = Object.keys(next)
+    for (const k of keys.slice(0, Math.max(0, keys.length - SESSION_META_CAP))) delete next[k]
+    persistSessionMeta(next)
+    return next
+  })
+}
+
+export function setTags(sid: string, tags: string[]) {
+  if (!sid) return
+  mutateMeta(sid, { tags: tags.length ? tags : undefined })
+}
+
+export function addTag(sid: string, tag: string) {
+  if (!sid || !tag) return
+  sessionMeta.update((all) => {
+    const cur = all[sid] ?? {}
+    const existing = cur.tags ?? []
+    if (existing.includes(tag)) return all
+    const next: Record<string, SessionMeta> = {}
+    for (const [k, v] of Object.entries(all)) if (k !== sid) next[k] = v
+    next[sid] = { ...cur, tags: [...existing, tag] }
+    persistSessionMeta(next)
+    return next
+  })
+}
+
+export function removeTag(sid: string, tag: string) {
+  if (!sid || !tag) return
+  sessionMeta.update((all) => {
+    const cur = all[sid]
+    if (!cur?.tags?.includes(tag)) return all
+    const next: Record<string, SessionMeta> = {}
+    for (const [k, v] of Object.entries(all)) if (k !== sid) next[k] = v
+    const tags = cur.tags.filter((t) => t !== tag)
+    if (tags.length) next[sid] = { ...cur, tags }
+    else if (cur.star || cur.folder) next[sid] = { ...cur, tags: undefined }
+    const keys = Object.keys(next)
+    for (const k of keys.slice(0, Math.max(0, keys.length - SESSION_META_CAP))) delete next[k]
+    persistSessionMeta(next)
+    return next
+  })
+}
+
+export function setFolder(sid: string, folder: string | undefined) {
+  if (!sid) return
+  mutateMeta(sid, { folder })
+}
+
+// Collect all unique tags across all sessions
+export function allTags(meta: Record<string, SessionMeta>): string[] {
+  const set = new Set<string>()
+  for (const v of Object.values(meta)) {
+    if (v.tags) for (const t of v.tags) set.add(t)
+  }
+  return [...set].sort()
+}
+
+// Collect all unique folder names across all sessions
+export function allFolders(meta: Record<string, SessionMeta>): string[] {
+  const set = new Set<string>()
+  for (const v of Object.values(meta)) {
+    if (v.folder) set.add(v.folder)
+  }
+  return [...set].sort()
+}
+
 // ---- destructive: wipe every local preference --------------------------------
 // Every app key in localStorage is namespaced `opencode.` (prefs, model/agent
 // picks, recents, open-tab restore, expanded subagent groups), so the settings
