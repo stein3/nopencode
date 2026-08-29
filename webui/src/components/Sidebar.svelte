@@ -846,15 +846,6 @@
                   >{d.kids}</span
                 >
               {/if}
-              <!-- star button: always visible when starred, hover-reveal otherwise -->
-              <button
-                class="star"
-                class:starred={$sessionMeta[d.s.id]?.star}
-                title={$sessionMeta[d.s.id]?.star ? 'Unstar session' : 'Star session'}
-                on:click|stopPropagation={() => toggleStar(d.s.id)}
-              >
-                {$sessionMeta[d.s.id]?.star ? '★' : '☆'}
-              </button>
             </span>
           </span>
           <!-- tag chips row (only when tags exist) -->
@@ -877,24 +868,33 @@
               >+</button>
             </span>
           {/if}
-          {#if pendingDeleteId === d.s.id}
-            <span class="delconfirm">
-              <button class="delbtn yes" title="Confirm delete" on:click|stopPropagation={() => confirmDelete(d.s.id)}>Yes</button>
-              <button class="delbtn no" title="Cancel" on:click|stopPropagation={cancelDelete}>No</button>
-            </span>
-          {:else}
-            <button class="delbtn" title="Delete session" on:click|stopPropagation={() => requestDelete(d.s.id)}>
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <polyline points="3 6 5 6 21 6"/>
-                <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
-                <path d="M10 11v6"/>
-                <path d="M14 11v6"/>
-                <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
-              </svg>
-            </button>
-          {/if}
           <span class="sub"
-            ><span
+            >{#if !isSub(d.s)}
+              <button
+                class="star"
+                class:starred={$sessionMeta[d.s.id]?.star}
+                title={$sessionMeta[d.s.id]?.star ? 'Unstar session' : 'Star session'}
+                on:click={() => toggleStar(d.s.id)}
+              >
+                {$sessionMeta[d.s.id]?.star ? '★' : '☆'}
+              </button>
+              {#if pendingDeleteId === d.s.id}
+                <span class="delconfirm">
+                  <button class="delbtn yes" title="Confirm delete" on:click|stopPropagation={() => confirmDelete(d.s.id)}>Yes</button>
+                  <button class="delbtn no" title="Cancel" on:click|stopPropagation={cancelDelete}>No</button>
+                </span>
+              {:else}
+                <button class="delbtn" title="Delete session" on:click={() => requestDelete(d.s.id)}>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="3 6 5 6 21 6"/>
+                    <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+                    <path d="M10 11v6"/>
+                    <path d="M14 11v6"/>
+                    <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
+                  </svg>
+                </button>
+              {/if}
+            {/if}<span
                 class="smeta"
               >{#if isSub(d.s)}<span class="subagent">{subLabel(d.s)}</span> · {/if}{d.s.message_count} msgs{fmtK(
                   effTokens(d.s)
@@ -1373,13 +1373,8 @@
     padding: 0 4px;
     font-size: 10px;
   }
-  /* delete button: absolutely positioned on the right edge of the row
-     so it never takes flex space or shifts kidcount/stime */
   .delbtn {
-    position: absolute;
-    right: 4px;
-    top: 50%;
-    transform: translateY(-50%);
+    position: static;
     width: 24px;
     height: 24px;
     border: none;
@@ -1392,13 +1387,8 @@
     justify-content: center;
     padding: 0;
     line-height: 1;
-    opacity: 0;
-    transition: opacity 0.12s;
-    z-index: 1;
-  }
-  .item:hover > .delbtn,
-  .delconfirm .delbtn {
     opacity: 1;
+    transition: none;
   }
   .delbtn:hover {
     background: var(--bg-hover);
@@ -1430,13 +1420,9 @@
     color: var(--fg);
   }
   .delconfirm {
-    position: absolute;
-    right: 4px;
-    top: 50%;
-    transform: translateY(-50%);
+    position: static;
     display: inline-flex;
     gap: 2px;
-    z-index: 1;
     background: var(--bg-panel);
     border-radius: 4px;
   }
@@ -1518,12 +1504,8 @@
     align-items: center;
     justify-content: center;
     padding: 0;
-    opacity: 0;
-    transition: opacity 0.12s, color 0.12s;
-  }
-  .item:hover .star,
-  .star.starred {
     opacity: 1;
+    transition: color 0.12s;
   }
   .star.starred {
     color: var(--accent);
