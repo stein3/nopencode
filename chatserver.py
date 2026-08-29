@@ -40,6 +40,7 @@ import json
 import mimetypes
 import os
 import re
+import secrets
 import sqlite3
 import threading
 import time
@@ -62,6 +63,11 @@ WEBUI_DIST = os.path.abspath(
 SNIPPET_CTX = 70
 SEARCH_CAP = 300
 WORKTREE = "/workspace/"
+
+# Placeholder Vite injects as the `nonce` attribute on inline <script>/<style>
+# in the built index.html; static() swaps it for a fresh per-request nonce and
+# sets the matching CSP script-src.
+CSP_NONCE_PLACEHOLDER = "OPENCODE_CSP_NONCE"
 
 # Context-size estimate summed from one assistant message's engine tokens.
 TOKEN_SUM_SQL = (
@@ -599,9 +605,40 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
         pass
 
+    def _apply_security(self, nonce):
+        # Strict CSP. Scripts are locked to same-origin + this nonce (no inline
+        # scripts can execute). Styles allow 'unsafe-inline' because Svelte
+        # component style: directives compile to inline style= attributes; the
+        # CSS-injection defense lives in DOMPurify (FORBID_TAGS/FORBID_ATTR
+        # ['style']), which strips every style= from untrusted message content.
+        csp = (
+            "default-src 'none'; "
+            "script-src 'self' 'nonce-{nonce}'; "
+            "style-src 'self' 'unsafe-inline'; "
+            "img-src 'self' data:; "
+            "font-src 'self'; "
+            "connect-src 'self'; "
+            "object-src 'none'; "
+            "frame-ancestors 'none'; "
+            "base-uri 'self'; "
+            "form-action 'self'; "
+            "trusted-types dompurify; "
+            "upgrade-insecure-requests"
+        ).format(nonce=nonce)
+        self.send_header("Content-Security-Policy", csp)
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("X-Frame-Options", "DENY")
+        self.send_header("Referrer-Policy", "strict-origin-when-cross-origin")
+        self.send_header(
+            "Permissions-Policy",
+            "camera=(), microphone=(), geolocation=(), payment=(), usb=(), "
+            "magnetometer=(), gyroscope=()",
+        )
+
     # ---- helpers ---------------------------------------------------------
     def send_json(self, obj, code=200):
         body = json.dumps(obj).encode()
+        nonce = secrets.token_urlsafe(32)
         self.send_response(code)
         self.send_header("Content-Type", "application/json")
         # On-the-fly gzip for large payloads (patch-heavy /changes responses
@@ -611,14 +648,17 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Encoding", "gzip")
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
+        self._apply_security(nonce)
         self.end_headers()
         self.wfile.write(body)
 
     def send_text(self, text, code=200, ctype="text/plain; charset=utf-8"):
         body = text.encode()
+        nonce = secrets.token_urlsafe(32)
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
+        self._apply_security(nonce)
         self.end_headers()
         self.wfile.write(body)
 
@@ -745,9 +785,11 @@ class Handler(BaseHTTPRequestHandler):
         cache_control = "public, max-age=31536000, immutable" if immutable else "no-cache"
 
         if etag in (self.headers.get("If-None-Match") or ""):
+            nonce = secrets.token_urlsafe(32)
             self.send_response(304)
             self.send_header("ETag", etag)
             self.send_header("Cache-Control", cache_control)
+            self._apply_security(nonce)
             self.end_headers()
             return
 
@@ -755,19 +797,28 @@ class Handler(BaseHTTPRequestHandler):
         accept = self.headers.get("Accept-Encoding") or ""
         encoding = None
         body_path = full
-        if "br" in accept and os.path.isfile(full + ".br"):
-            encoding, body_path = "br", full + ".br"
-        elif "gzip" in accept and os.path.isfile(full + ".gz"):
-            encoding, body_path = "gzip", full + ".gz"
+        # Skip precompressed siblings for HTML — nonce replacement needs the
+        # uncompressed bytes containing the ASCII placeholder string.
+        if ctype != "text/html":
+            if "br" in accept and os.path.isfile(full + ".br"):
+                encoding, body_path = "br", full + ".br"
+            elif "gzip" in accept and os.path.isfile(full + ".gz"):
+                encoding, body_path = "gzip", full + ".gz"
 
         with open(body_path, "rb") as f:
             body = f.read()
+        nonce = secrets.token_urlsafe(32)
+        # Swap Vite's nonce placeholder for a fresh per-request nonce so the
+        # strict script-src 'nonce-…' matches the inline theme <script>.
+        if CSP_NONCE_PLACEHOLDER.encode() in body:
+            body = body.replace(CSP_NONCE_PLACEHOLDER.encode(), nonce.encode())
         self.send_response(200)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", cache_control)
         self.send_header("ETag", etag)
         self.send_header("Vary", "Accept-Encoding")
+        self._apply_security(nonce)
         if encoding:
             self.send_header("Content-Encoding", encoding)
         self.end_headers()

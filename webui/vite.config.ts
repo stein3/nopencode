@@ -14,17 +14,26 @@ const monacoCodiconCss = fileURLToPath(
 
 // Dev mode proxies: `npm run dev` expects a local engine on :4096
 // and chatserver.py on :8080. Production serves everything same-origin.
+// Engine URL is overridable via OC_ENGINE (default :4096) so `npm run dev`
+// can target any local `opencode serve` instance.
+const ocEngine = process.env.OC_ENGINE || 'http://127.0.0.1:4096'
 export default defineConfig({
   plugins: [svelte()],
   resolve: {
     alias: [{ find: 'monaco-codicons.css', replacement: monacoCodiconCss }],
+  },
+  html: {
+    // Emit a stable nonce placeholder into inline <script>/<style> tags in the
+    // built index.html; chatserver.py swaps it for a per-request nonce and sets
+    // the matching CSP script-src (strict: no inline scripts can execute).
+    cspNonce: 'OPENCODE_CSP_NONCE',
   },
   server: {
     host: true, // listen on 0.0.0.0 so desktops can reach http://<ip>:5173
     port: 5173,
     proxy: {
       '/oc': {
-        target: 'http://127.0.0.1:4096',
+        target: ocEngine,
         changeOrigin: true,
         rewrite: (p) => p.replace(/^\/oc/, ''),
       },
