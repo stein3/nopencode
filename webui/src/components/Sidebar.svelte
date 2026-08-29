@@ -890,9 +890,15 @@ import { sidePanel } from '../lib/sidePanel'
               </button>
               <button
                 class="folderbtn"
+                class:foldered={$sessionMeta[d.s.id]?.folder}
                 title="Move to folder"
                 on:click={(e) => openFolderPicker(e, d.s.id)}
-              >🏷️</button>
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z" />
+                  <line x1="7" y1="7" x2="7.01" y2="7" />
+                </svg>
+              </button>
               {#if pendingDeleteId === d.s.id}
                 <span class="delconfirm">
                   <button class="delbtn yes" title="Confirm delete" on:click|stopPropagation={() => confirmDelete(d.s.id)}>Yes</button>
@@ -1551,10 +1557,17 @@ import { sidePanel } from '../lib/sidePanel'
     align-items: center;
     justify-content: center;
     padding: 0;
+    /* svg icon inherits currentColor → mono outline like star/trash */
+    transition: color 0.12s, background 0.12s, filter 0.12s;
+  }
+  .folderbtn.foldered {
+    color: var(--accent);
+    filter: drop-shadow(0 0 4px color-mix(in srgb, var(--accent) 45%, transparent));
   }
   .folderbtn:hover {
     background: var(--bg-hover);
     color: var(--accent);
+    filter: drop-shadow(0 0 5px color-mix(in srgb, var(--accent) 55%, transparent));
   }
 
   /* ---- tag chips --------------------------------------------------------- */
@@ -1568,18 +1581,22 @@ import { sidePanel } from '../lib/sidePanel'
     display: inline-flex;
     align-items: center;
     padding: 1px 6px;
-    border-radius: 8px;
-    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    border-radius: 4px;
+    border: none;
+    background: transparent;
+    /* mono (dim) like star/trash; the accent glow below is the "tagged" highlight */
     color: var(--fg-dim);
     font-size: 10px;
     cursor: pointer;
     white-space: nowrap;
     line-height: 1.5;
-    transition: background 0.12s;
+    text-shadow: 0 0 6px color-mix(in srgb, var(--accent) 35%, transparent);
+    transition: color 0.12s, text-shadow 0.12s, background 0.12s;
   }
   .tagspan:hover {
-    background: color-mix(in srgb, var(--accent) 22%, transparent);
-    color: var(--fg);
+    background: var(--bg-hover);
+    color: var(--accent);
+    text-shadow: 0 0 9px color-mix(in srgb, var(--accent) 55%, transparent);
   }
   .addtagbtn {
     display: inline-flex;
@@ -1587,8 +1604,8 @@ import { sidePanel } from '../lib/sidePanel'
     justify-content: center;
     width: 16px;
     height: 16px;
-    border: 1px dashed var(--border);
-    border-radius: 8px;
+    border: none;
+    border-radius: 4px;
     background: transparent;
     color: var(--fg-dim);
     font-size: 11px;
@@ -1596,13 +1613,13 @@ import { sidePanel } from '../lib/sidePanel'
     padding: 0;
     line-height: 1;
     opacity: 0;
-    transition: opacity 0.12s;
+    transition: background 0.12s, color 0.12s, opacity 0.12s;
   }
   .item:hover .addtagbtn {
     opacity: 1;
   }
   .addtagbtn:hover {
-    border-color: var(--accent);
+    background: var(--bg-hover);
     color: var(--accent);
   }
 
