@@ -610,7 +610,7 @@
   /* theme picker grid */
   .themegrid {
     display: grid;
-    grid-template-columns: repeat(5, 1fr);
+    grid-template-columns: repeat(5, minmax(0, 1fr));
     gap: 8px;
     padding: 2px 0;
   }
@@ -673,6 +673,18 @@
     }
     .confirm {
       justify-content: flex-end;
+    }
+  }
+
+  /* theme picker: fewer columns on small screens so cards stay tappable */
+  @media (max-width: 640px) {
+    .themegrid {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+  }
+  @media (max-width: 400px) {
+    .themegrid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
     }
   }
 </style>
