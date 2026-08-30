@@ -293,9 +293,12 @@ def load_sessions():
         )
         for r in rows:
             model = r["model"] or ""
+            model_provider = ""
             if isinstance(model, str) and model.startswith("{"):
                 try:
-                    model = json.loads(model).get("id") or ""
+                    mj = json.loads(model)
+                    model = mj.get("id") or ""
+                    model_provider = mj.get("providerID") or ""
                 except Exception:
                     model = ""
             created = num(r["tc"])
@@ -304,6 +307,9 @@ def load_sessions():
                 "title": r["title"] or "",
                 "cost": float(r["cost"] or 0),
                 "model": model,
+                # provider kept separate so the sidebar tooltip can show
+                # provider/id while the row text stays the bare model id
+                "model_provider": model_provider,
                 "parent": r["parent_id"] or "",
                 "agent": r["agent"] or "",
                 "created": created,

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte'
+  import { writable } from 'svelte/store'
   import { oc, hist, type HistSession, type SearchHit } from '../lib/api'
   import { searchQuery, sessionMetrics, permissions, pendingQuestions, tabs, sessionUnread, markSessionUnread, hideSubagents, subExpanded, settingsOpen, sessionListDirty, sessionKidMap, sessionMeta, toggleStar, setTag, allTags, sidebarOpen, type SessionMeta } from '../lib/stores'
 import { sidePanel } from '../lib/sidePanel'
@@ -61,6 +62,19 @@ import { sidePanel } from '../lib/sidePanel'
 
   // live busy state from engine /oc/session/status
   let busyMap: Record<string, boolean> = {}
+
+  // ---- model tooltip: full display name + provider/id -----------------------
+  // Providers fetched once on mount. The template passes $modelProvs as an
+  // argument so the tooltip re-evaluates when the list arrives — a store read
+  // hidden inside a function body is invisible to the compiler (frozen-label
+  // gotcha). Engine down / unknown model → degrades to provider/id or bare id.
+  type Prov = { id: string; models: Record<string, any> }
+  const modelProvs = writable<Prov[]>([])
+  function modelTip(mid: string, pid: string | undefined, provs: Prov[]): string {
+    const full = pid ? `${pid}/${mid}` : mid
+    const name = provs.find((p) => p.id === pid)?.models?.[mid]?.name
+    return name && name !== mid ? `${name} (${full})` : full
+  }
 
   async function refreshBusy() {
     try {
@@ -239,6 +253,7 @@ import { sidePanel } from '../lib/sidePanel'
   // roughly fresh too (open tabs are corrected live via sessionMetrics)
   onMount(() => {
     refreshBusy()
+    oc.providers().then((p) => modelProvs.set(p)).catch(() => {})
     const iv = setInterval(load, 60000)
     const ivBusy = setInterval(refreshBusy, 10000)
     const onVis = () => {
@@ -849,7 +864,11 @@ import { sidePanel } from '../lib/sidePanel'
                   effTokens(d.s)
                 )
                 ? ` · ${fmtK(effTokens(d.s))} tk`
-                : ''}{d.s.model ? ` · ${d.s.model}` : ''}</span
+                : ''}{#if d.s.model} · <span
+                    class="mmeta"
+                    title={modelTip(d.s.model, d.s.model_provider, $modelProvs)}
+                    >{d.s.model}</span
+                  >{/if}</span
             >{#if !isSub(d.s)}
               <button
                 class="star"
