@@ -906,7 +906,7 @@ function mutateMeta(sid: string, patch: SessionMeta) {
   sessionMeta.update((all) => {
     const next: Record<string, SessionMeta> = {}
     for (const [k, v] of Object.entries(all)) if (k !== sid) next[k] = v
-    next[sid] = { ...next[sid], ...patch }
+    next[sid] = { ...all[sid], ...patch }
     const keys = Object.keys(next)
     for (const k of keys.slice(0, Math.max(0, keys.length - SESSION_META_CAP))) delete next[k]
     persistSessionMeta(next)
