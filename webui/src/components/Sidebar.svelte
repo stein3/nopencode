@@ -1397,6 +1397,8 @@ import { sidePanel } from '../lib/sidePanel'
   }
   .delbtn {
     position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
     right: 46px;
     width: 24px;
     height: 24px;
@@ -1515,6 +1517,8 @@ import { sidePanel } from '../lib/sidePanel'
   /* ---- star button ------------------------------------------------------- */
   .star {
     position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
     right: 86px;
     width: 20px;
     height: 20px;
@@ -1543,6 +1547,8 @@ import { sidePanel } from '../lib/sidePanel'
   /* ---- folder button ------------------------------------------------------ */
   .folderbtn {
     position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
     right: 66px;
     width: 20px;
     height: 20px;
