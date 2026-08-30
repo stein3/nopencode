@@ -213,6 +213,9 @@ export interface HistSession {
   // set on subagent sessions (@explore, @general, …) — engine session parentID
   parent?: string
   agent?: string
+  // server-backed session organization (webui.db smeta table)
+  star?: boolean
+  tag?: string
 }
 
 export interface HistMsg {
@@ -273,4 +276,11 @@ export const hist = {
     req<{ ok: boolean }>(`/api/history/session/${id}/errors`, { method: 'DELETE' }).catch(
       () => {},
     ),
+  setSessionMeta: (id: string, patch: { star?: boolean; tag?: string | null }) =>
+    req<{ ok: boolean; star: boolean; tag: string | null }>(
+      `/api/history/session/${id}/meta`,
+      { method: 'PUT', body: JSON.stringify(patch) },
+    ),
+  deleteSessionMeta: (id: string) =>
+    req<{ ok: boolean }>(`/api/history/session/${id}/meta`, { method: 'DELETE' }).catch(() => {}),
 }

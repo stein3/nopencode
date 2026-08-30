@@ -1,5 +1,5 @@
 import { writable } from 'svelte/store'
-import type { OcMessage, OcFilePart } from './api'
+import { hist, type OcMessage, type OcFilePart } from './api'
 import { msgModel } from './util'
 
 // Engine reverts don't delete messages — they mark a revert point on the
@@ -853,10 +853,8 @@ export function clearRecentModels() {
 }
 
 // ---- per-session metadata (stars, tags) ------------------------------------
-// Client-only organization: stars (favorites) and tag assignments.
-// Persisted in localStorage like sessionAgents/sessionModels — same recency
-// cap, same wipe-on-clearLocalData path (already covered by the opencode.*
-// prefix match).
+// Server is the source of truth; localStorage is a boot cache for instant
+// paint plus a one-time migration source for legacy client-only data.
 export interface SessionMeta {
   star?: boolean
   tag?: string
@@ -894,6 +892,7 @@ function loadSessionMeta(): Record<string, SessionMeta> {
   return {}
 }
 
+// Cache-write — persists the local snapshot so a fast reload has instant data
 function persistSessionMeta(all: Record<string, SessionMeta>) {
   try {
     localStorage.setItem(SESSION_META_KEY, JSON.stringify(all))
@@ -927,7 +926,8 @@ function mutateMeta(sid: string, patch: SessionMeta) {
 }
 
 export function toggleStar(sid: string) {
-  if (!sid) return
+  if (!sid || sid.startsWith('pending-')) return
+  const newStarred = !getSessionMeta(sid)?.star
   sessionMeta.update((all) => {
     const cur = all[sid]
     const starred = !(cur?.star)
@@ -943,11 +943,32 @@ export function toggleStar(sid: string) {
     persistSessionMeta(next)
     return next
   })
+  hist.setSessionMeta(sid, { star: newStarred }).catch(() => toast('star save failed'))
 }
 
 export function setTag(sid: string, tag?: string) {
-  if (!sid) return
-  mutateMeta(sid, { tag })
+  if (!sid || sid.startsWith('pending-')) return
+  if (tag !== undefined) {
+    // Setting a tag — merge via mutateMeta
+    mutateMeta(sid, { tag })
+  } else {
+    // Clearing tag — remove the tag field; drop the sid entry entirely when
+    // no star remains (mirrors toggleStar's unstar cleanup)
+    sessionMeta.update((all) => {
+      const cur = all[sid]
+      const next: Record<string, SessionMeta> = {}
+      for (const [k, v] of Object.entries(all)) if (k !== sid) next[k] = v
+      if (cur) {
+        const { tag: _, ...rest } = cur
+        if (rest.star) next[sid] = rest
+      }
+      const keys = Object.keys(next)
+      for (const k of keys.slice(0, Math.max(0, keys.length - SESSION_META_CAP))) delete next[k]
+      persistSessionMeta(next)
+      return next
+    })
+  }
+  hist.setSessionMeta(sid, { tag: tag ?? null }).catch(() => toast('tag save failed'))
 }
 
 // Collect all unique tag values across all sessions
@@ -959,12 +980,64 @@ export function allTags(meta: Record<string, SessionMeta>): string[] {
   return [...set].sort()
 }
 
+// ---- server-backed meta: apply authoritative state from the session list ----
+// Called on every sidebar session-list load. The localStorage cache provides
+// instant paint at boot; this replaces it with server truth. A one-time
+// migration pushes any legacy local-only meta not yet on the server.
+let metaMigrated = (() => {
+  try { return localStorage.getItem('opencode.sessionMetaMigrated') === '1' }
+  catch { return false }
+})()
+
+export function applyServerMeta(list: { id: string; star?: boolean; tag?: string }[]) {
+  // Build next from server data — only entries with star===true or non-empty tag
+  const next: Record<string, SessionMeta> = {}
+  for (const s of list) {
+    const m: SessionMeta = {}
+    if (s.star === true) m.star = true
+    if (s.tag) m.tag = s.tag
+    if (m.star || m.tag) next[s.id] = m
+  }
+
+  // One-time migration: push locally-cached meta not yet on the server
+  if (!metaMigrated) {
+    let cached: Record<string, SessionMeta> = {}
+    sessionMeta.subscribe((all) => { cached = all })()
+    for (const [sid, m] of Object.entries(cached)) {
+      if (next[sid]) continue // server already has this entry
+      if (m.star || m.tag) {
+        next[sid] = m
+        hist.setSessionMeta(sid, { star: !!m.star, tag: m.tag ?? null }).catch(() => {})
+      }
+    }
+    metaMigrated = true
+    try { localStorage.setItem('opencode.sessionMetaMigrated', '1') } catch {}
+  }
+
+  sessionMeta.set(next)
+  persistSessionMeta(next)
+}
+
+// Remove a session's meta on delete — local cache + server
+export function dropSessionMeta(sid: string) {
+  if (!sid || sid.startsWith('pending-')) return
+  sessionMeta.update((all) => {
+    const next: Record<string, SessionMeta> = {}
+    for (const [k, v] of Object.entries(all)) if (k !== sid) next[k] = v
+    persistSessionMeta(next)
+    return next
+  })
+  hist.deleteSessionMeta(sid)
+}
+
 // ---- destructive: wipe every local preference --------------------------------
 // Every app key in localStorage is namespaced `opencode.` (prefs, model/agent
 // picks, recents, open-tab restore, expanded subagent groups), so the settings
 // page's "clear all local data" only removes those — anything else on the
-// origin is left alone. Server-side sessions are untouched. The caller should
-// location.reload() right after so stores re-seed from the clean state.
+// origin is left alone. Server-side sessions are untouched. Stars/tags are
+// server-backed and survive this wipe (only the localStorage cache + migration
+// flag are cleared). The caller should location.reload() right after so stores
+// re-seed from the clean state.
 export function clearLocalData() {
   try {
     const doomed: string[] = []

@@ -13,6 +13,11 @@ Single-origin backend for the webui:
                       anywhere, so this is the only record. UNIQUE(sid,msg)
                       collapses duplicate inserts from multiple webui clients
                       witnessing the same SSE event.
+  /api/history/session/{id}/meta
+                   -> session metadata (star / tag). GET returns stored
+                      state; PUT/POST merges a partial update
+                      {star?: bool, tag?: string|null}; DELETE removes the
+                      row. Stored in the smeta table in webui.db.
   /api/history/errors
                    -> ALL persisted errors across all sessions (background
                       collector records errors even when no webui tab is open).
@@ -124,6 +129,12 @@ def _serr_connect(create=False):
             "t INTEGER NOT NULL,"
             "UNIQUE(sid,msg))"
         )
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS smeta("
+            "sid TEXT PRIMARY KEY,"
+            "star INTEGER NOT NULL DEFAULT 0,"
+            "tag TEXT)"
+        )
         conn.commit()
         return conn
     conn = sqlite3.connect("file:%s?mode=ro" % WEBUI_DB, uri=True, timeout=5)
@@ -182,6 +193,71 @@ def session_errors_all():
         return [{"sid": r[0], "message": r[1], "t": r[2]} for r in rows]
     except sqlite3.OperationalError:
         return []
+    finally:
+        conn.close()
+
+
+# ---- sidecar: session metadata (star / tag) --------------------------------
+
+def session_meta_read_all():
+    """Return {sid: {"star": bool, "tag": str|None}} for all meta rows."""
+    try:
+        conn = _serr_connect()
+    except Exception:
+        return {}
+    try:
+        rows = conn.execute("SELECT sid, star, tag FROM smeta").fetchall()
+        return {r[0]: {"star": bool(r[1]), "tag": r[2]} for r in rows}
+    except sqlite3.OperationalError:
+        return {}
+    finally:
+        conn.close()
+
+
+def session_meta_write(sid, star, tag):
+    """Full replace of the smeta row. DELETEs when both falsy."""
+    conn = _serr_connect(create=True)
+    try:
+        if not star and not tag:
+            conn.execute("DELETE FROM smeta WHERE sid=?", (sid,))
+        else:
+            conn.execute(
+                "INSERT INTO smeta(sid,star,tag) VALUES(?,?,?)"
+                " ON CONFLICT(sid) DO UPDATE SET star=excluded.star, tag=excluded.tag",
+                (sid, int(bool(star)), tag or None),
+            )
+        conn.commit()
+        return {"star": bool(star), "tag": tag or None}
+    finally:
+        conn.close()
+
+
+def session_meta_delete(sid):
+    """Delete the meta row for a session."""
+    conn = _serr_connect(create=True)
+    try:
+        conn.execute("DELETE FROM smeta WHERE sid=?", (sid,))
+        conn.commit()
+        return {"ok": True}
+    finally:
+        conn.close()
+
+
+def _session_meta_get(sid):
+    """Single-row read for one session's meta."""
+    try:
+        conn = _serr_connect()
+    except Exception:
+        return None
+    try:
+        r = conn.execute(
+            "SELECT star, tag FROM smeta WHERE sid=?", (sid,)
+        ).fetchone()
+        if r is None:
+            return None
+        return {"star": bool(r[0]), "tag": r[1]}
+    except sqlite3.OperationalError:
+        return None
     finally:
         conn.close()
 
@@ -319,6 +395,17 @@ def load_sessions():
             if r["id"] in tok:
                 entry["tokens"] = tok[r["id"]]
             out.append(entry)
+    # Merge session meta (star / tag) from the sidecar webui.db.
+    # session_meta_read_all() swallows all errors — safe to call unconditionally.
+    meta = session_meta_read_all()
+    for entry in out:
+        m = meta.get(entry["id"])
+        if m:
+            if m["star"]:
+                entry["star"] = True
+            tag = m.get("tag")
+            if tag:
+                entry["tag"] = tag
     return out
 
 
@@ -701,6 +788,38 @@ class Handler(BaseHTTPRequestHandler):
                 if self.command == "DELETE":
                     return self.send_json(session_error_clear(sid))
                 return self.send_json(session_errors(sid))
+            m = re.match(r"^/api/history/session/([^/]+)/meta$", path)
+            if m:
+                sid = m.group(1)
+                if self.command in ("PUT", "POST"):
+                    length = int(self.headers.get("Content-Length") or 0)
+                    try:
+                        body = json.loads(self.rfile.read(length) or b"{}")
+                    except ValueError:
+                        return self.send_json({"error": "bad json"}, 400)
+                    # Read current state for partial merge
+                    cur = _session_meta_get(sid) or {"star": False, "tag": None}
+                    star = cur["star"]
+                    tag = cur["tag"]
+                    if "star" in body and isinstance(body["star"], bool):
+                        star = body["star"]
+                    if "tag" in body:
+                        t = body["tag"]
+                        if isinstance(t, str):
+                            t = t.strip() or None
+                        elif t is None:
+                            t = None
+                        else:
+                            # ignore wrong types — keep existing
+                            t = tag
+                        tag = t
+                    result = session_meta_write(sid, star, tag)
+                    return self.send_json({"ok": True, **result})
+                if self.command == "DELETE":
+                    return self.send_json(session_meta_delete(sid))
+                # GET
+                cur = _session_meta_get(sid)
+                return self.send_json(cur or {"star": False, "tag": None})
             if path.startswith("/api/history/session/"):
                 sid = path.rsplit("/", 1)[1]
                 limit = None

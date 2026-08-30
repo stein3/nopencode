@@ -2,7 +2,7 @@
   import { onMount, tick } from 'svelte'
   import { writable } from 'svelte/store'
   import { oc, hist, type HistSession, type SearchHit } from '../lib/api'
-  import { searchQuery, sessionMetrics, permissions, pendingQuestions, tabs, sessionUnread, markSessionUnread, hideSubagents, subExpanded, settingsOpen, sessionListDirty, sessionKidMap, sessionMeta, toggleStar, setTag, allTags, sidebarOpen, type SessionMeta } from '../lib/stores'
+  import { searchQuery, sessionMetrics, permissions, pendingQuestions, tabs, sessionUnread, markSessionUnread, hideSubagents, subExpanded, settingsOpen, sessionListDirty, sessionKidMap, sessionMeta, toggleStar, setTag, allTags, applyServerMeta, dropSessionMeta, sidebarOpen, type SessionMeta } from '../lib/stores'
 import { sidePanel } from '../lib/sidePanel'
   import { relTime } from '../lib/util'
 
@@ -35,6 +35,7 @@ import { sidePanel } from '../lib/sidePanel'
       await oc.deleteSession(id)
       onCloseSession(id)
       sessionListDirty.update((n) => n + 1)
+      dropSessionMeta(id)
     } catch (e: any) {
       console.error('delete failed', e)
     }
@@ -239,6 +240,7 @@ import { sidePanel } from '../lib/sidePanel'
     try {
       const all = await hist.sessions()
       sessions = all.sort((a, b) => b.updated - a.updated)
+      applyServerMeta(all)
     } catch (e) {
       console.error('history load failed', e)
     }
