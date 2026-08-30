@@ -106,6 +106,17 @@
     await runBuiltin(c.name)
   }
 
+  // Window-level Escape handler — the input-only binding misses Escape when
+  // focus drifts (e.g. after a concurrent blur-on-Escape handler fires).
+  // Every other dialog in the app uses <svelte:window> for this.
+  function onWindowKey(e: KeyboardEvent) {
+    if ($paletteOpen && e.key === 'Escape') {
+      e.preventDefault()
+      e.stopPropagation()
+      close()
+    }
+  }
+
   function key(e: KeyboardEvent) {
     if (e.key === 'Escape') close()
     else if (e.key === 'ArrowDown') {
@@ -120,6 +131,8 @@
     }
   }
 </script>
+
+<svelte:window on:keydown={onWindowKey} />
 
 {#if $paletteOpen}
   <div class="overlay" role="presentation" on:mousedown={close}>
