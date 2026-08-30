@@ -40,7 +40,6 @@ Deployment topology & procedures: see private ops notes (not tracked here).
   - `Transcript.svelte streamThrottle`: live path stale-serves up to 120ms (`STREAM_THROTTLE_MS`) + exact-length fast path (deltas are append-only); entries pruned on non-live render. Non-live bypasses throttle → guaranteed full-quality final render at busy-flip (the color pop on big fences is intentional).
   - `sse.ts deltaBuf`: `message.part.delta` chunks coalesced per `${sid}|${mid}|${pid}|${field}` key with a single ~40ms flush timer; unmaterialized messages no-op at flush (unchanged semantics).
   - Think-pin `afterUpdate`: rAF-coalesced (`thinkPinPending`), gated on `tab.busy && thinkStuck && !document.hidden`.
-- Gotchas: the LSP reports stale "Expected 1 arguments" errors on two-arg `md()` calls after signature changes — `npm run build` is the arbiter.
 
 ## Thinking message vanishes mid-stream (webui, 2026-08)
 
