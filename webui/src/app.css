@@ -343,6 +343,111 @@ html[data-theme='gruvbox-light'] {
   color-scheme: light;
 }
 
+html[data-theme='ayu-dark'] {
+  --bg: #10141c;
+  --bg-panel: #141821;
+  --bg-hover: #161a24;
+  --bg-user: #141821;
+  --bg-code: #0d1017;
+  --border: #6c7380;
+  --fg: #bfbdb6;
+  --fg-dim: #6c7380;
+  --accent: #d2a6ff;
+  --user-accent: #39bae6;
+  --warn: #e6b450;
+  --err: #f07178;
+  --ok: #aad94c;
+  --tool-web: #95e6cb;
+  --tool-agent: #ff8f40;
+  --tool-question: #59c2ff;
+  --tool-skill: #aad94c;
+  --tool-todo: #6c7380;
+}
+
+html[data-theme='fairyfloss'] {
+  --bg: #5a5475;
+  --bg-panel: #494064;
+  --bg-hover: #6d648f;
+  --bg-user: #8077a8;
+  --bg-code: #494064;
+  --border: #716799;
+  --fg: #f8f8f2;
+  --fg-dim: #a8757b;
+  --accent: #c5a3ff;
+  --user-accent: #ffb8d1;
+  --warn: #e6c000;
+  --err: #f92672;
+  --ok: #c2ffdf;
+  --tool-web: #9be8e0;
+  --tool-agent: #ff857f;
+  --tool-question: #fff352;
+  --tool-skill: #c2ffdf;
+  --tool-todo: #a8757b;
+}
+
+html[data-theme='monokai'] {
+  --bg: #272822;
+  --bg-panel: #1e1f1c;
+  --bg-hover: #3c3d37;
+  --bg-user: #49483e;
+  --bg-code: #1e1f1c;
+  --border: #64645e;
+  --fg: #f8f8f2;
+  --fg-dim: #75715e;
+  --accent: #ae81ff;
+  --user-accent: #66d9ef;
+  --warn: #e6db74;
+  --err: #f92672;
+  --ok: #a6e22e;
+  --tool-web: #66d9ef;
+  --tool-agent: #f92672;
+  --tool-question: #fd971f;
+  --tool-skill: #a6e22e;
+  --tool-todo: #75715e;
+}
+
+html[data-theme='night-owl'] {
+  --bg: #011627;
+  --bg-panel: #01111d;
+  --bg-hover: #0b2942;
+  --bg-user: #234d70;
+  --bg-code: #021320;
+  --border: #5f7e97;
+  --fg: #d6deeb;
+  --fg-dim: #5f7e97;
+  --accent: #7e57c2;
+  --user-accent: #82aaff;
+  --warn: #ffca28;
+  --err: #ef5350;
+  --ok: #22da6e;
+  --tool-web: #7fdbca;
+  --tool-agent: #c792ea;
+  --tool-question: #ecc48d;
+  --tool-skill: #22da6e;
+  --tool-todo: #5f7e97;
+}
+
+html[data-theme='rose-pine'] {
+  --bg: #191724;
+  --bg-panel: #1f1d2e;
+  --bg-hover: #26233a;
+  --bg-user: #403d52;
+  --bg-code: #21202e;
+  --border: #6e6a86;
+  --fg: #e0def4;
+  --fg-dim: #908caa;
+  --accent: #c4a7e7;
+  --user-accent: #ebbcba;
+  --warn: #f6c177;
+  --err: #eb6f92;
+  --ok: #95b1ac;
+  --tool-web: #9ccfd8;
+  --tool-agent: #eb6f92;
+  --tool-question: #f6c177;
+  --tool-skill: #31748f;
+  --tool-todo: #908caa;
+}
+
 /* Light theme scrollbar overrides */
 html[data-theme='solarized-light'] ::-webkit-scrollbar-thumb {
   background: #c9c1b5;
