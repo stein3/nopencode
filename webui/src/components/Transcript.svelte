@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount, afterUpdate } from 'svelte'
-  import { tabs, showThinking, showTimestamps, toast, type Tab, pendingQuestions, type PendingQuestion, lightbox, engineRetries, cancelQueuedPrompt } from '../lib/stores'
-  import { oc, hist, type OcMessage } from '../lib/api'
+  import { tabs, showThinking, showTimestamps, toast, type Tab, pendingQuestions, type PendingQuestion, lightbox, engineRetries, clearEngineRetry, cancelQueuedPrompt } from '../lib/stores'
+  import { oc, hist, isSessionBusy, type OcMessage } from '../lib/api'
   import { refetchNow } from '../lib/sse'
   import { md } from '../lib/markdown'
   import { isImagePath, imageDataUrl } from '../lib/images'
@@ -442,16 +442,69 @@
   // pending auto-retry countdown (lib/retries); hidden while a dispatch is
   // in flight (secondsLeft 0) — the busy spinner covers that window
   $: retry = $retryState[tab.id]?.secondsLeft > 0 ? $retryState[tab.id] : undefined
-  const mmss = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
+  // humanized countdown: "5m 12s", "1h 3m", "0:05"
+  const mmss = (s: number) => {
+    if (s >= 3600) {
+      const h = Math.floor(s / 3600)
+      const m = Math.floor((s % 3600) / 60)
+      return `${h}h ${m}m`
+    }
+    return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
+  }
   // what the pending attempt will send: the short stall-nudge (original prompt
   // already delivered to the engine) or a verbatim resend of an undelivered
   // payload. Re-derived from $retryState each tick so it can't go stale.
   $: payloadKind =
     $retryState[tab.id]?.secondsLeft > 0 ? nextPayloadKind(tab.id) : undefined
 
-  // engine-side retry (session.next.retried SSE events) — separate from
-  // the webui's own auto-retry loop; shows the engine's server-side countdown
+  // engine-side retry (session.status SSE events) — separate from
+  // the webui's own auto-retry loop; shows the engine's server-side stall
+  // banner with countdown + stop/undo-resend actions
   $: engineRetry = $engineRetries[tab.id]
+  // live countdown to the next attempt (re-derived each second)
+  $: engineRetryCountdown = engineRetry?.next ? Math.max(0, Math.ceil((engineRetry.next - Date.now()) / 1000)) : 0
+  // ticker: only while a banner is visible
+  let retryTick: ReturnType<typeof setInterval> | undefined
+  $: if (engineRetry && engineRetry.next) {
+    if (!retryTick) retryTick = setInterval(() => { engineRetry = $engineRetries[tab.id] }, 1000)
+  } else if (retryTick) {
+    clearInterval(retryTick)
+    retryTick = undefined
+  }
+
+  // ---- engine retry: abort / undo-resend ----------------------------------
+  let aborting = false
+  async function stopEngineRetry() {
+    if (aborting) return
+    aborting = true
+    try {
+      await oc.abort(tab.id)
+    } catch { /* abort errors are informational */ }
+    clearEngineRetry(tab.id)
+    aborting = false
+  }
+  // TUI-parity chain: abort → revert to last user message → refill composer
+  async function undoResendEngineRetry() {
+    aborting = true
+    try {
+      try { await oc.abort(tab.id) } catch { /* ignore: abort cleans up */ }
+      // find the last real user message (exclude synthetic task-notice rows)
+      const lastUser = [...tab.messages].reverse().find((m) => m.role === 'user' && !taskNoticeOf(m))
+      if (!lastUser) { toast('no user message to revert to'); aborting = false; return }
+      const text = (lastUser.parts ?? [])
+        .filter((p) => p.type === 'text' && (p.text ?? '').trim())
+        .map((p) => p.text ?? '')
+        .join('\n\n')
+      const s = await oc.revertTo(tab.id, lastUser.id)
+      tabs.patch(tab.id, { revert: s.revert ?? null })
+      refetchNow(tab.id)
+      clearEngineRetry(tab.id)
+      if (text.trim()) onReverted(text)
+    } catch (e: any) {
+      toast(isSessionBusy(e) ? 'session still busy — try again' : `undo failed: ${e.message ?? e}`)
+    }
+    aborting = false
+  }
 
   // ---- summary-line badges ------------------------------------------------
   function isTruncated(p: any): boolean {
@@ -689,6 +742,13 @@
     return t ? new Date(t < 1e12 ? t * 1000 : t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''
   }
 
+  // TUI-parity: abort → retry operation when session is busy (e.g. engine
+  // retry loop). The abort response waits for server-side finalizers, so the
+  // immediately-following revert succeeds.
+  async function abortForRevert(): Promise<void> {
+    try { await oc.abort(tab.id) } catch { /* abort errors are informational */ }
+  }
+
   async function revertTo(mid: string) {
     // capture the text first — the refetch below prunes the message from the
     // window, and the composer refill needs it
@@ -705,7 +765,22 @@
       refetchNow(tab.id)
       if (text.trim()) onReverted(text)
     } catch (e: any) {
-      alert(`revert failed: ${e.message ?? e}`)
+      if (isSessionBusy(e)) {
+        // session is retrying — abort the retry loop then retry the revert
+        try {
+          await abortForRevert()
+          clearEngineRetry(tab.id)
+          const s = await oc.revertTo(tab.id, mid)
+          tabs.patch(tab.id, { revert: s.revert ?? null })
+          refetchNow(tab.id)
+          if (text.trim()) onReverted(text)
+          toast('stopped retrying — message reverted')
+        } catch (e2: any) {
+          toast(`revert failed: ${e2.message ?? e2}`)
+        }
+      } else {
+        alert(`revert failed: ${e.message ?? e}`)
+      }
     }
   }
 
@@ -1016,12 +1091,17 @@
     {#if engineRetry}
       <div class="retryline engineretry">
         <span class="rglyph">⟳</span>
-        <span>
-          engine retrying · attempt {engineRetry.attempt}
-          {#if engineRetry.error?.data?.message}
-            · {engineRetry.error.data.message}
+        <span class="erinfo">
+          {engineRetry.message} · attempt {engineRetry.attempt}
+          {#if engineRetryCountdown > 0}
+            · next try in {mmss(engineRetryCountdown)}
+          {/if}
+          {#if engineRetry.action?.link}
+            · <a href={engineRetry.action.link} target="_blank" rel="noopener" class="erlink">{engineRetry.action.label ?? 'subscribe'}</a>
           {/if}
         </span>
+        <button class="erbtn" disabled={aborting} title="Stop retrying" on:click={stopEngineRetry}>{aborting ? 'stopping…' : 'Stop'}</button>
+        <button class="erbtn erundo" disabled={aborting} title="Undo & resend" on:click={undoResendEngineRetry}>↩ undo</button>
       </div>
     {/if}
     {/if}
@@ -1277,10 +1357,42 @@
     color: var(--fg);
     border-color: var(--err);
   }
-  /* engine-side retry (session.next.retried) — amber instead of red to
+  /* engine-side retry (session.status) — amber instead of red to
      distinguish from the webui's own auto-retry */
   .retryline.engineretry {
     color: #e0a030;
+  }
+  .erinfo {
+    flex: 1;
+    min-width: 0;
+  }
+  .erlink {
+    color: #e0a030;
+    text-decoration: underline;
+  }
+  .erlink:hover {
+    color: #f0c050;
+  }
+  .erbtn {
+    margin-left: auto;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--fg-dim);
+    font-size: 10.5px;
+    padding: 1px 8px;
+    cursor: pointer;
+  }
+  .erbtn:hover:not(:disabled) {
+    color: var(--fg);
+    border-color: #e0a030;
+  }
+  .erbtn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .erundo {
+    margin-left: 4px;
   }
   /* errored tool calls stay panel-colored — red border + left accent + the ✗
      glyph, but normal text colors (full red is for turn-failure tiles) */

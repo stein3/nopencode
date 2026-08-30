@@ -467,19 +467,21 @@ export const autoRetry = makePref('autoRetry', true) // enable webui auto-retry 
 export const retryMaxAttempts = makePrefNum('retryMaxAttempts', 0) // 0 = unlimited
 export const retryMaxDelay = makePrefNum('retryMaxDelay', 300) // cap on backoff delay (seconds)
 
-// ---- engine-reported retry state (from session.next.retried SSE events) ----
+// ---- engine-reported retry state (from session.status SSE events) ----
 // The engine retries certain errors server-side (e.g. provider quota with
 // retry-after header). These retries are separate from the webui's own
 // auto-retry loop. This store tracks the engine's retry status per session
 // so Transcript can render a distinct countdown banner.
-export interface EngineRetryInfo {
+export interface EngineRetry {
   attempt: number
-  error?: any
+  message: string
+  next?: number // epoch ms of next attempt
+  action?: { label?: string; link?: string; title?: string; reason?: string; provider?: string; message?: string }
   ts: number // event timestamp
 }
-export const engineRetries = writable<Record<string, EngineRetryInfo>>({})
+export const engineRetries = writable<Record<string, EngineRetry>>({})
 
-export function patchEngineRetry(sid: string, info: EngineRetryInfo) {
+export function patchEngineRetry(sid: string, info: EngineRetry) {
   engineRetries.update((all) => ({ ...all, [sid]: info }))
 }
 export function clearEngineRetry(sid: string) {
@@ -487,6 +489,43 @@ export function clearEngineRetry(sid: string) {
     const next = { ...all }
     delete next[sid]
     return next
+  })
+}
+
+// Hydrate engineRetry entries from the authoritative /session/status poll.
+// For each OPEN tab: if the map says retry → patch (refresh ts); otherwise
+// if a stale entry exists → clear. Call sites: SSE reconnect, tab-open,
+// Sidebar's 10s busy poll.
+export function syncEngineRetryFromStatus(
+  map: Record<string, { type?: string; attempt?: number; message?: string; action?: any; next?: number }>,
+) {
+  // read current open tab ids via a snapshot
+  let openSids: string[] = []
+  tabs.subscribe((all) => { openSids = all.map((t) => t.id) })()
+  engineRetries.update((all) => {
+    let changed = false
+    const next = { ...all }
+    for (const sid of openSids) {
+      const st = map[sid]
+      if (st?.type === 'retry') {
+        const existing = next[sid]
+        const info: EngineRetry = {
+          attempt: st.attempt ?? existing?.attempt ?? 1,
+          message: st.message ?? existing?.message ?? 'provider error — retrying',
+          next: st.next ?? existing?.next,
+          action: st.action ?? existing?.action,
+          ts: Date.now(),
+        }
+        // avoid tab-object swap churn when the data is substantively equal
+        if (existing && existing.attempt === info.attempt && existing.message === info.message && existing.next === info.next) continue
+        next[sid] = info
+        changed = true
+      } else if (next[sid]) {
+        delete next[sid]
+        changed = true
+      }
+    }
+    return changed ? next : all
   })
 }
 

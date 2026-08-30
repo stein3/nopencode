@@ -2,7 +2,7 @@
   import { onMount, tick } from 'svelte'
   import { writable } from 'svelte/store'
   import { oc, hist, type HistSession, type SearchHit } from '../lib/api'
-  import { searchQuery, sessionMetrics, permissions, pendingQuestions, tabs, sessionUnread, markSessionUnread, hideSubagents, subExpanded, settingsOpen, sessionListDirty, sessionKidMap, sessionMeta, toggleStar, setTag, allTags, applyServerMeta, dropSessionMeta, sidebarOpen, type SessionMeta } from '../lib/stores'
+  import { searchQuery, sessionMetrics, permissions, pendingQuestions, tabs, sessionUnread, markSessionUnread, hideSubagents, subExpanded, settingsOpen, sessionListDirty, sessionKidMap, sessionMeta, toggleStar, setTag, allTags, applyServerMeta, dropSessionMeta, sidebarOpen, syncEngineRetryFromStatus, type SessionMeta } from '../lib/stores'
 import { sidePanel } from '../lib/sidePanel'
   import { relTime } from '../lib/util'
 
@@ -82,7 +82,7 @@ import { sidePanel } from '../lib/sidePanel'
       const st = await oc.status()
       const next: Record<string, boolean> = {}
       for (const [k, v] of Object.entries(st)) {
-        next[k] = (v?.type ?? v?.state) === 'busy'
+        next[k] = (v?.type ?? v?.state) === 'busy' || (v?.type ?? v?.state) === 'retry'
       }
       // busy→idle for sessions with no open tab never reaches the SSE handler
       // (it drops non-open sessions) — detect the transition here instead
@@ -96,6 +96,10 @@ import { sidePanel } from '../lib/sidePanel'
         Object.keys(prev).length !== Object.keys(next).length ||
         Object.keys(next).some((k) => !!prev[k] !== !!next[k])
       if (changed) busyMap = next
+      // hydrate engine retry banners from the same authoritative poll — cheap,
+      // store-gated (only patch when data actually changed to avoid tab-object
+      // swap churn → request-storm invariant)
+      syncEngineRetryFromStatus(st as any)
     } catch {
       /* engine down */
     }

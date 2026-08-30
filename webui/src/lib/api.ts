@@ -7,10 +7,26 @@ async function req<T>(url: string, init?: RequestInit): Promise<T> {
     headers: { 'content-type': 'application/json' },
     ...init,
   })
-  if (!r.ok) throw new Error(`${init?.method ?? 'GET'} ${url} -> ${r.status}`)
+  if (!r.ok) {
+    // Parse the JSON error body when possible so callers can inspect e.g.
+    // SessionBusyError (409) without losing the payload.
+    let body: any = null
+    try { body = await r.json() } catch { /* non-JSON or empty */ }
+    const err: any = new Error(`${init?.method ?? 'GET'} ${url} -> ${r.status}`)
+    err.status = r.status
+    err.body = body
+    throw err
+  }
   // prompt_async answers 204 No Content
   const t = await r.text()
   return t ? JSON.parse(t) : (undefined as T)
+}
+
+// Detect the engine's 409 SessionBusyError — body shape varies across wrapper
+// layers (chatserver proxies /oc/* verbatim so it's the engine's own JSON).
+export function isSessionBusy(e: unknown): boolean {
+  const b = (e as any)?.body
+  return (e as any)?.status === 409 && (b?.name ?? b?.error?.name) === 'SessionBusyError'
 }
 
 async function reqText(url: string, init?: RequestInit): Promise<string> {
@@ -109,7 +125,7 @@ export const oc = {
     }),
   abort: (sessionId: string) =>
     req<unknown>(`/oc/session/${sessionId}/abort`, { method: 'POST', body: '{}' }),
-  status: () => req<Record<string, { type?: string; state?: string }>>('/oc/session/status'),
+  status: () => req<Record<string, { type?: string; state?: string; attempt?: number; message?: string; action?: { reason?: string; provider?: string; title?: string; message?: string; label?: string; link?: string }; next?: number }>>('/oc/session/status'),
   permissions: () => req<any[]>('/oc/permission'),
   replyPermission: (requestID: string, reply: 'once' | 'always' | 'reject') =>
     req<unknown>(`/oc/permission/${requestID}/reply`, {
