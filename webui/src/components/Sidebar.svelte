@@ -315,6 +315,7 @@ import { sidePanel } from '../lib/sidePanel'
   let filterStarred = false
   let filterTags: Set<string> = new Set()
   let filterFolders: Set<string> = new Set()
+  let filterUntagged = false
 
   // tag popover state
   let tagPopoverSid: string | null = null
@@ -331,7 +332,7 @@ import { sidePanel } from '../lib/sidePanel'
   $: hasStars = Object.values($sessionMeta).some((m) => m?.star)
 
   // any active filters?
-  $: hasFilters = filterStarred || filterTags.size > 0 || filterFolders.size > 0
+  $: hasFilters = filterStarred || filterTags.size > 0 || filterFolders.size > 0 || filterUntagged
 
   function toggleFilterTag(tag: string) {
     const next = new Set(filterTags)
@@ -351,6 +352,7 @@ import { sidePanel } from '../lib/sidePanel'
     filterStarred = false
     filterTags = new Set()
     filterFolders = new Set()
+    filterUntagged = false
   }
 
   // apply organization filters to displayRows
@@ -360,9 +362,10 @@ import { sidePanel } from '../lib/sidePanel'
     starred: boolean,
     tags: Set<string>,
     folders: Set<string>,
+    untagged: boolean,
     meta: Record<string, any>,
   ): Disp[] {
-    if (!starred && tags.size === 0 && folders.size === 0) return rows
+    if (!starred && tags.size === 0 && folders.size === 0 && !untagged) return rows
     return rows.filter((d) => {
       const m = meta[d.s.id]
       if (starred && !m?.star) return false
@@ -377,6 +380,7 @@ import { sidePanel } from '../lib/sidePanel'
         const folder = m?.folder
         if (!folder || !folders.has(folder)) return false
       }
+      if (untagged && (m?.tags?.length ?? 0) > 0) return false
       return true
     })
   }
@@ -538,7 +542,7 @@ import { sidePanel } from '../lib/sidePanel'
 
   // apply organization filters (star, tag, folder)
   // All filter state passed explicitly so Svelte tracks reactivity
-  $: filteredRows = applyOrgFilters(displayRows, filterStarred, filterTags, filterFolders, $sessionMeta)
+  $: filteredRows = applyOrgFilters(displayRows, filterStarred, filterTags, filterFolders, filterUntagged, $sessionMeta)
 
   // group filtered rows by folder (folders appear as section headers)
   // unfoldered sessions stay inline; starred sessions without a folder stay inline
@@ -745,6 +749,14 @@ import { sidePanel } from '../lib/sidePanel'
           {#if filterFolders.has(folder)}<span class="ficon">✓</span>{/if}{folder}
         </button>
       {/each}
+      <button
+        class="filterchip untaggedchip"
+        class:active={filterUntagged}
+        title="Show only sessions without tags"
+        on:click={() => (filterUntagged = !filterUntagged)}
+      >
+        {#if filterUntagged}<span class="ficon">✓</span>{/if}untagged
+      </button>
       {#if hasFilters}
         <button class="filterclear" title="Clear all filters" on:click={clearFilters}>×</button>
       {/if}
