@@ -1,4 +1,4 @@
-import { tabs, sessionTodos, patchMetrics, metricsFromMessages, tokenTally, markSessionUnread, patchEngineRetry, clearEngineRetry, markSessionListDirty, sessionListDirty, toast } from './stores'
+import { tabs, sessionTodos, patchMetrics, metricsFromMessages, tokenTally, markSessionUnread, patchEngineRetry, clearEngineRetry, syncEngineRetryFromStatus, markSessionListDirty, sessionListDirty, toast } from './stores'
 import { oc, hist } from './api'
 import { refreshPermissions } from './permissions'
 import { refreshQuestions } from './questions'
@@ -305,18 +305,28 @@ export function startEvents() {
       // of duplicating it — see lib/retries
       if (isRetryableError(em)) onRetryableError(sid)
       if (tabs.getActive() !== sid) markSessionUnread(sid)
-    } else if (type === 'session.next.retried') {
-      // Engine-side retry (separate from the webui's auto-retry loop). The
-      // engine retries certain errors server-side (e.g. provider quota with
-      // retry-after header). This event fires on each attempt.
-      const attempt: number = p.attempt ?? 1
-      const em: any = p.error
-      const msg = String(em?.data?.message ?? em?.message ?? em?.name ?? 'error')
-      patchEngineRetry(sid, { attempt, error: em, ts: Date.now() })
-      // Persist the error to the sidecar so it's visible even if the tab
-      // wasn't open for the original session.error event
-      hist.addSessionError(sid, msg)
-      if (tabs.getActive() !== sid) markSessionUnread(sid)
+    } else if (type === 'session.status') {
+      // Engine-side retry status (separate from the webui's auto-retry loop).
+      // Fires once per attempt (could be hours apart; NOT replayed on connect).
+      const status = p.status ?? p
+      const sType: string = status.type ?? status.state ?? ''
+      if (sType === 'retry') {
+        patchEngineRetry(sid, {
+          attempt: status.attempt ?? 1,
+          message: status.message ?? 'provider error — retrying',
+          next: status.next,
+          action: status.action,
+          ts: Date.now(),
+        })
+        const msg = status.message ?? 'provider error — retrying'
+        hist.addSessionError(sid, msg) // fire-and-forget; server dedupes
+        if (tabs.getActive() !== sid) markSessionUnread(sid)
+      } else if (sType === 'busy') {
+        // an attempt started producing — clear the retry banner
+        clearEngineRetry(sid)
+      }
+      // DO NOT fall through to the catch-all scheduleRefetch below
+      return
     }
 
     // true streaming: snapshots replace, deltas append
@@ -366,10 +376,16 @@ export function startEvents() {
   es.onerror = () => {
     // EventSource auto-reconnects; re-pull permissions AND pending questions —
     // a question.asked during a dropout is otherwise lost until reload
-    // (GET /question is not replayed on reconnect)
-    setTimeout(() => {
+    // (GET /question is not replayed on reconnect). Also hydrate engine retry
+    // state: session.status SSE events are NOT replayed, so the only way to
+    // recover retry banners after a reconnect is the authoritative poll.
+    setTimeout(async () => {
       refreshPermissions()
       refreshQuestions()
+      try {
+        const st = await oc.status()
+        syncEngineRetryFromStatus(st)
+      } catch { /* engine down */ }
     }, 1500)
   }
 }

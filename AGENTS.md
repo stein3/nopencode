@@ -284,3 +284,38 @@ Deployment topology & procedures: see private ops notes (not tracked here).
   - A filter assertion returning unexpectedly 0 rows → dump the store's localStorage
     via `page.evaluate` BEFORE suspecting the browser — that's exactly how the
     `mutateMeta` field-wipe bug was caught (see Known quirks).
+
+## Engine retry-loop state & the webui blind spot (root-caused 2026-08-30)
+
+- Provider limit errors (e.g. opencode-go "Free usage exceeded, subscribe to Go") do NOT
+  surface as errors: the engine's internal retry policy (`session/retry.ts` + `Effect.retry`
+  in `processor.ts`, v1.18.18 source) keeps the turn RUNNING and sets session status
+  `{type:"retry", attempt, message, action:{reason,provider,title,label,link}, next}`
+  (next = epoch ms of next attempt; delay honors retry-after headers → hours; max 5 attempts,
+  THEN a final error lands on the message). While retrying: NO `session.error`, NO
+  `session.idle`; the in-flight assistant message has empty parts and NO `error` field.
+- Retry state is exposed ONLY by: (a) ephemeral `session.status` SSE event fired at each
+  attempt (NOT replayed — a tab opened after the stall sees nothing), and (b) poll-able
+  `GET /session/status` snapshot (in-memory map). The TUI renders it from its
+  `session_status` sync data. Verified live: stalled sessions appear ONLY in
+  `GET /session/status` (`ses_fab9c0e24ffe…`, `ses_fab9e68fcffe…` on 2026-08-30).
+- Webui gaps that made this invisible: `sse.ts` has NO `session.status` branch; its
+  `session.next.retried` handler (L308) is dead code for this engine (wrong event name AND
+  wrong payload shape — real data is at `p.status.*`, not `p.attempt`/`p.error`). The only
+  `/session/status` poller is Sidebar's busy-dot loop (payload discarded). `retries.ts`
+  never arms (needs `session.error` w/ isRetryable). Result: endless spinner (webui-sent)
+  or total silence (TUI-sent session viewed in webui).
+- Recovery API facts (v1.18.18 source + /doc): `POST /session/{id}/abort` interrupts the
+  retry fiber → assistant msg finalized with AbortError, keeps your user message, session idles.
+  `POST /session/{id}/revert` `{messageID, partID?}` enforces `assertNotBusy` → **409
+  `{name:"SessionBusyError", data:{sessionID, message:"Session is busy: …"}}` while the retry
+  loop is live** (user-observed "revert failed 409" in webui). Same guard on unrevert/shell/
+  DELETE message; `/abort` and `/fork` have NO busy guard. Per-request model override rides
+  `prompt_async` body `model:{providerID,modelID}` (already sent by Composer.submit).
+- TUI undo parity pattern (packages/tui session/index.tsx ~L614): if `session_status[sid].type
+  !== 'idle'` → `await abort()` then `revert(lastUserMsg)` + refill prompt input from the
+  reverted message's non-synthetic text parts + file parts. No poll-loop needed: the abort HTTP
+  response returns only after the server-side fiber-interrupt finalizers run, so an awaited
+  abort guarantees the following revert passes `assertNotBusy`.
+- Manual unblock without any code: `curl -X POST http://127.0.0.1:4096/session/<sid>/abort`,
+  then revert/edit-resend with a different model.

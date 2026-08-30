@@ -50,6 +50,8 @@ jobs:
             file: agent-picker.test.mjs
           - name: chords
             file: chords.test.mjs
+          - name: engine-retry
+            file: engine-retry.test.mjs
           - name: errtile
             file: errtile.test.mjs
           - name: errtile-persist

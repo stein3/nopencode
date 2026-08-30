@@ -7,7 +7,7 @@
   import QuestionBanner from './components/QuestionBanner.svelte'
   import Footer from './components/Footer.svelte'
   import { hist, oc } from './lib/api'
-  import { tabs, permissions, sidebarOpen, selectedModel, paletteOpen, infoOpen, toggleInfo, mcpOpen, toggleMcp, toastMsg, patchMetrics, clearSessionUnread, loadOpenTabs, rekeySessionAgent, rekeySessionModel, modelPickerOpen, theme, markSessionListDirty, type Tab } from './lib/stores'
+  import { tabs, permissions, sidebarOpen, selectedModel, paletteOpen, infoOpen, toggleInfo, mcpOpen, toggleMcp, toastMsg, patchMetrics, clearSessionUnread, loadOpenTabs, rekeySessionAgent, rekeySessionModel, modelPickerOpen, syncEngineRetryFromStatus, theme, markSessionListDirty, type Tab } from './lib/stores'
   import CommandPalette from './components/CommandPalette.svelte'
   import CommandDialog from './components/CommandDialog.svelte'
   import RenameDialog from './components/RenameDialog.svelte'
@@ -170,6 +170,9 @@
       () => ({}) as Record<string, { type?: string; state?: string }>,
     )
     tabs.patch(id, { busy: (st[id]?.type ?? st[id]?.state) === 'busy' })
+    // one-shot hydration: session.status SSE events are NOT replayed on
+    // connect, so a tab opened after a stall sees nothing without this
+    syncEngineRetryFromStatus(st as any)
   }
 
   // New tabs are purely local until the first message; the session is
