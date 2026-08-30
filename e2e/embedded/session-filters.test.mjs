@@ -4,6 +4,16 @@
 // serves webui/dist + stub /oc + fixture endpoints + SSE, driven via
 // /__ctl and introspected via /__state.
 //
+// Server-backed meta flow: session stars/tags live in server-side storage
+// (session_meta in fake server). The webui client:
+//   - Hydrates sessionMeta store from localStorage at boot (instant paint)
+//   - On sidebar session-list load, calls applyServerMeta(sessions) which
+//     REPLACES the store with data from GET /api/history/sessions
+//   - A one-time migration pushes localStorage-only meta to the server
+//     (flag: opencode.sessionMetaMigrated)
+//   - toggleStar/setTag fire PUT /api/history/session/{sid}/meta
+//   - dropSessionMeta fires DELETE /api/history/session/{sid}/meta
+//
 // Checks:
 //   S1  sidebar visible on load; burger button toggles it closed/reopen
 //   T1  tag button shows .tagged class for tagged sessions, plain for untagged
@@ -13,7 +23,7 @@
 //   T5  clicking outside the picker closes it
 //   T6  pressing Escape closes the picker
 //   F1  star button shows ★ for starred, ☆ for unstarred
-//   F2  clicking star toggles star state + persists to localStorage
+//   F2  clicking star toggles star state + persists to server (verified via /api/history/sessions)
 //   R1  filter bar visible when metadata exists (stars/tags)
 //   R2  filter bar hidden when search query is active
 //   R3  star filter shows only starred sessions
@@ -22,8 +32,8 @@
 //   R6  tag filter (proj) shows only sessions tagged proj
 //   R7  multi-filter (star + tag) is OR union
 //   R8  clear button deactivates all filters and restores full list
-//   R9  tags/star persist across page reload
-//   M1  legacy migration: folder/tags keys migrate to tag on load
+//   R9  tags/star persist across page reload (proven by clearing localStorage — server is source of truth)
+//   M1  legacy migration: folder/tags keys migrate to server via PUT meta on load
 //
 // Run: node e2e/embedded/session-filters.test.mjs
 
@@ -95,6 +105,14 @@ function sseEmit(type, properties = {}) {
 
 const state = { counts: {} };
 
+// server-backed session meta (star/tag) — mirrors chatserver smeta table
+const session_meta = {};
+
+// seed server-side meta (matches the META fixture)
+for (const [sid, m] of Object.entries(META)) {
+  if (m.star || m.tag) session_meta[sid] = { star: !!m.star, tag: m.tag ?? null };
+}
+
 const server = http.createServer(async (req, res) => {
   const p = req.url.split('?')[0];
   state.counts[p] = (state.counts[p] ?? 0) + 1;
@@ -105,6 +123,9 @@ const server = http.createServer(async (req, res) => {
       const body = JSON.parse((await readBody(req)) || '{}');
       if (body.status) Object.assign(STATUS, body.status);
       if (body.emit) sseEmit(body.emit.type, body.emit.properties ?? {});
+      if (body.clearMeta) {
+        for (const k of Object.keys(session_meta)) delete session_meta[k];
+      }
       return json(res, { ok: true });
     }
 
@@ -122,7 +143,37 @@ const server = http.createServer(async (req, res) => {
     }
 
     // ---- history (chatserver stubs) -----------------------------------------
-    if (p === '/api/history/sessions') return json(res, SESSIONS);
+    if (p === '/api/history/sessions') {
+      const withMeta = SESSIONS.map(s => {
+        const m = session_meta[s.id];
+        return m ? { ...s, ...(m.star && { star: true }), ...(m.tag && { tag: m.tag }) } : s;
+      });
+      return json(res, withMeta);
+    }
+    // session meta (star/tag) — PUT partial merge, DELETE clear
+    const mMeta = p.match(/^\/api\/history\/session\/([^/]+)\/meta$/);
+    if (mMeta) {
+      const sid = mMeta[1];
+      if (req.method === 'PUT' || req.method === 'POST') {
+        try {
+          const body = JSON.parse((await readBody(req)) || '{}');
+          const cur = session_meta[sid] || { star: false, tag: null };
+          if ('star' in body) cur.star = !!body.star;
+          if ('tag' in body) cur.tag = body.tag || null;
+          // clean up empty entries
+          if (!cur.star && !cur.tag) delete session_meta[sid];
+          else session_meta[sid] = cur;
+          return json(res, { ok: true, star: !!cur.star, tag: cur.tag });
+        } catch { return json(res, { error: 'bad json' }, 400); }
+      }
+      if (req.method === 'DELETE') {
+        delete session_meta[sid];
+        return json(res, { ok: true });
+      }
+      // GET
+      const cur = session_meta[sid];
+      return json(res, cur || { star: false, tag: null });
+    }
     if (p.startsWith('/api/history/session/')) return json(res, []);
     if (p.endsWith('/errors')) {
       if (req.method === 'GET') return json(res, []);
@@ -199,9 +250,11 @@ try {
   await page.waitForSelector('.sidebar .item', { timeout: 15000 });
   await sleep(500);
 
-  // Inject sessionMeta then reload so stores read it at boot
+  // Seed localStorage boot cache + set migration flag so applyServerMeta
+  // doesn't try to re-push (server already has the meta from our seed)
   await page.evaluate((meta) => {
     localStorage.setItem('opencode.sessionMeta', JSON.stringify(meta));
+    localStorage.setItem('opencode.sessionMetaMigrated', '1');
   }, META);
   await page.reload({ waitUntil: 'domcontentloaded' });
   await page.waitForSelector('.sidebar .item', { timeout: 15000 });
@@ -329,11 +382,10 @@ try {
     .locator('.star').textContent();
   check('F2', 'clicking ☆ stars the session', toggledText?.includes('★'), toggledText);
 
-  const metaAfterStar = await page.evaluate(() =>
-    JSON.parse(localStorage.getItem('opencode.sessionMeta') || '{}')
-  );
-  const hasNewStar = Object.values(metaAfterStar).some((m) => m?.star);
-  check('F2', 'star persisted to localStorage', hasNewStar);
+  // star persisted to server (fake server meta state)
+  const sessionsAfterStar = await page.evaluate(() => fetch('/api/history/sessions').then(r => r.json()));
+  const plainAfterStar = sessionsAfterStar.find(s => s.id === 'ses_ux4');
+  check('F2', 'star persisted to server', plainAfterStar?.star === true);
 
   // unstar
   await page.locator('.sidebar .item', { hasText: 'Plain session' })
@@ -439,6 +491,11 @@ try {
 
   // ======== R9 — persistence across reload =================================
   console.log('\nCASE R9 — persistence');
+  // Clear localStorage to prove server is the source of truth
+  await page.evaluate(() => {
+    localStorage.removeItem('opencode.sessionMeta');
+    localStorage.removeItem('opencode.sessionMetaMigrated');
+  });
   await page.reload({ waitUntil: 'domcontentloaded' });
   await page.waitForSelector('.sidebar .item', { timeout: 15000 });
   await sleep(800);
@@ -456,6 +513,16 @@ try {
 
   // ======== M1 — legacy migration ==========================================
   console.log('\nCASE M1 — legacy migration');
+  // Reset server state and clear migration flag so legacy localStorage is pushed
+  await page.evaluate(() => {
+    localStorage.removeItem('opencode.sessionMetaMigrated');
+  });
+  // Clear server meta via the fake state (we need a helper — use the __ctl endpoint)
+  await page.evaluate(() => fetch('/__ctl', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ clearMeta: true }),
+  }));
   // Set legacy shape: folder wins over tags[0]
   await page.evaluate(() => {
     localStorage.setItem('opencode.sessionMeta', JSON.stringify({
@@ -490,6 +557,13 @@ try {
   const ux1Star = await page.locator('.sidebar .item', { hasText: 'Starred session' })
     .locator('.star').textContent();
   check('M1', 'ses_ux1 star preserved after migration', ux1Star?.includes('★'));
+
+  // Verify server received the migrated values
+  const metaAfterM1 = await page.evaluate(() => fetch('/api/history/sessions').then(r => r.json()));
+  const ux2After = metaAfterM1.find(s => s.id === 'ses_ux2');
+  check('M1', 'server received migrated tag (ux from tags[0])', ux2After?.tag === 'ux');
+  const ux3After = metaAfterM1.find(s => s.id === 'ses_ux3');
+  check('M1', 'server received migrated tag (proj from folder)', ux3After?.tag === 'proj');
 
   await screenshot(page, 'session-filters-final');
   await ctx.close();
