@@ -13,10 +13,11 @@
     sessionUnread,
     sessionListDirty,
     infoOpen,
+    closeInfo,
   } from '../lib/stores'
   import { relTime } from '../lib/util'
   import type { Tab } from '../lib/stores'
-import { sidePanel } from '../lib/sidePanel'
+  import SidePanel from './SidePanel.svelte'
 
   export let tab: Tab | null
   // linked-session rows open the child session (App wires this to openHistory)
@@ -231,8 +232,8 @@ import { sidePanel } from '../lib/sidePanel'
   }
 </script>
 
-<aside class="info" use:sidePanel={{ side: 'right', getOpen: () => $infoOpen, setOpen: (v) => infoOpen.set(v) }}>
-  <div class="head">
+<SidePanel title="Session Info" onClose={closeInfo}>
+  <div class="sid-row">
     <span class="ttl" title={tab?.title}>{tab?.title ?? 'no session'}</span>
     {#if tab?.id}
       <span class="sid">{tab.id}</span>
@@ -291,32 +292,20 @@ import { sidePanel } from '../lib/sidePanel'
       </button>
     {/each}
   {/if}
-</aside>
+</SidePanel>
 
 <style>
-  .info {
-    width: 240px;
-    flex-shrink: 0;
-    background: var(--bg-panel);
-    border-left: 1px solid var(--border);
-    padding: 12px;
-    overflow-y: auto;
-    height: 100vh;
-    box-sizing: border-box;
+  .sid-row {
+    margin-bottom: 8px;
   }
-  @supports (height: 100dvh) {
-    .info {
-      height: var(--vvh, 100dvh);
-    }
-  }
-  .head .ttl {
+  .ttl {
     font-weight: 600;
     font-size: 13px;
     display: block;
     overflow-wrap: anywhere;
     white-space: normal;
   }
-  .head .sid {
+  .sid {
     font-size: 10px;
     font-family: var(--mono);
     color: var(--fg-dim);

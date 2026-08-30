@@ -96,6 +96,8 @@ jobs:
             file: settings.test.mjs
           - name: settings-cmd
             file: settings-cmd.test.mjs
+          - name: sidebar-model-tip
+            file: sidebar-model-tip.test.mjs
           - name: stall-retry
             file: stall-retry.test.mjs
           - name: subs
@@ -108,6 +110,8 @@ jobs:
             file: tokens.test.mjs
           - name: uploads
             file: uploads.test.mjs
+          - name: session-filters
+            file: session-filters.test.mjs
 
     steps:
       - uses: actions/checkout@v7

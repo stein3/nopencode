@@ -415,7 +415,7 @@
   {/if}
   <main>
     <div class="topbar">
-      <button class="burger" title="Toggle sidebar" on:click={() => sidebarOpen.update((v) => !v)}>
+      <button class="burger" class:on={$sidebarOpen} title="Toggle sidebar" on:click={() => sidebarOpen.update((v) => !v)}>
         ☰
       </button>
       <div class="spacer"></div>
@@ -435,7 +435,7 @@
       >
         ⑂
       </button>
-      <button class="burger" title="Toggle info panel" on:click={toggleInfo}>▤</button>
+      <button class="burger" class:on={$infoOpen} title="Toggle info panel" on:click={toggleInfo}>▤</button>
       <button class="burger" class:on={$mcpOpen} title="Toggle MCP servers panel" on:click={toggleMcp}>⬡</button>
       {#if $permissions.length}
         <div class="perm">

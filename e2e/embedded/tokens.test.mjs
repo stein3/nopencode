@@ -313,13 +313,13 @@ try {
     // ---- 2) open the Tokens probe session + verify InfoPanel -------------------
     console.log('\nCASE 2 — InfoPanel token display');
     await page.getByText('Tokens probe session', { exact: false }).first().click();
-    await page.waitForSelector('.info .grid', { timeout: 15000 });
+    await page.waitForSelector('.panel .grid', { timeout: 15000 });
     await page.waitForTimeout(3000);
 
     // InfoPanel refresh + store overlay need a beat
     await page.waitForFunction(
       () => {
-        const v = [...document.querySelectorAll('.info .grid .v')].map((e) => e.textContent.trim());
+        const v = [...document.querySelectorAll('.panel .grid .v')].map((e) => e.textContent.trim());
         return v[0] && v[0] !== '—';
       },
       { timeout: 25000 },
@@ -327,7 +327,7 @@ try {
     await page.waitForTimeout(500);
 
     const panel = await page.evaluate(() => {
-      const g = [...document.querySelectorAll('.info .grid')];
+      const g = [...document.querySelectorAll('.panel .grid')];
       const kv = {};
       g.forEach((el) => {
         const ks = el.querySelectorAll('.k, .v');

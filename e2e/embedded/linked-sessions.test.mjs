@@ -219,7 +219,7 @@ function check(c, name, pass, note = '') {
   console.log(`  [${pass ? 'PASS' : 'FAIL'}] ${c} · ${name}${note ? ` — ${note}` : ''}`);
 }
 
-const rowLoc = (page, title) => page.locator(`.info .kid[title="${title}"]`);
+const rowLoc = (page, title) => page.locator(`.panel .kid[title="${title}"]`);
 
 // ================================ run =======================================
 
@@ -233,20 +233,20 @@ try {
 
   await page.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 20000 });
   await page.waitForSelector('.sidebar .item', { timeout: 10000 });
-  await page.waitForSelector('.info .sec', { timeout: 10000 }); // auto-opens ses_main + panel
+  await page.waitForSelector('.panel .sec', { timeout: 10000 }); // auto-opens ses_main + panel
   await sleep(700);
 
   // ---- L1: three linked rows with correct dots/labels/titles ---------------
-  const secTexts = await page.$$eval('.info .sec', (els) => els.map((e) => e.textContent.trim()));
+  const secTexts = await page.$$eval('.panel .sec', (els) => els.map((e) => e.textContent.trim()));
   check('L1', 'Linked Sessions section present', secTexts.includes('Linked Sessions'), secTexts.join('|'));
   check(
     'L1',
     'Context/Todo sections still present',
     secTexts.includes('Context') && secTexts.includes('Todo'),
   );
-  await poll(() => page.$('.info .kid') !== null);
+  await poll(() => page.$('.panel .kid') !== null);
 
-  const rows = await page.$$eval('.info .kid', (els) =>
+  const rows = await page.$$eval('.panel .kid', (els) =>
     els.map((el) => {
       // normalize: drop the base class + Svelte's scoping hash (svelte-xxxx)
       const dc = [...(el.querySelector('.dot')?.classList ?? [])].filter(
@@ -281,13 +281,13 @@ try {
     rows.map((r) => r.rt).join(','),
   );
   // ellipsis wrapper actually engaged (min-width:0 chain)
-  const ttCss = await page.$eval('.info .ttext', (el) => ({
+  const ttCss = await page.$eval('.panel .ttext', (el) => ({
     minw: getComputedStyle(el).minWidth,
     to: getComputedStyle(el).textOverflow,
   }));
   check('L1', '.ttext ellipsis styling', ttCss.minw === '0px' && ttCss.to === 'ellipsis', JSON.stringify(ttCss));
 
-  await page.locator('.info').screenshot({ path: path.join(SHOTS_DIR, 'linked-panel.png') });
+  await page.locator('.panel').screenshot({ path: path.join(SHOTS_DIR, 'linked-panel.png') });
 
   // ---- L2: click a sub row → session opens ---------------------------------
   await rowLoc(page, 'Hunt regressions (@explore subagent)').click();
@@ -307,14 +307,14 @@ try {
   // ---- L3: childless active session → section absent -----------------------
   await page.click('.sidebar .item[title="Solo session"]');
   await sleep(600);
-  const soloSecs = await page.$$eval('.info .sec', (els) => els.map((e) => e.textContent.trim()));
+  const soloSecs = await page.$$eval('.panel .sec', (els) => els.map((e) => e.textContent.trim()));
   check('L3', 'no Linked section on childless session', !soloSecs.includes('Linked Sessions'), soloSecs.join('|'));
-  check('L3', 'zero kid rows', (await page.$$eval('.info .kid', (els) => els.length)) === 0);
+  check('L3', 'zero kid rows', (await page.$$eval('.panel .kid', (els) => els.length)) === 0);
 
   // ---- L4: pending-* tab → section absent ----------------------------------
   await page.click('.sidebar .new'); // creates + activates a pending-* tab
   await sleep(600);
-  const pendSecs = await page.$$eval('.info .sec', (els) => els.map((e) => e.textContent.trim()));
+  const pendSecs = await page.$$eval('.panel .sec', (els) => els.map((e) => e.textContent.trim()));
   check('L4', 'no Linked section on pending tab', !pendSecs.includes('Linked Sessions'), pendSecs.join('|'));
 
   // ---- L5: busy→idle flip surfaces as unread dot ---------------------------
@@ -331,12 +331,12 @@ try {
   await sleep(300);
   await page.click('.sidebar .item[title="Orchestrate the release"]');
   const flipped = await poll(async () =>
-    (await page.$$eval('.info .kid .dot', (els) => els.map((e) => e.className))).some((c) =>
+    (await page.$$eval('.panel .kid .dot', (els) => els.map((e) => e.className))).some((c) =>
       c.includes('unread'),
     ),
   );
   check('L5', 'c3 shows unread dot after idle flip', flipped);
-  const dots = await page.$$eval('.info .kid', (els) =>
+  const dots = await page.$$eval('.panel .kid', (els) =>
     els.map((el) => ({
       tt: el.querySelector('.ttext')?.textContent.trim(),
       dot: [...el.querySelector('.dot').classList]
@@ -353,7 +353,7 @@ try {
       dots.find((d) => d.tt === 'Refactor auth flow')?.dot === 'busy',
     JSON.stringify(dots),
   );
-  await page.locator('.info').screenshot({ path: path.join(SHOTS_DIR, 'linked-unread.png') });
+  await page.locator('.panel').screenshot({ path: path.join(SHOTS_DIR, 'linked-unread.png') });
 
   await ctx.close();
 } finally {

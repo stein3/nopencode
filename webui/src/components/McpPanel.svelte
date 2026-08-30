@@ -1,8 +1,8 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { oc } from '../lib/api'
-  import { mcpOpen, toast } from '../lib/stores'
-import { sidePanel } from '../lib/sidePanel'
+  import { mcpOpen, closeMcp, toast } from '../lib/stores'
+  import SidePanel from './SidePanel.svelte'
 
   interface McpServer {
     type?: string
@@ -53,11 +53,8 @@ import { sidePanel } from '../lib/sidePanel'
   onMount(refresh)
 </script>
 
-<aside class="mcp" use:sidePanel={{ side: 'right', getOpen: () => $mcpOpen, setOpen: (v) => mcpOpen.set(v) }}>
-  <div class="head">
-    <span class="ttl">MCP Servers</span>
-    <button class="refresh" title="Refresh" on:click={refresh}>↻</button>
-  </div>
+<SidePanel title="MCP Servers" onClose={closeMcp}>
+  <button slot="actions" class="refresh" title="Refresh" on:click={refresh}>↻</button>
 
   {#if loading}
     <div class="empty">loading…</div>
@@ -84,34 +81,10 @@ import { sidePanel } from '../lib/sidePanel'
       <div class="empty">No MCP servers configured</div>
     {/each}
   {/if}
-</aside>
+</SidePanel>
 
 <style>
-  .mcp {
-    width: 240px;
-    flex-shrink: 0;
-    background: var(--bg-panel);
-    border-left: 1px solid var(--border);
-    padding: 12px;
-    overflow-y: auto;
-    height: 100vh;
-    box-sizing: border-box;
-  }
-  @supports (height: 100dvh) {
-    .mcp {
-      height: var(--vvh, 100dvh);
-    }
-  }
-  .head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-  }
-  .head .ttl {
-    font-weight: 600;
-    font-size: 13px;
-  }
-  .head .refresh {
+  .refresh {
     background: none;
     border: none;
     color: var(--fg-dim);
@@ -120,7 +93,7 @@ import { sidePanel } from '../lib/sidePanel'
     padding: 0 2px;
     line-height: 1;
   }
-  .head .refresh:hover {
+  .refresh:hover {
     color: var(--fg);
   }
   .empty {

@@ -204,6 +204,9 @@ export interface HistSession {
   message_count: number
   cost: number
   model?: string
+  // provider of the session's model (chatserver projects it from the session
+  // JSON) — sidebar tooltip shows provider/id while the row shows bare model id
+  model_provider?: string
   // context estimate (newest assistant message with a non-zero tally);
   // absent when no message ever reported usage
   tokens?: number
