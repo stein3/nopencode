@@ -7,8 +7,38 @@ on:
     branches: [main]
 
 jobs:
-  embedded:
+  build:
+    name: Build webui
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - name: Cache npm downloads
+        uses: actions/cache@v6
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-${{ hashFiles('webui/package-lock.json') }}
+          restore-keys: |
+            npm-${{ runner.os }}-
+
+      - name: Build webui
+        working-directory: webui
+        run: npm ci && npm run build
+
+      - name: Upload webui dist
+        uses: actions/upload-artifact@v4
+        with:
+          name: webui-dist
+          path: webui/dist
+          retention-days: 1
+
+  test:
     name: "${{ matrix.name }}"
+    needs: build
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -86,20 +116,21 @@ jobs:
         with:
           node-version: 22
 
+      - name: Download webui dist
+        uses: actions/download-artifact@v4
+        with:
+          name: webui-dist
+          path: webui/dist
+
       - name: Cache npm downloads
         uses: actions/cache@v6
         with:
           path: ~/.npm
-          key: npm-${{ runner.os }}-${{ hashFiles('webui/package-lock.json', 'e2e/package-lock.json') }}
+          key: npm-${{ runner.os }}-${{ hashFiles('e2e/package-lock.json') }}
           restore-keys: |
             npm-${{ runner.os }}-
 
-      - name: Build webui
-        working-directory: webui
-        run: npm ci && npm run build
-
       - name: Cache Playwright browsers
-        id: playwright-cache
         uses: actions/cache@v6
         with:
           path: ~/.cache/ms-playwright
