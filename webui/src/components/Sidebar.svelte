@@ -1,10 +1,9 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte'
   import { oc, hist, type HistSession, type SearchHit } from '../lib/api'
-  import { searchQuery, sessionMetrics, permissions, pendingQuestions, tabs, sessionUnread, markSessionUnread, hideSubagents, subExpanded, settingsOpen, sessionListDirty, sessionKidMap, sessionMeta, toggleStar, addTag, removeTag, setFolder, allTags, allFolders, sidebarOpen, type SessionMeta } from '../lib/stores'
+  import { searchQuery, sessionMetrics, permissions, pendingQuestions, tabs, sessionUnread, markSessionUnread, hideSubagents, subExpanded, settingsOpen, sessionListDirty, sessionKidMap, sessionMeta, toggleStar, setTag, allTags, sidebarOpen, type SessionMeta } from '../lib/stores'
 import { sidePanel } from '../lib/sidePanel'
   import { relTime } from '../lib/util'
-  import TagPopover from './TagPopover.svelte'
 
   const activeStore = tabs.active
 
@@ -311,28 +310,22 @@ import { sidePanel } from '../lib/sidePanel'
       .sort((a, b) => b.updated - a.updated)
   }
 
-  // ---- session organization: stars, tags, folders, filters ------------------
+  // ---- session organization: stars, tags, filters ---------------------------
   let filterStarred = false
   let filterTags: Set<string> = new Set()
-  let filterFolders: Set<string> = new Set()
   let filterUntagged = false
 
-  // tag popover state
-  let tagPopoverSid: string | null = null
-  let tagPopoverAnchor: HTMLElement | null = null
+  // tag picker state
+  let tagPickerSid: string | null = null
+  let tagPickerAnchor: HTMLElement | null = null
+  let newTagName = ''
 
-  // folder picker state
-  let folderPickerSid: string | null = null
-  let folderPickerAnchor: HTMLElement | null = null
-  let newFolderName = ''
-
-  // collect all unique tags and folders from sessionMeta (reactive)
+  // collect all unique tags from sessionMeta (reactive)
   $: uniqueTags = allTags($sessionMeta)
-  $: uniqueFolders = allFolders($sessionMeta)
   $: hasStars = Object.values($sessionMeta).some((m) => m?.star)
 
   // any active filters?
-  $: hasFilters = filterStarred || filterTags.size > 0 || filterFolders.size > 0 || filterUntagged
+  $: hasFilters = filterStarred || filterTags.size > 0 || filterUntagged
 
   function toggleFilterTag(tag: string) {
     const next = new Set(filterTags)
@@ -341,89 +334,78 @@ import { sidePanel } from '../lib/sidePanel'
     filterTags = next
   }
 
-  function toggleFilterFolder(folder: string) {
-    const next = new Set(filterFolders)
-    if (next.has(folder)) next.delete(folder)
-    else next.add(folder)
-    filterFolders = next
-  }
-
   function clearFilters() {
     filterStarred = false
     filterTags = new Set()
-    filterFolders = new Set()
     filterUntagged = false
   }
 
   // apply organization filters to displayRows
   // All filter state passed explicitly so Svelte tracks them as reactive deps
+  // OR semantics: a row shows if it matches ANY active filter (union, not
+  // intersection — star+ux means "starred or tagged ux").
   function applyOrgFilters(
     rows: Disp[],
     starred: boolean,
     tags: Set<string>,
-    folders: Set<string>,
     untagged: boolean,
     meta: Record<string, any>,
   ): Disp[] {
-    if (!starred && tags.size === 0 && folders.size === 0 && !untagged) return rows
+    if (!starred && tags.size === 0 && !untagged) return rows
     return rows.filter((d) => {
       const m = meta[d.s.id]
-      if (starred && !m?.star) return false
-      if (tags.size > 0) {
-        const t = m?.tags
-        if (!t) return false
-        for (const ft of tags) {
-          if (!t.includes(ft)) return false
-        }
-      }
-      if (folders.size > 0) {
-        const folder = m?.folder
-        if (!folder || !folders.has(folder)) return false
-      }
-      if (untagged && (m?.tags?.length ?? 0) > 0) return false
-      return true
+      if (starred && m?.star) return true
+      if (tags.size > 0 && m?.tag && tags.has(m.tag)) return true
+      if (untagged && !m?.tag) return true
+      return false
     })
   }
 
-  function openTagPopover(e: Event, sid: string) {
+  function openTagPicker(e: MouseEvent, sid: string) {
     e.stopPropagation()
-    tagPopoverSid = sid
-    tagPopoverAnchor = e.currentTarget as HTMLElement
+    tagPickerSid = tagPickerSid === sid ? null : sid
+    tagPickerAnchor = e.currentTarget as HTMLElement
+    newTagName = ''
   }
 
-  function closeTagPopover() {
-    tagPopoverSid = null
-    tagPopoverAnchor = null
+  function closeTagPicker() {
+    tagPickerSid = null
+    tagPickerAnchor = null
+    newTagName = ''
   }
 
-  function openFolderPicker(e: MouseEvent, sid: string) {
-    e.stopPropagation()
-    folderPickerSid = folderPickerSid === sid ? null : sid
-    folderPickerAnchor = e.currentTarget as HTMLElement
-    newFolderName = ''
+  function assignTag(tag: string) {
+    if (tagPickerSid) setTag(tagPickerSid, tag)
+    closeTagPicker()
   }
 
-  function closeFolderPicker() {
-    folderPickerSid = null
-    folderPickerAnchor = null
-    newFolderName = ''
+  function createAndAssignTag() {
+    const name = newTagName.trim()
+    if (!name || !tagPickerSid) return
+    setTag(tagPickerSid, name)
+    closeTagPicker()
   }
 
-  function assignFolder(folder: string) {
-    if (folderPickerSid) setFolder(folderPickerSid, folder)
-    closeFolderPicker()
+  function clearTag() {
+    if (tagPickerSid) setTag(tagPickerSid, undefined)
+    closeTagPicker()
   }
 
-  function createAndAssignFolder() {
-    const name = newFolderName.trim()
-    if (!name || !folderPickerSid) return
-    setFolder(folderPickerSid, name)
-    closeFolderPicker()
+  // close picker on outside click (document-level, capture phase to fire
+  // before the anchor's own click handler which toggles)
+  function onPickerOutsideClick(e: MouseEvent) {
+    if (!tagPickerSid) return
+    const t = e.target as HTMLElement
+    if (t.closest('.tagpicker') || t.closest('.tagbtn')) return
+    closeTagPicker()
   }
 
-  function clearFolder() {
-    if (folderPickerSid) setFolder(folderPickerSid, undefined)
-    closeFolderPicker()
+  // close picker on Escape
+  function onPickerKeydown(e: KeyboardEvent) {
+    if (e.key === 'Escape' && tagPickerSid) {
+      e.preventDefault()
+      closeTagPicker()
+    }
   }
 
   // ---- subagent sessions (@explore / @general / …) -------------------------
@@ -540,35 +522,35 @@ import { sidePanel } from '../lib/sidePanel'
         .map((d) => ({ ...d, subsHidden: true }))
     : flattenTree(roots, kidsMap, $subExpanded, busyMap, permSet, qSet, $sessionUnread)
 
-  // apply organization filters (star, tag, folder)
+  // apply organization filters (star, tag)
   // All filter state passed explicitly so Svelte tracks reactivity
-  $: filteredRows = applyOrgFilters(displayRows, filterStarred, filterTags, filterFolders, filterUntagged, $sessionMeta)
+  $: filteredRows = applyOrgFilters(displayRows, filterStarred, filterTags, filterUntagged, $sessionMeta)
 
-  // group filtered rows by folder (folders appear as section headers)
-  // unfoldered sessions stay inline; starred sessions without a folder stay inline
-  interface FolderGroup {
+  // group filtered rows by tag (tagged sessions appear as section headers)
+  // untagged sessions stay inline; starred sessions without a tag stay inline
+  interface TagGroup {
     name: string
     rows: Disp[]
   }
 
-  $: folderGroups = (() => {
+  $: tagGroups = (() => {
     const map = new Map<string, Disp[]>()
-    const noFolder: Disp[] = []
+    const noTag: Disp[] = []
     for (const d of filteredRows) {
-      const folder = $sessionMeta[d.s.id]?.folder
-      if (folder) {
-        const arr = map.get(folder)
+      const tag = $sessionMeta[d.s.id]?.tag
+      if (tag) {
+        const arr = map.get(tag)
         if (arr) arr.push(d)
-        else map.set(folder, [d])
+        else map.set(tag, [d])
       } else {
-        noFolder.push(d)
+        noTag.push(d)
       }
     }
-    const groups: FolderGroup[] = []
+    const groups: TagGroup[] = []
     for (const [name, rows] of [...map].sort((a, b) => a[0].localeCompare(b[0]))) {
       groups.push({ name, rows })
     }
-    return { groups, noFolder }
+    return { groups, noTag }
   })()
 
   // ---- session list keyboard navigation (Alt+Up/Down) ----------------------
@@ -684,7 +666,7 @@ import { sidePanel } from '../lib/sidePanel'
   }
 </script>
 
-<svelte:window on:keydown={onNavKey} />
+<svelte:window on:keydown={onNavKey} on:click={onPickerOutsideClick} on:keydown={onPickerKeydown} />
 
 <aside class="sidebar" use:sidePanel={{ side: 'left', getOpen: () => $sidebarOpen, setOpen: (v) => sidebarOpen.set(v) }}>
   <div class="top">
@@ -719,7 +701,7 @@ import { sidePanel } from '../lib/sidePanel'
     {/if}
   </div>
 
-  {#if !q.length && (hasStars || uniqueTags.length || uniqueFolders.length)}
+  {#if !q.length && (hasStars || uniqueTags.length)}
     <div class="filterbar">
       <button
         class="filterchip"
@@ -737,16 +719,6 @@ import { sidePanel } from '../lib/sidePanel'
           on:click={() => toggleFilterTag(tag)}
         >
           {#if filterTags.has(tag)}<span class="ficon">✓</span>{/if}{tag}
-        </button>
-      {/each}
-      {#each uniqueFolders as folder}
-        <button
-          class="filterchip folderchip"
-          class:active={filterFolders.has(folder)}
-          title="Filter by folder: {folder}"
-          on:click={() => toggleFilterFolder(folder)}
-        >
-          {#if filterFolders.has(folder)}<span class="ficon">✓</span>{/if}{folder}
         </button>
       {/each}
       <button
@@ -870,27 +842,14 @@ import { sidePanel } from '../lib/sidePanel'
               {/if}
             </span>
           </span>
-          <!-- tag chips row (only when tags exist) -->
-          {#if $sessionMeta[d.s.id]?.tags?.length}
-            <span class="tagrow">
-              {#each $sessionMeta[d.s.id].tags as tag}
-                <span
-                  class="tagspan"
-                  role="button"
-                  tabindex="-1"
-                  title="Tag: {tag}"
-                  on:click|stopPropagation={(e) => openTagPopover(e, d.s.id)}
-                  on:keydown|stopPropagation={(e) => { if (e.key === 'Enter') openTagPopover(e, d.s.id) }}
-                >{tag}</span>
-              {/each}
-              <button
-                class="addtagbtn"
-                title="Add tag"
-                on:click|stopPropagation={(e) => openTagPopover(e, d.s.id)}
-              >+</button>
-            </span>
-          {/if}
           <span class="sub"
+            ><span
+                class="smeta"
+              >{#if isSub(d.s)}<span class="subagent">{subLabel(d.s)}</span> · {/if}{d.s.message_count} msgs{fmtK(
+                  effTokens(d.s)
+                )
+                ? ` · ${fmtK(effTokens(d.s))} tk`
+                : ''}{d.s.model ? ` · ${d.s.model}` : ''}</span
             >{#if !isSub(d.s)}
               <button
                 class="star"
@@ -901,10 +860,10 @@ import { sidePanel } from '../lib/sidePanel'
                 {$sessionMeta[d.s.id]?.star ? '★' : '☆'}
               </button>
               <button
-                class="folderbtn"
-                class:foldered={$sessionMeta[d.s.id]?.folder}
-                title="Move to folder"
-                on:click={(e) => openFolderPicker(e, d.s.id)}
+                class="tagbtn"
+                class:tagged={$sessionMeta[d.s.id]?.tag}
+                title={$sessionMeta[d.s.id]?.tag ? 'Remove tag' : 'Tag session'}
+                on:click={(e) => openTagPicker(e, d.s.id)}
               >
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z" />
@@ -927,15 +886,7 @@ import { sidePanel } from '../lib/sidePanel'
                   </svg>
                 </button>
               {/if}
-            {/if}<span
-                class="smeta"
-              >{#if isSub(d.s)}<span class="subagent">{subLabel(d.s)}</span> · {/if}{d.s.message_count} msgs{fmtK(
-                  effTokens(d.s)
-                )
-                ? ` · ${fmtK(effTokens(d.s))} tk`
-                : ''}{d.s.model ? ` · ${d.s.model}` : ''}</span
-            >
-            <span class="stime" title={new Date(d.s.updated).toLocaleString()}>{relTime(d.s.updated)}</span>
+            {/if}<span class="stime" title={new Date(d.s.updated).toLocaleString()}>{relTime(d.s.updated)}</span>
           </span>
         </button>
       {:else}
@@ -949,36 +900,32 @@ import { sidePanel } from '../lib/sidePanel'
     <kbd>Alt+←→</kbd> cycle · <kbd>Alt+↑↓</kbd> sessions
   </div>
 
-  {#if tagPopoverSid && tagPopoverAnchor}
-    <TagPopover sid={tagPopoverSid} anchor={tagPopoverAnchor} onClose={closeTagPopover} />
-  {/if}
-
-  {#if folderPickerSid && folderPickerAnchor}
-    {@const frect = folderPickerAnchor.getBoundingClientRect()}
+  {#if tagPickerSid && tagPickerAnchor}
+    {@const frect = tagPickerAnchor.getBoundingClientRect()}
     <div
-      class="folderpicker"
+      class="tagpicker"
       style="position:fixed;top:{Math.min(frect.bottom + 4, window.innerHeight - 220)}px;left:{Math.min(frect.left, window.innerWidth - 200)}px;z-index:100"
     >
-      <div class="fpheader">Move to folder</div>
-      {#if $sessionMeta[folderPickerSid]?.folder}
-        <button class="fpopt" on:click={clearFolder}>
-          <span class="fpclear">✕</span> Remove from folder
+      <div class="tpheader">Tag session</div>
+      {#if $sessionMeta[tagPickerSid]?.tag}
+        <button class="tpopt" on:click={clearTag}>
+          <span class="tpclear">✕</span> Remove tag
         </button>
       {/if}
-      {#each uniqueFolders as folder}
+      {#each uniqueTags as tag}
         <button
-          class="fpopt"
-          class:current={folder === $sessionMeta[folderPickerSid]?.folder}
-          on:click={() => assignFolder(folder)}
-        >🏷️ {folder}</button>
+          class="tpopt"
+          class:current={tag === $sessionMeta[tagPickerSid]?.tag}
+          on:click={() => assignTag(tag)}
+        >🏷️ {tag}</button>
       {/each}
-      <div class="fpnew">
+      <div class="tpnew">
         <input
-          bind:value={newFolderName}
-          placeholder="New folder…"
-          on:keydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); createAndAssignFolder() } if (e.key === 'Escape') closeFolderPicker() }}
+          bind:value={newTagName}
+          placeholder="New tag…"
+          on:keydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); createAndAssignTag() } if (e.key === 'Escape') closeTagPicker() }}
         />
-        <button class="fpnewbtn" disabled={!newFolderName.trim()} on:click={createAndAssignFolder}>+</button>
+        <button class="tpnewbtn" disabled={!newTagName.trim()} on:click={createAndAssignTag}>+</button>
       </div>
     </div>
   {/if}
@@ -1303,13 +1250,11 @@ import { sidePanel } from '../lib/sidePanel'
     text-overflow: ellipsis;
   }
   /* line 2: meta starts at line 1's title column, relative time pinned to
-     the far end. The meta content gets its own .smeta wrapper (anonymous
-     flex items can't be styled) so long meta ellipsizes while the time stays
-     fully visible */
+     the far end. Buttons are inline after smeta, before stime. */
   .sub {
     display: flex;
-    align-items: baseline;
-    gap: var(--rowgap);
+    align-items: center;
+    gap: 4px;
     /* meta starts where line 1's title text starts: chevron column + dot
        column, mirrored from the same tokens the title prefix is built from
        (the aggregate light stacks INSIDE the dot column — no extra term) */
@@ -1317,7 +1262,6 @@ import { sidePanel } from '../lib/sidePanel'
     color: var(--fg-dim);
     font-size: 11.5px;
     white-space: nowrap;
-    position: relative;
   }
   /* hide-subagents mode: chevrons never render, so the reserved chevron
      column is reclaimed and line 1's prefix shrinks to just the dot column.
@@ -1408,15 +1352,12 @@ import { sidePanel } from '../lib/sidePanel'
     font-size: 10px;
   }
   .delbtn {
-    position: absolute;
-    top: 50%;
-    transform: translateY(-50%);
-    right: 46px;
-    width: 24px;
-    height: 24px;
+    flex: none;
+    width: 20px;
+    height: 20px;
     border: none;
     border-radius: 4px;
-    background: var(--bg-panel);
+    background: transparent;
     color: var(--fg-dim);
     cursor: pointer;
     display: inline-flex;
@@ -1432,24 +1373,20 @@ import { sidePanel } from '../lib/sidePanel'
     color: var(--fg);
   }
   .delbtn.yes {
-    position: static;
-    transform: none;
-    color: var(--err);
-    font-size: 11px;
     width: auto;
     padding: 0 6px;
+    color: var(--err);
+    font-size: 11px;
     background: var(--bg-panel);
   }
   .delbtn.yes:hover {
     background: rgba(244, 135, 113, 0.15);
   }
   .delbtn.no {
-    position: static;
-    transform: none;
-    color: var(--fg-dim);
-    font-size: 11px;
     width: auto;
     padding: 0 6px;
+    color: var(--fg-dim);
+    font-size: 11px;
     background: var(--bg-panel);
   }
   .delbtn.no:hover {
@@ -1457,8 +1394,6 @@ import { sidePanel } from '../lib/sidePanel'
     color: var(--fg);
   }
   .delconfirm {
-    position: absolute;
-    right: 46px;
     display: inline-flex;
     gap: 2px;
     background: var(--bg-panel);
@@ -1526,12 +1461,9 @@ import { sidePanel } from '../lib/sidePanel'
     color: var(--fg);
   }
 
-  /* ---- star button ------------------------------------------------------- */
+  /* ---- star/tag/trash buttons (inline in .sub row) ------------------------- */
   .star {
-    position: absolute;
-    top: 50%;
-    transform: translateY(-50%);
-    right: 86px;
+    flex: none;
     width: 20px;
     height: 20px;
     border: none;
@@ -1556,12 +1488,9 @@ import { sidePanel } from '../lib/sidePanel'
     color: var(--accent);
   }
 
-  /* ---- folder button ------------------------------------------------------ */
-  .folderbtn {
-    position: absolute;
-    top: 50%;
-    transform: translateY(-50%);
-    right: 66px;
+  /* ---- tag button --------------------------------------------------------- */
+  .tagbtn {
+    flex: none;
     width: 20px;
     height: 20px;
     border: none;
@@ -1575,74 +1504,20 @@ import { sidePanel } from '../lib/sidePanel'
     align-items: center;
     justify-content: center;
     padding: 0;
-    /* svg icon inherits currentColor → mono outline like star/trash */
     transition: color 0.12s, background 0.12s, filter 0.12s;
   }
-  .folderbtn.foldered {
+  .tagbtn.tagged {
     color: var(--accent);
     filter: drop-shadow(0 0 4px color-mix(in srgb, var(--accent) 45%, transparent));
   }
-  .folderbtn:hover {
+  .tagbtn:hover {
     background: var(--bg-hover);
     color: var(--accent);
     filter: drop-shadow(0 0 5px color-mix(in srgb, var(--accent) 55%, transparent));
   }
 
-  /* ---- tag chips --------------------------------------------------------- */
-  .tagrow {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 3px;
-    padding-left: calc(var(--chevw) + var(--rowgap) + var(--dotw) + var(--rowgap));
-  }
-  .tagspan {
-    display: inline-flex;
-    align-items: center;
-    padding: 1px 6px;
-    border-radius: 4px;
-    border: none;
-    background: transparent;
-    /* mono (dim) like star/trash; the accent glow below is the "tagged" highlight */
-    color: var(--fg-dim);
-    font-size: 10px;
-    cursor: pointer;
-    white-space: nowrap;
-    line-height: 1.5;
-    text-shadow: 0 0 6px color-mix(in srgb, var(--accent) 35%, transparent);
-    transition: color 0.12s, text-shadow 0.12s, background 0.12s;
-  }
-  .tagspan:hover {
-    background: var(--bg-hover);
-    color: var(--accent);
-    text-shadow: 0 0 9px color-mix(in srgb, var(--accent) 55%, transparent);
-  }
-  .addtagbtn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 16px;
-    height: 16px;
-    border: none;
-    border-radius: 4px;
-    background: transparent;
-    color: var(--fg-dim);
-    font-size: 11px;
-    cursor: pointer;
-    padding: 0;
-    line-height: 1;
-    opacity: 0;
-    transition: background 0.12s, color 0.12s, opacity 0.12s;
-  }
-  .item:hover .addtagbtn {
-    opacity: 1;
-  }
-  .addtagbtn:hover {
-    background: var(--bg-hover);
-    color: var(--accent);
-  }
-
-  /* ---- folder picker popover --------------------------------------------- */
-  .folderpicker {
+  /* ---- tag picker popover ------------------------------------------------- */
+  .tagpicker {
     background: var(--bg-panel);
     border: 1px solid var(--border);
     border-radius: 8px;
@@ -1652,14 +1527,14 @@ import { sidePanel } from '../lib/sidePanel'
     font-size: 12px;
     padding: 6px;
   }
-  .fpheader {
+  .tpheader {
     padding: 4px 8px 2px;
     font-size: 11px;
     text-transform: uppercase;
     letter-spacing: 0.06em;
     color: var(--fg-dim);
   }
-  .fpopt {
+  .tpopt {
     display: flex;
     align-items: center;
     gap: 6px;
@@ -1673,24 +1548,24 @@ import { sidePanel } from '../lib/sidePanel'
     cursor: pointer;
     text-align: left;
   }
-  .fpopt:hover {
+  .tpopt:hover {
     background: var(--bg-hover);
   }
-  .fpopt.current {
+  .tpopt.current {
     color: var(--accent);
   }
-  .fpclear {
+  .tpclear {
     color: var(--fg-dim);
     font-size: 11px;
   }
-  .fpnew {
+  .tpnew {
     display: flex;
     gap: 4px;
     padding-top: 4px;
     border-top: 1px solid var(--border);
     margin-top: 2px;
   }
-  .fpnew input {
+  .tpnew input {
     flex: 1;
     min-width: 0;
     background: var(--bg);
@@ -1701,10 +1576,10 @@ import { sidePanel } from '../lib/sidePanel'
     font-size: 11.5px;
     outline: none;
   }
-  .fpnew input:focus {
+  .tpnew input:focus {
     border-color: var(--accent);
   }
-  .fpnewbtn {
+  .tpnewbtn {
     flex: none;
     width: 26px;
     background: var(--accent);
@@ -1719,10 +1594,10 @@ import { sidePanel } from '../lib/sidePanel'
     justify-content: center;
     padding: 0;
   }
-  .fpnewbtn:hover:not(:disabled) {
+  .tpnewbtn:hover:not(:disabled) {
     filter: brightness(1.15);
   }
-  .fpnewbtn:disabled {
+  .tpnewbtn:disabled {
     opacity: 0.4;
     cursor: default;
   }

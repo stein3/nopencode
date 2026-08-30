@@ -1,4 +1,4 @@
-// session-filters.test.mjs — sidebar toggle, tagging, stars, folders, filters
+// session-filters.test.mjs — sidebar toggle, tag picker, stars, filters, migration
 //
 // Self-contained embedded test (same pattern as settings.test.mjs):
 // serves webui/dist + stub /oc + fixture endpoints + SSE, driven via
@@ -6,25 +6,24 @@
 //
 // Checks:
 //   S1  sidebar visible on load; burger button toggles it closed/reopen
-//   T1  tag chips render on tagged sessions (single + multi-tag)
-//   T2  clicking a tag chip opens TagPopover; "ux" shows as applied
-//   T3  creating a new tag via TagPopover input persists on the row
-//   T4  removing a tag via TagPopover toggle removes the chip
+//   T1  tag button shows .tagged class for tagged sessions, plain for untagged
+//   T2  clicking tag button opens tag picker; current tag shown as .current
+//   T3  creating a new tag via picker input persists on the row
+//   T4  "Remove tag" clears the tag assignment
+//   T5  clicking outside the picker closes it
+//   T6  pressing Escape closes the picker
 //   F1  star button shows ★ for starred, ☆ for unstarred
 //   F2  clicking star toggles star state + persists to localStorage
-//   F3  folder button shows .foldered class for foldered sessions
-//   F4  clicking folder button opens picker; selecting folder assigns it
-//   F5  creating new folder via picker input assigns it
-//   F6  "Remove from folder" clears the folder assignment
-//   R1  filter bar visible when metadata exists (stars/tags/folders)
+//   R1  filter bar visible when metadata exists (stars/tags)
 //   R2  filter bar hidden when search query is active
 //   R3  star filter shows only starred sessions
 //   R4  tag filter shows only sessions with that tag
 //   R5  untagged filter shows only sessions without tags
-//   R6  folder filter shows only sessions in that folder
-//   R7  multi-filter (star + tag) is AND intersection
+//   R6  tag filter (proj) shows only sessions tagged proj
+//   R7  multi-filter (star + tag) is OR union
 //   R8  clear button deactivates all filters and restores full list
-//   R9  tags/star/folder persist across page reload
+//   R9  tags/star persist across page reload
+//   M1  legacy migration: folder/tags keys migrate to tag on load
 //
 // Run: node e2e/embedded/session-filters.test.mjs
 
@@ -42,7 +41,7 @@ const NOW = Date.now();
 const SESSIONS = [
   { id: 'ses_ux1', title: 'Starred session',    created: NOW - 500_000, updated: NOW - 100_000, message_count: 4, cost: 0 },
   { id: 'ses_ux2', title: 'Tagged with ux',      created: NOW - 400_000, updated: NOW - 90_000,  message_count: 2, cost: 0 },
-  { id: 'ses_ux3', title: 'Multi-tagged in folder', created: NOW - 300_000, updated: NOW - 80_000, message_count: 3, cost: 0 },
+  { id: 'ses_ux3', title: 'Tagged in proj',      created: NOW - 300_000, updated: NOW - 80_000,  message_count: 3, cost: 0 },
   { id: 'ses_ux4', title: 'Plain session',       created: NOW - 200_000, updated: NOW - 70_000,  message_count: 1, cost: 0 },
   { id: 'ses_ux5', title: 'Archived session',    created: NOW - 100_000, updated: NOW - 60_000,  message_count: 2, cost: 0 },
 ];
@@ -50,10 +49,10 @@ const SESSIONS = [
 // sessionMeta seeded into localStorage after first load
 const META = {
   ses_ux1: { star: true },
-  ses_ux2: { tags: ['ux'] },
-  ses_ux3: { tags: ['ux', 'backend'], folder: 'proj' },
+  ses_ux2: { tag: 'ux' },
+  ses_ux3: { tag: 'proj' },
   ses_ux4: {},
-  ses_ux5: { folder: 'archive' },
+  ses_ux5: { tag: 'archive' },
 };
 
 const STATUS = {};
@@ -213,18 +212,15 @@ try {
   const sidebarVisible = await page.locator('aside.sidebar').isVisible();
   check('S1', 'sidebar visible on load', sidebarVisible);
 
-  // count sessions
   const initialCount = await page.locator('.sidebar .item').count();
   check('S1', 'all 5 sessions shown', initialCount === 5, `count=${initialCount}`);
 
-  // click burger to close
   const burger = page.locator('button.burger[title="Toggle sidebar"]').first();
   if (await burger.isVisible()) {
     await burger.click();
     await sleep(500);
     const gone = !(await page.locator('aside.sidebar').isVisible().catch(() => false));
     check('S1', 'sidebar closes on burger click', gone);
-    // reopen
     await burger.click();
     await sleep(500);
     const back = await page.locator('aside.sidebar').isVisible();
@@ -233,69 +229,86 @@ try {
     check('S1', 'burger button found', false, 'not visible');
   }
 
-  // ======== T1 — tag chips on rows =========================================
-  console.log('\nCASE T1 — tag chips render');
-  const tagRow = page.locator('.sidebar .item .tagrow').first();
-  await poll(async () => tagRow.isVisible(), 3000);
-  check('T1', 'tag row visible on tagged session', await tagRow.isVisible());
+  // ======== T1 — tag button display ========================================
+  console.log('\nCASE T1 — tag button display');
+  const taggedBtn = page.locator('.sidebar .item', { hasText: 'Tagged with ux' })
+    .locator('.tagbtn');
+  const hasTagged = await taggedBtn.evaluate((el) => el.classList.contains('tagged'));
+  check('T1', 'tagged session has .tagged class', hasTagged);
 
-  const ux2Tags = await page.locator('.sidebar .item', { hasText: 'Tagged with ux' })
-    .locator('.tagspan').allTextContents();
-  check('T1', 'ses_ux2 shows "ux" tag', ux2Tags.some((t) => t.includes('ux')), ux2Tags.join(','));
+  const plainBtn = page.locator('.sidebar .item', { hasText: 'Plain session' })
+    .locator('.tagbtn');
+  const plainTagged = await plainBtn.evaluate((el) => el.classList.contains('tagged'));
+  check('T1', 'untagged session lacks .tagged', !plainTagged);
 
-  const ux3Tags = await page.locator('.sidebar .item', { hasText: 'Multi-tagged' })
-    .locator('.tagspan').allTextContents();
-  check('T1', 'ses_ux3 shows "ux" + "backend"', ux3Tags.includes('ux') && ux3Tags.includes('backend'), ux3Tags.join(','));
-
-  // ======== T2 — TagPopover opens, shows applied state =====================
-  console.log('\nCASE T2 — TagPopover');
+  // ======== T2 — tag picker opens, current tag shown =======================
+  console.log('\nCASE T2 — tag picker');
   await page.locator('.sidebar .item', { hasText: 'Tagged with ux' })
-    .locator('.tagspan', { hasText: 'ux' }).click();
+    .locator('.tagbtn').click();
   await sleep(400);
-  const popoverVisible = await page.locator('.tagpopover').isVisible();
-  check('T2', 'TagPopover opens on tag click', popoverVisible);
+  const pickerVisible = await page.locator('.tagpicker').isVisible();
+  check('T2', 'tag picker opens', pickerVisible);
 
-  const uxApplied = await page.locator('.tagpopover .tagopt', { hasText: 'ux' })
-    .evaluate((el) => el.classList.contains('applied'));
-  check('T2', '"ux" shown as applied in popover', uxApplied);
+  const currentOpt = page.locator('.tagpicker .tpopt.current');
+  const currentText = await currentOpt.textContent();
+  check('T2', 'current tag highlighted as .current', currentText?.includes('ux'), currentText);
 
-  // close popover
+  // close picker
   await page.keyboard.press('Escape');
   await sleep(200);
 
-  // ======== T3 — create new tag ============================================
+  // ======== T3 — create new tag via picker =================================
   console.log('\nCASE T3 — create new tag');
-  // open popover on ses_ux3
-  await page.locator('.sidebar .item', { hasText: 'Multi-tagged' })
-    .locator('.tagspan', { hasText: 'ux' }).click();
+  await page.locator('.sidebar .item', { hasText: 'Plain session' })
+    .locator('.tagbtn').click();
   await sleep(400);
-  await page.locator('.tagpopover .pnewtag input').fill('newtag');
+  await page.locator('.tagpicker .tpnew input').fill('newtag');
   await page.keyboard.press('Enter');
   await sleep(400);
+  const pickerClosed = !(await page.locator('.tagpicker').isVisible().catch(() => false));
+  check('T3', 'picker closes after creation', pickerClosed);
 
-  const newApplied = await page.locator('.tagpopover .tagopt', { hasText: 'newtag' })
-    .evaluate((el) => el.classList.contains('applied'));
-  check('T3', 'new tag created and applied', newApplied);
-
-  await page.keyboard.press('Escape');
-  await sleep(300);
-  const newTagOnRow = await page.locator('.sidebar .item', { hasText: 'Multi-tagged' })
-    .locator('.tagspan', { hasText: 'newtag' }).isVisible();
-  check('T3', 'new tag chip visible on row', newTagOnRow);
+  const plainTaggedAfter = await page.locator('.sidebar .item', { hasText: 'Plain session' })
+    .locator('.tagbtn').evaluate((el) => el.classList.contains('tagged'));
+  check('T3', 'session now has .tagged', plainTaggedAfter);
 
   // ======== T4 — remove tag ================================================
   console.log('\nCASE T4 — remove tag');
-  // Open popover on ses_ux3's newtag chip, then click the applied tagopt to toggle off
-  await page.locator('.sidebar .item', { hasText: 'Multi-tagged' })
-    .locator('.tagspan', { hasText: 'newtag' }).click();
-  await page.waitForSelector('.tagpopover', { timeout: 3000 });
-  await page.locator('.tagpopover .tagopt', { hasText: 'newtag' }).click({ timeout: 3000 });
+  await page.locator('.sidebar .item', { hasText: 'Plain session' })
+    .locator('.tagbtn').click();
   await sleep(400);
-  // "newtag" existed on no other session, so it vanishes from the popover list
-  // entirely — the observable effect is the chip disappearing from the row.
-  const chipGone = !(await page.locator('.sidebar .item', { hasText: 'Multi-tagged' })
-    .locator('.tagspan', { hasText: 'newtag' }).count())
-  check('T4', 'clicking applied tag removes it', chipGone);
+  const removeBtn = page.locator('.tagpicker .tpopt', { hasText: 'Remove tag' });
+  check('T4', '"Remove tag" option visible', await removeBtn.isVisible());
+  await removeBtn.click();
+  await sleep(400);
+  const untagged = !(await page.locator('.sidebar .item', { hasText: 'Plain session' })
+    .locator('.tagbtn').evaluate((el) => el.classList.contains('tagged')));
+  check('T4', 'tag removed', untagged);
+
+  // ======== T5 — click outside closes picker ===============================
+  console.log('\nCASE T5 — click outside closes picker');
+  await page.locator('.sidebar .item', { hasText: 'Tagged with ux' })
+    .locator('.tagbtn').click();
+  await sleep(400);
+  const openBefore = await page.locator('.tagpicker').isVisible();
+  check('T5', 'picker opened', openBefore);
+  // click on the sidebar legend (outside picker + outside tagbtn)
+  await page.locator('.legend').click();
+  await sleep(300);
+  const closedAfter = !(await page.locator('.tagpicker').isVisible().catch(() => false));
+  check('T5', 'picker closed after outside click', closedAfter);
+
+  // ======== T6 — Escape closes picker ======================================
+  console.log('\nCASE T6 — Escape closes picker');
+  await page.locator('.sidebar .item', { hasText: 'Tagged with ux' })
+    .locator('.tagbtn').click();
+  await sleep(400);
+  const openForEsc = await page.locator('.tagpicker').isVisible();
+  check('T6', 'picker opened for Escape test', openForEsc);
+  await page.keyboard.press('Escape');
+  await sleep(300);
+  const closedAfterEsc = !(await page.locator('.tagpicker').isVisible().catch(() => false));
+  check('T6', 'picker closed after Escape', closedAfterEsc);
 
   // ======== F1 — star display ==============================================
   console.log('\nCASE F1 — star display');
@@ -330,63 +343,6 @@ try {
     .locator('.star').textContent();
   check('F2', 'clicking ★ unstars', unstarredText?.includes('☆'), unstarredText);
 
-  // ======== F3 — folder button =============================================
-  console.log('\nCASE F3 — folder display');
-  const folderBtn = page.locator('.sidebar .item', { hasText: 'Archived session' })
-    .locator('.folderbtn');
-  const hasFoldered = await folderBtn.evaluate((el) => el.classList.contains('foldered'));
-  check('F3', 'foldered session has .foldered class', hasFoldered);
-
-  const plainFolder = page.locator('.sidebar .item', { hasText: 'Plain session' })
-    .locator('.folderbtn');
-  const plainFoldered = await plainFolder.evaluate((el) => el.classList.contains('foldered'));
-  check('F3', 'non-foldered session lacks .foldered', !plainFoldered);
-
-  // ======== F4 — folder picker opens, assign folder ========================
-  console.log('\nCASE F4 — folder picker');
-  await page.locator('.sidebar .item', { hasText: 'Plain session' })
-    .locator('.folderbtn').click();
-  await sleep(400);
-  const pickerVisible = await page.locator('.folderpicker').isVisible();
-  check('F4', 'folder picker opens', pickerVisible);
-
-  const archiveOpt = page.locator('.folderpicker .fpopt', { hasText: 'archive' });
-  check('F4', 'existing folders shown', await archiveOpt.isVisible());
-
-  await archiveOpt.click();
-  await sleep(400);
-  const pickerClosed = !(await page.locator('.folderpicker').isVisible().catch(() => false));
-  check('F4', 'picker closes after selection', pickerClosed);
-
-  const plainFolderedAfter = await page.locator('.sidebar .item', { hasText: 'Plain session' })
-    .locator('.folderbtn').evaluate((el) => el.classList.contains('foldered'));
-  check('F4', 'session now has .foldered', plainFolderedAfter);
-
-  // ======== F5 — create new folder =========================================
-  console.log('\nCASE F5 — create new folder');
-  await page.locator('.sidebar .item', { hasText: 'Starred session' })
-    .locator('.folderbtn').click();
-  await sleep(400);
-  await page.locator('.folderpicker .fpnew input').fill('important');
-  await page.keyboard.press('Enter');
-  await sleep(400);
-  const starredFoldered = await page.locator('.sidebar .item', { hasText: 'Starred session' })
-    .locator('.folderbtn').evaluate((el) => el.classList.contains('foldered'));
-  check('F5', 'new folder created and assigned', starredFoldered);
-
-  // ======== F6 — remove folder =============================================
-  console.log('\nCASE F6 — remove folder');
-  await page.locator('.sidebar .item', { hasText: 'Starred session' })
-    .locator('.folderbtn').click();
-  await sleep(400);
-  const clearBtn = page.locator('.folderpicker .fpopt', { hasText: 'Remove from folder' });
-  check('F6', '"Remove from folder" option visible', await clearBtn.isVisible());
-  await clearBtn.click();
-  await sleep(400);
-  const unfoldered = !(await page.locator('.sidebar .item', { hasText: 'Starred session' })
-    .locator('.folderbtn').evaluate((el) => el.classList.contains('foldered')));
-  check('F6', 'folder removed', unfoldered);
-
   // ======== R1 — filter bar visible ========================================
   console.log('\nCASE R1 — filter bar');
   const filterbar = page.locator('.filterbar');
@@ -418,7 +374,7 @@ try {
   await starChip.click(); // deselect
   await sleep(300);
 
-  // ======== R4 — tag filter ================================================
+  // ======== R4 — tag filter (ux) ===========================================
   console.log('\nCASE R4 — tag filter');
   const uxChip = page.locator('.filterchip.tagchip', { hasText: 'ux' });
   await uxChip.click();
@@ -426,7 +382,7 @@ try {
   const uxActive = await uxChip.evaluate((el) => el.classList.contains('active'));
   check('R4', 'ux tag chip activates', uxActive);
   const uxRows = await page.locator('.sidebar .item').count();
-  check('R4', '2 sessions with "ux" tag shown', uxRows === 2, `count=${uxRows}`);
+  check('R4', '1 session with "ux" tag shown', uxRows === 1, `count=${uxRows}`);
   await uxChip.click(); // deselect
   await sleep(300);
 
@@ -438,30 +394,30 @@ try {
   const untaggedActive = await untaggedChip.evaluate((el) => el.classList.contains('active'));
   check('R5', 'untagged chip activates', untaggedActive);
   const untaggedRows = await page.locator('.sidebar .item').count();
-  // ses_ux1 (star, no tags), ses_ux4 (nothing), ses_ux5 (folder, no tags) = 3
-  check('R5', '3 untagged sessions shown', untaggedRows === 3, `count=${untaggedRows}`);
+  // ses_ux1 (star, no tag) + ses_ux4 (nothing) = 2 untagged
+  check('R5', '2 untagged sessions shown', untaggedRows === 2, `count=${untaggedRows}`);
   await untaggedChip.click(); // deselect
   await sleep(300);
 
-  // ======== R6 — folder filter =============================================
-  console.log('\nCASE R6 — folder filter');
-  const projChip = page.locator('.filterchip.folderchip', { hasText: 'proj' });
+  // ======== R6 — tag filter (proj) =========================================
+  console.log('\nCASE R6 — tag filter (proj)');
+  const projChip = page.locator('.filterchip.tagchip', { hasText: 'proj' });
   await projChip.click();
   await sleep(500);
   const projRows = await page.locator('.sidebar .item').count();
-  check('R6', '1 session in "proj" folder shown', projRows === 1, `count=${projRows}`);
+  check('R6', '1 session with "proj" tag shown', projRows === 1, `count=${projRows}`);
   await projChip.click(); // deselect
   await sleep(300);
 
-  // ======== R7 — multi-filter AND ==========================================
-  console.log('\nCASE R7 — multi-filter intersection');
+  // ======== R7 — multi-filter OR ===========================================
+  console.log('\nCASE R7 — multi-filter union (OR)');
   await starChip.click(); // star ON
   await sleep(200);
   await uxChip.click();   // ux tag ON
   await sleep(500);
   const multiRows = await page.locator('.sidebar .item').count();
-  // ses_ux1 is starred but NOT tagged ux; ses_ux2/3 are tagged ux but NOT starred
-  check('R7', 'star+tag AND = 0 (no overlap)', multiRows === 0, `count=${multiRows}`);
+  // OR union: ses_ux1 (starred) + ses_ux2 (tagged ux) = 2
+  check('R7', 'star+tag OR = union of both', multiRows === 2, `count=${multiRows}`);
   await starChip.click(); // star OFF
   await uxChip.click();   // ux OFF
   await sleep(300);
@@ -491,16 +447,49 @@ try {
     .locator('.star').textContent();
   check('R9', 'star persists across reload', reloadedStarred?.includes('★'));
 
-  const reloadedTags = await page.locator('.sidebar .item', { hasText: 'Multi-tagged' })
-    .locator('.tagspan').allTextContents();
-  check('R9', 'tags persist across reload', reloadedTags.includes('ux') && reloadedTags.includes('backend'));
-
-  const reloadedFoldered = await page.locator('.sidebar .item', { hasText: 'Archived session' })
-    .locator('.folderbtn').evaluate((el) => el.classList.contains('foldered'));
-  check('R9', 'folder persists across reload', reloadedFoldered);
+  const reloadedTagged = await page.locator('.sidebar .item', { hasText: 'Tagged with ux' })
+    .locator('.tagbtn').evaluate((el) => el.classList.contains('tagged'));
+  check('R9', 'tag persists across reload', reloadedTagged);
 
   const filterbarAfterReload = await page.locator('.filterbar').isVisible();
   check('R9', 'filter bar visible after reload', filterbarAfterReload);
+
+  // ======== M1 — legacy migration ==========================================
+  console.log('\nCASE M1 — legacy migration');
+  // Set legacy shape: folder wins over tags[0]
+  await page.evaluate(() => {
+    localStorage.setItem('opencode.sessionMeta', JSON.stringify({
+      ses_ux2: { tags: ['ux', 'backend'] },
+      ses_ux3: { tags: ['x'], folder: 'proj' },
+      ses_ux1: { star: true },
+    }));
+  });
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await page.waitForSelector('.sidebar .item', { timeout: 15000 });
+  await sleep(800);
+
+  // ses_ux2: tags[0] = 'ux' (no folder) → tag = 'ux'
+  const ux2Tagged = await page.locator('.sidebar .item', { hasText: 'Tagged with ux' })
+    .locator('.tagbtn').evaluate((el) => el.classList.contains('tagged'));
+  check('M1', 'ses_ux2 shows tagged (from tags[0])', ux2Tagged);
+
+  // ses_ux3: folder='proj' wins over tags[0]='x' → tag = 'proj'
+  const ux3Tagged = await page.locator('.sidebar .item', { hasText: 'Tagged in proj' })
+    .locator('.tagbtn').evaluate((el) => el.classList.contains('tagged'));
+  check('M1', 'ses_ux3 shows tagged (folder wins)', ux3Tagged);
+
+  // localStorage no longer contains 'folder' or 'tags' keys
+  const migrated = await page.evaluate(() =>
+    JSON.parse(localStorage.getItem('opencode.sessionMeta') || '{}')
+  );
+  const noLegacy = Object.values(migrated).every((v) => !v.folder && !v.tags);
+  check('M1', 'localStorage has no folder/tags keys after migration', noLegacy,
+    JSON.stringify(Object.keys(migrated).map((k) => ({ k, ...migrated[k] }))));
+
+  // ses_ux1 still starred
+  const ux1Star = await page.locator('.sidebar .item', { hasText: 'Starred session' })
+    .locator('.star').textContent();
+  check('M1', 'ses_ux1 star preserved after migration', ux1Star?.includes('★'));
 
   await screenshot(page, 'session-filters-final');
   await ctx.close();

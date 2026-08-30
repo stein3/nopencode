@@ -22,6 +22,7 @@ export interface QueuedPrompt {
   files: OcFilePart[]
   model?: ModelRef
   agent?: string
+  sentAt?: number // set after message is sent to engine; used to determine cancel behavior
 }
 
 export interface Tab {
@@ -851,15 +852,14 @@ export function clearRecentModels() {
   }
 }
 
-// ---- per-session metadata (stars, tags, folders) ----------------------------
-// Client-only organization: stars (favorites), tags, and folder assignments.
+// ---- per-session metadata (stars, tags) ------------------------------------
+// Client-only organization: stars (favorites) and tag assignments.
 // Persisted in localStorage like sessionAgents/sessionModels — same recency
 // cap, same wipe-on-clearLocalData path (already covered by the opencode.*
 // prefix match).
 export interface SessionMeta {
   star?: boolean
-  tags?: string[]
-  folder?: string
+  tag?: string
 }
 
 const SESSION_META_KEY = 'opencode.sessionMeta'
@@ -871,9 +871,21 @@ function loadSessionMeta(): Record<string, SessionMeta> {
     const obj = raw ? JSON.parse(raw) : null
     if (obj && typeof obj === 'object' && !Array.isArray(obj)) {
       const out: Record<string, SessionMeta> = {}
+      let changed = false
       for (const [k, v] of Object.entries(obj)) {
-        if (k && typeof v === 'object' && v !== null) out[k] = v as SessionMeta
+        if (k && typeof v === 'object' && v !== null) {
+          const vObj = v as Record<string, any>
+          // legacy migration: folder > tags[0] → tag
+          const tag = vObj.tag ?? vObj.folder ?? (Array.isArray(vObj.tags) && vObj.tags.length ? vObj.tags[0] : undefined)
+          const migrated: SessionMeta = {
+            ...(vObj.star && { star: true }),
+            ...(tag && { tag }),
+          }
+          if (JSON.stringify(migrated) !== JSON.stringify(vObj)) changed = true
+          out[k] = migrated
+        }
       }
+      if (changed) persistSessionMeta(out)
       return out
     }
   } catch {
@@ -924,7 +936,7 @@ export function toggleStar(sid: string) {
     if (starred) next[sid] = { ...cur, star: true }
     else if (cur) {
       const { star: _, ...rest } = cur
-      if (rest.tags?.length || rest.folder) next[sid] = rest
+      if (rest.tag) next[sid] = rest
     }
     const keys = Object.keys(next)
     for (const k of keys.slice(0, Math.max(0, keys.length - SESSION_META_CAP))) delete next[k]
@@ -933,61 +945,16 @@ export function toggleStar(sid: string) {
   })
 }
 
-export function setTags(sid: string, tags: string[]) {
+export function setTag(sid: string, tag?: string) {
   if (!sid) return
-  mutateMeta(sid, { tags: tags.length ? tags : undefined })
+  mutateMeta(sid, { tag })
 }
 
-export function addTag(sid: string, tag: string) {
-  if (!sid || !tag) return
-  sessionMeta.update((all) => {
-    const cur = all[sid] ?? {}
-    const existing = cur.tags ?? []
-    if (existing.includes(tag)) return all
-    const next: Record<string, SessionMeta> = {}
-    for (const [k, v] of Object.entries(all)) if (k !== sid) next[k] = v
-    next[sid] = { ...cur, tags: [...existing, tag] }
-    persistSessionMeta(next)
-    return next
-  })
-}
-
-export function removeTag(sid: string, tag: string) {
-  if (!sid || !tag) return
-  sessionMeta.update((all) => {
-    const cur = all[sid]
-    if (!cur?.tags?.includes(tag)) return all
-    const next: Record<string, SessionMeta> = {}
-    for (const [k, v] of Object.entries(all)) if (k !== sid) next[k] = v
-    const tags = cur.tags.filter((t) => t !== tag)
-    if (tags.length) next[sid] = { ...cur, tags }
-    else if (cur.star || cur.folder) next[sid] = { ...cur, tags: undefined }
-    const keys = Object.keys(next)
-    for (const k of keys.slice(0, Math.max(0, keys.length - SESSION_META_CAP))) delete next[k]
-    persistSessionMeta(next)
-    return next
-  })
-}
-
-export function setFolder(sid: string, folder: string | undefined) {
-  if (!sid) return
-  mutateMeta(sid, { folder })
-}
-
-// Collect all unique tags across all sessions
+// Collect all unique tag values across all sessions
 export function allTags(meta: Record<string, SessionMeta>): string[] {
   const set = new Set<string>()
   for (const v of Object.values(meta)) {
-    if (v.tags) for (const t of v.tags) set.add(t)
-  }
-  return [...set].sort()
-}
-
-// Collect all unique folder names across all sessions
-export function allFolders(meta: Record<string, SessionMeta>): string[] {
-  const set = new Set<string>()
-  for (const v of Object.values(meta)) {
-    if (v.folder) set.add(v.folder)
+    if (v.tag) set.add(v.tag)
   }
   return [...set].sort()
 }

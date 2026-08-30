@@ -11,7 +11,8 @@ Deployment topology & procedures: see private ops notes (not tracked here).
 - Sessions created via the engine API don't appear in the TUI until refresh; cross-client live sync is not supported.
 - `/workspace` inside the engine container must be the same worktree the TUI uses for session sharing.
 - Stale "new session" tabs can 404 after engine restarts — delete them from the session list.
-- **`mutateMeta` field-wipe bug (fixed 2026-08-30)**: `stores.ts mutateMeta()` built the update from `next[sid]` (undefined — the copy loop skips the target sid) instead of `all[sid]`, so every `setFolder`/`setTags` silently WIPED the session's other meta fields (star, tags, folder). Found via `e2e/embedded/session-filters.test.mjs` R3/R9 failures (star filter showed 0 after a folder add/remove cycle). Fix is one line: `next[sid] = { ...all[sid], ...patch }`. `toggleStar`/`addTag`/`removeTag` were never affected (they rebuild from `all` explicitly).
+- **`mutateMeta` field-wipe bug (fixed 2026-08-30)**: `stores.ts mutateMeta()` built the update from `next[sid]` (undefined — the copy loop skips the target sid) instead of `all[sid]`, so every `setTag` silently WIPED the session's other meta fields (star, tag). Found via `e2e/embedded/session-filters.test.mjs` R3/R9 failures (star filter showed 0 after a tag add/remove cycle). Fix is one line: `next[sid] = { ...all[sid], ...patch }`. `toggleStar` was never affected (rebuilds from `all` explicitly).
+- **Sidebar org model (2026-08-30)**: multi-tag system merged into folders — a session has at most one `tag` (localStorage `opencode.sessionMeta`, field `tag`); legacy `folder`/`tags[]` keys migrate on load (folder > tags[0]).
 
 ## Resource efficiency (2026-08 refactor)
 
@@ -271,15 +272,15 @@ Deployment topology & procedures: see private ops notes (not tracked here).
   - Boot-initialized stores (`sessionMeta`) read localStorage ONCE at store creation —
     seed via `page.evaluate(localStorage.setItem)` then `page.reload()`; a live store
     never sees a raw localStorage write.
-  - Derived lists remove their own DOM nodes: TagPopover's option list is
-    `allTags($sessionMeta)` — removing a tag's LAST usage deletes the `.tagopt`
-    element entirely, so a follow-up `locator.evaluate()` on it TIMES OUT. Assert
-    the row chip disappeared instead of re-checking `.applied`.
+  - Derived lists remove their own DOM nodes (historical: TagPopover removed 2026-08-30
+    — multi-tag system merged into folders → a session has at most one `tag`). If a
+    derived list ever reappears, watch for elements vanishing when their last
+    reference is removed.
   - Popovers/pickers close on any outside click (`svelte:window on:click` +
     `closest()`); open one immediately before acting on it — don't assume it
     survives unrelated clicks/sleeps.
   - Filter bar DOM order: star chip is `.filterchip` `.first()`, then `.tagchip`,
-    `.folderchip`, `.untaggedchip`.
+    `.untaggedchip`.
   - A filter assertion returning unexpectedly 0 rows → dump the store's localStorage
     via `page.evaluate` BEFORE suspecting the browser — that's exactly how the
     `mutateMeta` field-wipe bug was caught (see Known quirks).
