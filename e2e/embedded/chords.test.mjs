@@ -116,7 +116,7 @@ try {
     // ---- P. palette groups (empty query) -----------------------------------
     console.log('\nCASE P — ctrl+p palette: builtins only, Suggested + category groups');
     await page.keyboard.press('Control+p');
-    check('P', 'palette opens on ctrl+p', await poll(() => page.locator('.panel input').isVisible()));
+    check('P', 'palette opens on ctrl+p', await poll(() => page.locator('.overlay .panel input').isVisible()));
     const heads = page.locator('.sechead');
     // headers render uppercase via CSS text-transform — compare rendered text
     const headTexts = (await heads.allInnerTexts()).map((t) => t.trim().toLowerCase());
@@ -139,12 +139,12 @@ try {
 
     // ---- F. filtering collapses to flat list -------------------------------
     console.log("\nCASE F — non-empty query: flat filtered list, no section headers");
-    await page.locator('.panel input').fill('compact');
+    await page.locator('.overlay .panel input').fill('compact');
     check('F', "'Compact session' row appears when filtering", await poll(() => page.locator('.row', { hasText: 'Compact session' }).first().isVisible()));
     check('F', 'section headers removed while filtering', (await heads.count()) === 0);
     check('F', 'flat rows shown without slash-name prefixes', !(await page.locator('.row .name').count()));
     await page.keyboard.press('Escape');
-    check('F', 'Escape closes the palette', await poll(async () => !(await page.locator('.panel').isVisible())));
+    check('F', 'Escape closes the palette', await poll(async () => !(await page.locator('.overlay .panel').isVisible())));
 
     // ---- C1. arm + which-key strip ------------------------------------------
     console.log('\nCASE C1 — ctrl+x arms the chord and shows the which-key strip');
