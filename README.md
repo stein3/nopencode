@@ -1,6 +1,8 @@
 # nopencode
 
-A self-hosted, fully containerized stack for running [opencode](https://github.com/opencode-ai/opencode) — the open-source AI coding agent — in a browser, with a custom web chat UI alongside the stock terminal interface.
+A self-hosted, fully containerized stack for running [opencode](https://github.com/opencode-ai/opencode) — the open-source AI coding agent — in a browser, with a custom web chat UI alongside the stock terminal interface, both accessible remotely via a web browser.
+
+The main goal of the project is to host opencode on a home server and be able to use it remotely from desktop, phone, and tablet.
 
 Three services, one image:
 
