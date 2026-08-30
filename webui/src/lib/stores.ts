@@ -1029,20 +1029,25 @@ let metaMigrated = (() => {
 })()
 
 export function applyServerMeta(list: { id: string; star?: boolean; tag?: string }[]) {
-  // Build next from server data — only entries with star===true or non-empty tag
-  const next: Record<string, SessionMeta> = {}
+  // Start from the EXISTING store so local-only entries (optimistic updates
+  // whose PUTs haven't landed yet) survive the merge.  Only entries present
+  // in the server list are overwritten; absent entries stay as-is.
+  let cur: Record<string, SessionMeta> = {}
+  sessionMeta.subscribe((all) => { cur = all })()
+
+  const next: Record<string, SessionMeta> = { ...cur }
+
   for (const s of list) {
     const m: SessionMeta = {}
     if (s.star === true) m.star = true
     if (s.tag) m.tag = s.tag
     if (m.star || m.tag) next[s.id] = m
+    else delete next[s.id] // server says no star+tag → remove
   }
 
   // One-time migration: push locally-cached meta not yet on the server
   if (!metaMigrated) {
-    let cached: Record<string, SessionMeta> = {}
-    sessionMeta.subscribe((all) => { cached = all })()
-    for (const [sid, m] of Object.entries(cached)) {
+    for (const [sid, m] of Object.entries(cur)) {
       if (next[sid]) continue // server already has this entry
       if (m.star || m.tag) {
         next[sid] = m
