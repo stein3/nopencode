@@ -742,7 +742,7 @@ import { sidePanel } from '../lib/sidePanel'
           title="Filter by folder: {folder}"
           on:click={() => toggleFilterFolder(folder)}
         >
-          {#if filterFolders.has(folder)}<span class="ficon">✓</span>{/if}🏷️ {folder}
+          {#if filterFolders.has(folder)}<span class="ficon">✓</span>{/if}{folder}
         </button>
       {/each}
       {#if hasFilters}
