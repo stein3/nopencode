@@ -78,9 +78,25 @@ function setupFontEnv() {
     process.env.LD_LIBRARY_PATH = [...libs, process.env.LD_LIBRARY_PATH].filter(Boolean).join(':')
   }
 
-  const fc = path.join(WEBTEST_DIR, 'fixtures', 'fonts.conf')
-  if (fs.existsSync(fc)) {
-    process.env.FONTCONFIG_FILE = fc
+  // Generate fonts.conf at runtime with absolute paths derived from WEBTEST_DIR.
+  // The static fixtures/fonts.conf has a hardcoded sandbox path that breaks in CI.
+  const fontsDir = path.join(WEBTEST_DIR, 'fixtures', 'fonts')
+  const cacheDir = path.join(WEBTEST_DIR, 'fixtures', 'fontcache')
+  if (fs.existsSync(fontsDir)) {
+    const conf = [
+      '<?xml version="1.0"?>',
+      '<!DOCTYPE fontconfig SYSTEM "fonts.dtd">',
+      '<fontconfig>',
+      `  <dir>${fontsDir}</dir>`,
+      `  <cachedir>${cacheDir}</cachedir>`,
+      '  <alias><family>sans-serif</family><prefer><family>Liberation Sans</family><family>DejaVu Sans</family></prefer></alias>',
+      '  <alias><family>serif</family><prefer><family>Liberation Serif</family><family>DejaVu Serif</family></prefer></alias>',
+      '  <alias><family>monospace</family><prefer><family>Liberation Mono</family><family>DejaVu Sans Mono</family></prefer></alias>',
+      '</fontconfig>',
+    ].join('\n')
+    const generated = path.join(WEBTEST_DIR, 'fixtures', 'fonts.generated.conf')
+    fs.writeFileSync(generated, conf)
+    process.env.FONTCONFIG_FILE = generated
   }
 }
 

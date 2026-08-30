@@ -11,6 +11,7 @@ Deployment topology & procedures: see private ops notes (not tracked here).
 - Sessions created via the engine API don't appear in the TUI until refresh; cross-client live sync is not supported.
 - `/workspace` inside the engine container must be the same worktree the TUI uses for session sharing.
 - Stale "new session" tabs can 404 after engine restarts — delete them from the session list.
+- **`mutateMeta` field-wipe bug (fixed 2026-08-30)**: `stores.ts mutateMeta()` built the update from `next[sid]` (undefined — the copy loop skips the target sid) instead of `all[sid]`, so every `setFolder`/`setTags` silently WIPED the session's other meta fields (star, tags, folder). Found via `e2e/embedded/session-filters.test.mjs` R3/R9 failures (star filter showed 0 after a folder add/remove cycle). Fix is one line: `next[sid] = { ...all[sid], ...patch }`. `toggleStar`/`addTag`/`removeTag` were never affected (they rebuild from `all` explicitly).
 
 ## Resource efficiency (2026-08 refactor)
 
@@ -169,7 +170,7 @@ Deployment topology & procedures: see private ops notes (not tracked here).
 ## Webui browser verification (headless, no deploy)
 
 - Local loop for UI tests: point chatserver at the engine: `OC_ENGINE=127.0.0.1:4096 PORT=8123 HOST=127.0.0.1 python3 /workspace/opencode/chatserver.py &`, then drive `http://127.0.0.1:8123` with the headless-browser skill (setup dir `/workspace/opencode/.webtest`, example script `verify.mjs` there).
-- **fonts.conf MUST use absolute paths** — relative `<dir>fonts</dir>` breaks because fontconfig resolves relative to the browser process CWD, not the config file. When CWD ≠ e2e dir → `SkFontMgr_FontConfigInterface.cpp:163 Not implemented` FATAL crash. The `.webtest/fonts.conf` uses absolute paths and works; `e2e/fixtures/fonts.conf` must match.
+- **fonts.conf MUST use absolute paths** — relative `<dir>fonts</dir>` breaks because fontconfig resolves relative to the browser process CWD, not the config file. When CWD ≠ e2e dir → `SkFontMgr_FontConfigInterface.cpp:163 Not implemented` FATAL crash. Never commit a hardcoded-absolute fonts.conf (breaks CI checkouts): `e2e/helpers/setup.mjs` GENERATES `fixtures/fonts.generated.conf` at runtime from the fixtures dir — reuse that pattern anywhere fixtures travel. The `.webtest/fonts.conf` uses absolute paths and works (sandbox-only).
 - **chromium_headless_shell (rev 1234) GPU crash** — the GPU subprocess hits an unimplemented fontconfig path. Workaround: `--use-gl=angle --use-angle=swiftshader` in launch args (forces software rendering). Without these, every test that renders the webui crashes.
 - **Engine rejects fake assistant messages** missing `parentID` or `time.created` — the engine validates message structure when serving `/session/{id}/message`. Fake messages injected in sqlite must include `parentID` (the user message they respond to) and `time: { created: msEpoch }`.
 - **Engine API rejects `type: 'tool'` parts** (400) — inject tool-card messages directly in sqlite instead of via `POST /session/{id}/message`.
@@ -248,3 +249,37 @@ Deployment topology & procedures: see private ops notes (not tracked here).
 - GOTCHA: the envelope must be stripped before markdown (`taskBody()` extracts only `<task_result>/<task_error>` inner text) — marked passes `<summary>` through DOMPurify as a LIVE element, so unstripped text re-renders its own header line inside the expanded body.
 - CSS specificity: `.msg .head .role.subrole` needed to out-rank the later `:global(.msg:not(.user)) .role` accent rule (same trick as `.errole`).
 - Verify: `.webtest/verify-tasknotice.mjs` (embedded fake engine :8137; 26 checks — REST render, expand/collapse+reload reset, live SSE arrival while busy, no queued badges, colors, actions; shots in `.webtest/shots/tasknotice-*.png`). Regression: verify-stall-retry.mjs 25/25 after this change.
+
+## E2E test suite (e2e/embedded/)
+
+- Self-contained per-file tests (`e2e/embedded/<name>.test.mjs`): a fake Node HTTP
+  server serves `webui/dist` + stubs `/oc/*` + `/api/history/*` + SSE — **no engine
+  or chatserver needed**. Reference copies: `settings.test.mjs`,
+  `linked-sessions.test.mjs`, `session-filters.test.mjs`.
+- Shared helpers in `e2e/helpers/setup.mjs`: `launchBrowser()` (headless shell with
+  swiftshader + font flags baked in — **runs green in this sandbox**), `DIST`,
+  `sleep`, `poll`, `screenshot`, `SHOTS_DIR`. Each test owns a unique `PORT`
+  (session-filters = 8165); check siblings for collisions before picking one.
+- Introspection/control convention: `GET /__state` (fixture state + request counts),
+  `POST /__ctl` (patch status, fire SSE via `sseEmit()`).
+- **CI is a matrix, one job per test file** (`.github/workflows/e2e.yml`): a new test
+  = add a `- name: <short>` / `file: <name>.test.mjs` entry — do NOT create a new
+  workflow. Local: `cd e2e && npm run test:embedded` (globs all files).
+- ALWAYS `cd webui && npm run build` first — the fake server reads `dist` from disk;
+  a stale bundle silently tests stale code.
+- Test-writing pitfalls (learned building session-filters, 2026-08-30):
+  - Boot-initialized stores (`sessionMeta`) read localStorage ONCE at store creation —
+    seed via `page.evaluate(localStorage.setItem)` then `page.reload()`; a live store
+    never sees a raw localStorage write.
+  - Derived lists remove their own DOM nodes: TagPopover's option list is
+    `allTags($sessionMeta)` — removing a tag's LAST usage deletes the `.tagopt`
+    element entirely, so a follow-up `locator.evaluate()` on it TIMES OUT. Assert
+    the row chip disappeared instead of re-checking `.applied`.
+  - Popovers/pickers close on any outside click (`svelte:window on:click` +
+    `closest()`); open one immediately before acting on it — don't assume it
+    survives unrelated clicks/sleeps.
+  - Filter bar DOM order: star chip is `.filterchip` `.first()`, then `.tagchip`,
+    `.folderchip`, `.untaggedchip`.
+  - A filter assertion returning unexpectedly 0 rows → dump the store's localStorage
+    via `page.evaluate` BEFORE suspecting the browser — that's exactly how the
+    `mutateMeta` field-wipe bug was caught (see Known quirks).

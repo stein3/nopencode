@@ -108,6 +108,8 @@ jobs:
             file: tokens.test.mjs
           - name: uploads
             file: uploads.test.mjs
+          - name: session-filters
+            file: session-filters.test.mjs
 
     steps:
       - uses: actions/checkout@v7
