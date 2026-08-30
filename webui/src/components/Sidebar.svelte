@@ -880,7 +880,7 @@ import { sidePanel } from '../lib/sidePanel'
                 class="star"
                 class:starred={$sessionMeta[d.s.id]?.star}
                 title={$sessionMeta[d.s.id]?.star ? 'Unstar session' : 'Star session'}
-                on:click={() => toggleStar(d.s.id)}
+                on:click|stopPropagation={() => toggleStar(d.s.id)}
               >
                 {$sessionMeta[d.s.id]?.star ? '★' : '☆'}
               </button>
@@ -888,7 +888,7 @@ import { sidePanel } from '../lib/sidePanel'
                 class="tagbtn"
                 class:tagged={$sessionMeta[d.s.id]?.tag}
                 title={$sessionMeta[d.s.id]?.tag ? 'Remove tag' : 'Tag session'}
-                on:click={(e) => openTagPicker(e, d.s.id)}
+                on:click|stopPropagation={(e) => openTagPicker(e, d.s.id)}
               >
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z" />
@@ -901,7 +901,7 @@ import { sidePanel } from '../lib/sidePanel'
                   <button class="delbtn no" title="Cancel" on:click|stopPropagation={cancelDelete}>No</button>
                 </span>
               {:else}
-                <button class="delbtn" title="Delete session" on:click={() => requestDelete(d.s.id)}>
+                <button class="delbtn" title="Delete session" on:click|stopPropagation={() => requestDelete(d.s.id)}>
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <polyline points="3 6 5 6 21 6"/>
                     <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
