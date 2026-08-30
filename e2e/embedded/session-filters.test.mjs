@@ -105,13 +105,16 @@ function sseEmit(type, properties = {}) {
 
 const state = { counts: {} };
 
-// server-backed session meta (star/tag) — mirrors chatserver smeta table
+  // server-backed session meta (star/tag) — mirrors chatserver smeta table
 const session_meta = {};
 
 // seed server-side meta (matches the META fixture)
 for (const [sid, m] of Object.entries(META)) {
   if (m.star || m.tag) session_meta[sid] = { star: !!m.star, tag: m.tag ?? null };
 }
+
+// simulate slow PUT (creates race window for applyServerMeta vs optimistic update)
+let PUT_DELAY_MS = 0;
 
 const server = http.createServer(async (req, res) => {
   const p = req.url.split('?')[0];
@@ -163,6 +166,7 @@ const server = http.createServer(async (req, res) => {
           // clean up empty entries
           if (!cur.star && !cur.tag) delete session_meta[sid];
           else session_meta[sid] = cur;
+          if (PUT_DELAY_MS) await new Promise(r => setTimeout(r, PUT_DELAY_MS));
           return json(res, { ok: true, star: !!cur.star, tag: cur.tag });
         } catch { return json(res, { error: 'bad json' }, 400); }
       }
@@ -564,6 +568,85 @@ try {
   check('M1', 'server received migrated tag (ux from tags[0])', ux2After?.tag === 'ux');
   const ux3After = metaAfterM1.find(s => s.id === 'ses_ux3');
   check('M1', 'server received migrated tag (proj from folder)', ux3After?.tag === 'proj');
+
+  // ======== B1 — star while filter active preserves other stars ==============
+  console.log('\nCASE B1 — star while filter active');
+  // Reset to clean state: ses_ux1 starred, everything else unstarred/untagged
+  await page.evaluate(() => fetch('/__ctl', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ clearMeta: true }),
+  }));
+  // Seed server with only ses_ux1 starred
+  await page.evaluate(() => fetch('/api/history/session/ses_ux1/meta', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ star: true }),
+  }));
+  // Clear migration flag + localStorage, reload so applyServerMeta reads server
+  await page.evaluate(() => {
+    localStorage.removeItem('opencode.sessionMeta');
+    localStorage.removeItem('opencode.sessionMetaMigrated');
+  });
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await page.waitForSelector('.sidebar .item', { timeout: 15000 });
+  await sleep(800);
+
+  // Verify: 1 starred (ses_ux1), 5 total
+  const allCountB1 = await page.locator('.sidebar .item').count();
+  check('B1', 'all 5 sessions shown', allCountB1 === 5, `count=${allCountB1}`);
+
+  // Turn on starred filter — only ses_ux1 visible
+  const starChipB1 = page.locator('.filterchip').first();
+  await starChipB1.click();
+  await sleep(300);
+  const starredBefore = await page.locator('.sidebar .item').count();
+  check('B1', 'star filter shows 1 starred session', starredBefore === 1, `count=${starredBefore}`);
+
+  // Turn OFF starred filter so unstarred sessions are visible again
+  await starChipB1.click();
+  await sleep(300);
+
+  // Enable slow PUT to create a race window (PUT takes 600ms)
+  PUT_DELAY_MS = 600;
+
+  // Star ses_ux4 (visible now that filter is off)
+  await page.locator('.sidebar .item', { hasText: 'Plain session' })
+    .locator('.star').click();
+  await sleep(100); // let optimistic update begin
+
+  // Turn starred filter ON — should show ses_ux1 AND ses_ux4
+  await starChipB1.click();
+  await sleep(200);
+  const starredAfterStar = await page.locator('.sidebar .item').count();
+  check('B1', 'newly starred session appears in filtered view', starredAfterStar === 2,
+    `count=${starredAfterStar}`);
+
+  // Trigger a session list reload BEFORE the slow PUT completes.
+  // This calls applyServerMeta with stale server data (ses_ux4 NOT starred yet).
+  // With the bug: applyServerMeta REPLACES the store → ses_ux4 vanishes.
+  // With the fix: applyServerMeta MERGES → ses_ux4 survives.
+  await page.evaluate(() => {
+    document.dispatchEvent(new Event('visibilitychange'));
+  });
+  await sleep(800); // wait for visibilitychange → load() → applyServerMeta + slow PUT to land
+
+  const starredAfterReload = await page.locator('.sidebar .item').count();
+  check('B1', 'newly starred session survives applyServerMeta race', starredAfterReload === 2,
+    `count=${starredAfterReload}`);
+
+  const ses1Visible = await page.locator('.sidebar .item', { hasText: 'Starred session' }).isVisible();
+  check('B1', 'original starred session still visible', ses1Visible);
+
+  // Reset delay
+  PUT_DELAY_MS = 0;
+
+  // Clean up: turn off star filter, unstar ses_ux4
+  await starChipB1.click();
+  await sleep(200);
+  await page.locator('.sidebar .item', { hasText: 'Plain session' })
+    .locator('.star').click();
+  await sleep(200);
 
   await screenshot(page, 'session-filters-final');
   await ctx.close();
