@@ -1477,6 +1477,7 @@ import { sidePanel } from '../lib/sidePanel'
     align-items: center;
     justify-content: center;
     padding: 0;
+    padding-top: 1px;
     opacity: 1;
     transition: color 0.12s;
   }
@@ -1485,7 +1486,7 @@ import { sidePanel } from '../lib/sidePanel'
   }
   .star:hover {
     background: var(--bg-hover);
-    color: var(--accent);
+    color: var(--fg);
   }
 
   /* ---- tag button --------------------------------------------------------- */
@@ -1504,16 +1505,14 @@ import { sidePanel } from '../lib/sidePanel'
     align-items: center;
     justify-content: center;
     padding: 0;
-    transition: color 0.12s, background 0.12s, filter 0.12s;
+    transition: color 0.12s, background 0.12s;
   }
   .tagbtn.tagged {
     color: var(--accent);
-    filter: drop-shadow(0 0 4px color-mix(in srgb, var(--accent) 45%, transparent));
   }
   .tagbtn:hover {
     background: var(--bg-hover);
-    color: var(--accent);
-    filter: drop-shadow(0 0 5px color-mix(in srgb, var(--accent) 55%, transparent));
+    color: var(--fg);
   }
 
   /* ---- tag picker popover ------------------------------------------------- */
