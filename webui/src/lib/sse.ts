@@ -32,6 +32,18 @@ function bufferDelta(sid: string, mid: string, pid: string, field: string, chunk
   if (deltaTimer === undefined) deltaTimer = setTimeout(flushDeltas, 40)
 }
 
+// A message.part.updated snapshot carries the FULL accumulated text — the
+// engine has already applied every delta it emitted before publishing it. If
+// any chunk for that part is still sitting in deltaBuf (40ms coalescing
+// window), the flush would append it a second time on top of the snapshot →
+// transient duplicated suffix until the idle refetch. Drop pending chunks for
+// a part whenever its snapshot lands.
+function dropBufferedDeltas(sid: string, pid: string) {
+  for (const [key, d] of deltaBuf) {
+    if (d.sid === sid && d.pid === pid) deltaBuf.delete(key)
+  }
+}
+
 // Transcript loads are windowed: the newest RECENT_PAGE messages render first
 // (that's all the footer/info panel need for tokens/cost), older history is
 // fetched once on upward scroll. Engine `?before=` paging 400s server-side, so
@@ -331,6 +343,7 @@ export function startEvents() {
 
     // true streaming: snapshots replace, deltas append
     if (type === 'message.part.updated' && p.part?.id) {
+      dropBufferedDeltas(sid, p.part.id)
       tabs.upsertPart(sid, p.part.messageID ?? p.messageID, p.part)
       return
     }
