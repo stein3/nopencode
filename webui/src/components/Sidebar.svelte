@@ -141,7 +141,7 @@ import { sidePanel } from '../lib/sidePanel'
 
   $: if (searchText.length >= 2 || (searchFilters.length && q.length >= 2)) {
     clearTimeout(searchTimer)
-    searchTimer = setTimeout(runSearch, 200)
+    searchTimer = setTimeout(runSearch, 400)
   }
 
   async function runSearch() {

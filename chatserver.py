@@ -67,7 +67,12 @@ WEBUI_DIST = os.path.abspath(
 
 SNIPPET_CTX = 70
 SEARCH_CAP = 300
+FTS_SYNC_TTL = 30.0  # seconds between incremental syncs (opencode.db has no time_updated index)
 WORKTREE = "/workspace/"
+
+# FTS5 trigram index state (synced from opencode.db → webui.db)
+_fts_lock = threading.Lock()
+_fts_last_sync_ts = 0.0
 
 # Placeholder Vite injects as the `nonce` attribute on inline <script>/<style>
 # in the built index.html; static() swaps it for a fresh per-request nonce and
@@ -489,9 +494,177 @@ def load_messages(sid, limit=None):
     return msgs
 
 
+def _build_snippet(original, terms):
+    """Build highlighted snippet from original text for one or more search terms.
+
+    Finds the earliest case-insensitive match of ANY term in the text, takes a
+    window of ±SNIPPET_CTX chars around it, then wraps every occurrence of EVERY
+    term in \\x00/\\x01 sentinels using a per-char boolean mask so overlapping
+    matches never produce nested/duplicated sentinels.  Preserves original casing,
+    replaces newlines with spaces, adds leading/trailing ellipsis as needed.
+    """
+    low = original.lower()
+    # find earliest match position of any term
+    earliest_pos = -1
+    earliest_len = 0
+    for t in terms:
+        idx = low.find(t)
+        if idx >= 0 and (earliest_pos < 0 or idx < earliest_pos):
+            earliest_pos = idx
+            earliest_len = len(t)
+    if earliest_pos < 0:
+        return ""
+    a = max(0, earliest_pos - SNIPPET_CTX)
+    b = min(len(low), earliest_pos + earliest_len + SNIPPET_CTX)
+    window = original[a:b]
+    wl = window.lower()
+    # boolean mask: True where any term matches
+    mask = [False] * len(window)
+    for t in terms:
+        tl = len(t)
+        pos = 0
+        while True:
+            j = wl.find(t, pos)
+            if j < 0:
+                break
+            for k in range(j, j + tl):
+                mask[k] = True
+            pos = j + tl
+    # emit contiguous runs wrapped in sentinels
+    marked = []
+    i = 0
+    while i < len(mask):
+        if mask[i]:
+            j = i
+            while j < len(mask) and mask[j]:
+                j += 1
+            marked.append("\x00")
+            marked.append(window[i:j])
+            marked.append("\x01")
+            i = j
+        else:
+            j = i
+            while j < len(mask) and not mask[j]:
+                j += 1
+            marked.append(window[i:j])
+            i = j
+    return ("…" if a > 0 else "") + "".join(marked).replace("\n", " ") + (
+        "…" if b < len(low) else ""
+    )
+
+
+def _fts_sync():
+    """Sync opencode.db text parts into a trigram FTS5 index in webui.db.
+
+    First call (or after error) does a full rebuild; subsequent calls do
+    incremental updates throttled to one every FTS_SYNC_TTL seconds.
+    Returns True on success, False on error (caller falls back to legacy scan).
+    """
+    global _fts_last_sync_ts
+    now = time.time()
+    if now - _fts_last_sync_ts < FTS_SYNC_TTL:
+        return True
+    with _fts_lock:
+        # double-check after acquiring lock
+        if time.time() - _fts_last_sync_ts < FTS_SYNC_TTL:
+            return True
+        try:
+            oc = _connect()
+            wc = _serr_connect(create=True)
+            try:
+                wc.execute(
+                    "CREATE TABLE IF NOT EXISTS fts_meta("
+                    "k TEXT PRIMARY KEY, v TEXT)"
+                )
+                built_row = wc.execute(
+                    "SELECT v FROM fts_meta WHERE k='fts_built'"
+                ).fetchone()
+                full_rebuild = built_row is None
+                wc.execute(
+                    "CREATE VIRTUAL TABLE IF NOT EXISTS part_fts "
+                    "USING fts5(txt, pid UNINDEXED, mid UNINDEXED, "
+                    "sid UNINDEXED, role UNINDEXED, tc UNINDEXED, "
+                    "tokenize='trigram')"
+                )
+                if full_rebuild:
+                    wc.execute("DELETE FROM part_fts")
+                # build scan query
+                if full_rebuild:
+                    scan_sql = (
+                        "SELECT p.rowid rid, p.id, p.message_id,"
+                        " p.session_id,"
+                        " json_extract(p.data,'$.text') txt,"
+                        " COALESCE(json_extract(m.data,'$.role'),"
+                        " 'assistant') role,"
+                        " p.time_created tc, p.time_updated tu"
+                        " FROM part p"
+                        " JOIN message m ON m.id=p.message_id"
+                        "  AND m.session_id=p.session_id"
+                        " WHERE json_extract(p.data,'$.type')='text'"
+                        "  AND json_extract(p.data,'$.text') IS NOT NULL"
+                    )
+                    params = ()
+                else:
+                    wm_row = wc.execute(
+                        "SELECT v FROM fts_meta WHERE k='fts_wm'"
+                    ).fetchone()
+                    wm = int(wm_row[0]) if wm_row else 0
+                    scan_sql = (
+                        "SELECT p.rowid rid, p.id, p.message_id,"
+                        " p.session_id,"
+                        " json_extract(p.data,'$.text') txt,"
+                        " COALESCE(json_extract(m.data,'$.role'),"
+                        " 'assistant') role,"
+                        " p.time_created tc, p.time_updated tu"
+                        " FROM part p"
+                        " JOIN message m ON m.id=p.message_id"
+                        "  AND m.session_id=p.session_id"
+                        " WHERE json_extract(p.data,'$.type')='text'"
+                        "  AND json_extract(p.data,'$.text') IS NOT NULL"
+                        "  AND p.time_updated > ?"
+                    )
+                    params = (wm,)
+                rows = oc.execute(scan_sql, params).fetchall()
+                max_tu = 0
+                for r in rows:
+                    tu = num(r["tu"])
+                    if tu > max_tu:
+                        max_tu = tu
+                    wc.execute(
+                        "INSERT OR REPLACE INTO part_fts"
+                        "(rowid,txt,pid,mid,sid,role,tc)"
+                        " VALUES(?,?,?,?,?,?,?)",
+                        (r["rid"], r["txt"], r["id"],
+                         r["message_id"], r["session_id"],
+                         r["role"], r["tc"]),
+                    )
+                wc.execute(
+                    "INSERT OR REPLACE INTO fts_meta(k,v)"
+                    " VALUES('fts_wm',?)",
+                    (str(max_tu),),
+                )
+                wc.execute(
+                    "INSERT OR REPLACE INTO fts_meta(k,v)"
+                    " VALUES('fts_built','1')"
+                )
+                wc.commit()
+                _fts_last_sync_ts = time.time()
+                return True
+            finally:
+                wc.close()
+                oc.close()
+        except Exception:
+            # fts_built stays unset → next call retries full rebuild;
+            # caller falls through to legacy scan for this request.
+            return False
+
+
+# ---- search ----------------------------------------------------------------
+
 def search(q):
     ql = q.lower().strip()
-    if len(ql) < 2:
+    terms = ql.split()
+    if len(ql) < 2 or not terms:
         return []
     hits = []
     with _connect() as c:
@@ -499,6 +672,42 @@ def search(q):
             r["id"]: r["title"] or r["id"][:12]
             for r in c.execute("SELECT id, title FROM session")
         }
+        # FTS path: all terms >= 3 chars (trigram tokenizer minimum)
+        if all(len(t) >= 3 for t in terms) and _fts_sync():
+            match_expr = " AND ".join(
+                '"' + t.replace('"', '""') + '"' for t in terms
+            )
+            try:
+                cur = c.execute(
+                    "SELECT pid,mid,sid,role,tc,txt"
+                    " FROM part_fts WHERE part_fts MATCH ?"
+                    " ORDER BY tc DESC",
+                    (match_expr,),
+                )
+                for r in cur:
+                    if r["sid"] not in titles:
+                        continue
+                    hits.append(
+                        {
+                            "session_id": r["sid"],
+                            "session_title": titles.get(r["sid"], r["sid"][:12]),
+                            "message_id": r["mid"],
+                            "part_id": r["pid"],
+                            "role": r["role"],
+                            "time": num(r["tc"]),
+                            "snippet": _build_snippet(r["txt"], terms),
+                        }
+                    )
+                    if len(hits) >= SEARCH_CAP:
+                        break
+                return hits
+            except Exception:
+                pass  # fall through to legacy scan
+        # Legacy brute-force with AND semantics (one instr per term)
+        conds = " AND ".join(
+            "instr(pylower(CAST(json_extract(p.data,'$.text') AS TEXT)),?)>0"
+            for _ in terms
+        )
         cur = c.execute(
             """SELECT p.id pid, p.message_id mid, p.session_id sid,
                       json_extract(p.data, '$.text') txt,
@@ -508,35 +717,11 @@ def search(q):
                JOIN message m ON m.id = p.message_id AND m.session_id = p.session_id
                WHERE json_extract(p.data, '$.type') = 'text'
                  AND json_extract(p.data, '$.text') IS NOT NULL
-                 AND instr(pylower(CAST(json_extract(p.data, '$.text') AS TEXT)), ?) > 0
+                 AND """ + conds + """
                ORDER BY p.time_created DESC""",
-            (ql,),
+            tuple(terms),
         )
         for r in cur:
-            low = r["txt"].lower()
-            i = low.find(ql)
-            a = max(0, i - SNIPPET_CTX)
-            b = min(len(low), i + len(ql) + SNIPPET_CTX)
-            # slice the window from the ORIGINAL text (lowercase-derived
-            # indices) to preserve casing, then mark every case-insensitive
-            # occurrence with \x00/\x01 sentinels for client-side highlighting
-            window = r["txt"][a:b]
-            wl = window.lower()
-            marked = []
-            pos = 0
-            while True:
-                j = wl.find(ql, pos)
-                if j < 0:
-                    marked.append(window[pos:])
-                    break
-                marked.append(window[pos:j])
-                marked.append("\x00")
-                marked.append(window[j : j + len(ql)])
-                marked.append("\x01")
-                pos = j + len(ql)
-            snippet = ("…" if a > 0 else "") + "".join(marked).replace("\n", " ") + (
-                "…" if b < len(low) else ""
-            )
             hits.append(
                 {
                     "session_id": r["sid"],
@@ -545,7 +730,7 @@ def search(q):
                     "part_id": r["pid"],
                     "role": r["role"],
                     "time": num(r["tcreated"]),
-                    "snippet": snippet,
+                    "snippet": _build_snippet(r["txt"], terms),
                 }
             )
             if len(hits) >= SEARCH_CAP:
