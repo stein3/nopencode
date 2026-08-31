@@ -931,10 +931,20 @@ function loadSessionMeta(): Record<string, SessionMeta> {
   return {}
 }
 
-// Cache-write — persists the local snapshot so a fast reload has instant data
+// Cache-write — persists the local snapshot so a fast reload has instant data.
+// The recency cap is applied HERE ONLY (a localStorage size bound): insertion
+// order is recency (mutators re-append the touched sid), so we keep the newest
+// CAP keys. It must NEVER prune the in-memory store — evicting a tagged/starred
+// entry there makes the session look untagged to the sidebar filters until the
+// next server hydrate (bug: tagging one session while the "untagged" filter was
+// active evicted the oldest entries and they flooded back into the view).
 function persistSessionMeta(all: Record<string, SessionMeta>) {
   try {
-    localStorage.setItem(SESSION_META_KEY, JSON.stringify(all))
+    const keys = Object.keys(all)
+    const skip = Math.max(0, keys.length - SESSION_META_CAP)
+    const capped: Record<string, SessionMeta> = {}
+    for (let i = skip; i < keys.length; i++) capped[keys[i]] = all[keys[i]]
+    localStorage.setItem(SESSION_META_KEY, JSON.stringify(capped))
   } catch {
     /* private mode */
   }
@@ -957,8 +967,6 @@ function mutateMeta(sid: string, patch: SessionMeta) {
     const next: Record<string, SessionMeta> = {}
     for (const [k, v] of Object.entries(all)) if (k !== sid) next[k] = v
     next[sid] = { ...all[sid], ...patch }
-    const keys = Object.keys(next)
-    for (const k of keys.slice(0, Math.max(0, keys.length - SESSION_META_CAP))) delete next[k]
     persistSessionMeta(next)
     return next
   })
@@ -977,8 +985,6 @@ export function toggleStar(sid: string) {
       const { star: _, ...rest } = cur
       if (rest.tag) next[sid] = rest
     }
-    const keys = Object.keys(next)
-    for (const k of keys.slice(0, Math.max(0, keys.length - SESSION_META_CAP))) delete next[k]
     persistSessionMeta(next)
     return next
   })
@@ -1001,8 +1007,6 @@ export function setTag(sid: string, tag?: string) {
         const { tag: _, ...rest } = cur
         if (rest.star) next[sid] = rest
       }
-      const keys = Object.keys(next)
-      for (const k of keys.slice(0, Math.max(0, keys.length - SESSION_META_CAP))) delete next[k]
       persistSessionMeta(next)
       return next
     })

@@ -648,6 +648,72 @@ try {
     .locator('.star').click();
   await sleep(200);
 
+  // ======== C1 — >CAP meta entries: tagging must not evict other tags ========
+  // Regression guard: the old mutateMeta/toggleStar/setTag-clear code pruned
+  // the IN-MEMORY sessionMeta store to SESSION_META_CAP=200 on every mutation.
+  // With >200 entries, tagging one session silently deleted the oldest entries
+  // → those tagged sessions suddenly appeared in the active "untagged" filter
+  // view until the next server re-hydrate (page refresh). The cap now bounds
+  // ONLY the localStorage cache, never the live store.
+  console.log('\nCASE C1 — SESSION_META_CAP eviction regression');
+  await page.evaluate(() => fetch('/__ctl', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ clearMeta: true }),
+  }));
+  // server truth: ux2 tagged 'ux', ux3 tagged 'proj'
+  await page.evaluate(async () => {
+    await fetch('/api/history/session/ses_ux2/meta', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tag: 'ux' }),
+    });
+    await fetch('/api/history/session/ses_ux3/meta', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tag: 'proj' }),
+    });
+  });
+  // boot cache: the REAL tagged sessions FIRST (oldest keys = the ones the old
+  // eviction logic deleted), then 250 filler entries to exceed the cap of 200
+  await page.evaluate(() => {
+    const meta = { ses_ux2: { tag: 'ux' }, ses_ux3: { tag: 'proj' } };
+    for (let i = 0; i < 250; i++) meta['ses_fill' + i] = { tag: 'filler' };
+    localStorage.setItem('opencode.sessionMeta', JSON.stringify(meta));
+    localStorage.setItem('opencode.sessionMetaMigrated', '1');
+  });
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await page.waitForSelector('.sidebar .item', { timeout: 15000 });
+  await sleep(800);
+
+  // tag ses_ux4 (this mutation is what used to evict the oldest 53 entries)
+  await page.locator('.sidebar .item', { hasText: 'Plain session' })
+    .locator('.tagbtn').click();
+  await sleep(400);
+  await page.locator('.tagpicker .tpnew input').fill('cap');
+  await page.keyboard.press('Enter');
+  await sleep(400);
+
+  // untagged view must show ONLY the truly untagged sessions (ux1, ux5) —
+  // with the bug, ux2+ux3 lost their tags and flooded in → count 4
+  await page.locator('.untaggedchip').click();
+  await sleep(300);
+  const untaggedCount = await page.locator('.sidebar .item').count();
+  check('C1', 'untagged view shows only truly untagged sessions', untaggedCount === 2,
+    `count=${untaggedCount}`);
+  const ux2Flooded = await page.locator('.sidebar .item', { hasText: 'Tagged with ux' })
+    .isVisible().catch(() => false);
+  check('C1', 'tagged session did NOT flood into untagged view after cap exceeded', !ux2Flooded);
+
+  await page.locator('.untaggedchip').click();
+  await sleep(200);
+
+  // the cap still bounds the localStorage CACHE (newest-first), and the
+  // freshly-tagged session is present there
+  const cache = await page.evaluate(() =>
+    JSON.parse(localStorage.getItem('opencode.sessionMeta') || '{}'));
+  check('C1', 'localStorage cache still capped at 200',
+    Object.keys(cache).length === 200, `size=${Object.keys(cache).length}`);
+  check('C1', 'newly tagged session present in cache', cache.ses_ux4?.tag === 'cap');
+
   await screenshot(page, 'session-filters-final');
   await ctx.close();
 } finally {
