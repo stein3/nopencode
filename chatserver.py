@@ -896,6 +896,7 @@ class Handler(BaseHTTPRequestHandler):
             "img-src 'self' data:; "
             "font-src 'self'; "
             "connect-src 'self'; "
+            "manifest-src 'self'; "
             "object-src 'none'; "
             "frame-ancestors 'none'; "
             "base-uri 'self'; "
