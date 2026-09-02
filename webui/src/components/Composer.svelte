@@ -2,7 +2,7 @@
   import { onMount, tick } from 'svelte'
   import { oc } from '../lib/api'
   import type { OcFilePart } from '../lib/api'
-  import { tabs, selectedModel, sessionModel, sessionAgent, enqueuePrompt, cmdVersion } from '../lib/stores'
+  import { tabs, selectedModel, sessionModel, setSessionModel, sessionAgent, enqueuePrompt, cmdVersion } from '../lib/stores'
   import type { Tab } from '../lib/stores'
   import { registry, type Cmd } from '../lib/commands'
   import { RECENT_PAGE, normalizeMessages } from '../lib/sse'
@@ -260,10 +260,15 @@
         // NOTE: error tiles are NOT cleared here — they're history (a record
         // of the failed turn), not a transient banner. A resend that fails
         // again dedupes server-side (UNIQUE sid,msg).
+        const sendModel = sessionModel(sid) ?? $selectedModel ?? undefined
+        // Lock in the resolved model for this session so a later global change
+        // (e.g. picking model B in another tab) doesn't retroactively affect
+        // this session. Once a session sends with a model, it stays on it.
+        if (sendModel) setSessionModel(sid, sendModel)
         flight =
           m
             ? oc.runCommand(sid, m[1], m[2] ? [m[2]] : [])
-            : oc.prompt(sid, body, sessionModel(sid) ?? $selectedModel ?? undefined, sessionAgent(sid), files.map(toFilePart))
+            : oc.prompt(sid, body, sendModel, sessionAgent(sid), files.map(toFilePart))
         // attachments ship inside the POST body, so once the dispatch starts
         // they're delivered — clear the tray like the text box (handed back by
         // failedSend if the flight dies before landing). Slash commands can't
