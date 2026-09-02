@@ -1,16 +1,14 @@
-// Hermetic e2e test for the webui local-hold message queue.
+// Hermetic e2e test for the engine-side message queue (visual "queued" badge).
 //
 // Serves webui/dist from an in-process fake opencode engine (no real LLM turn,
 // deterministic timing) + drives the built UI with Playwright. Verifies:
-//   1. While a turn is running, sending another prompt HOLDS it locally (no
-//      second prompt_async call to the engine) and renders it as a `.msg.user.queued`
-//      row with a "queued" badge.
-//   2. Cancel (↩) on a queued message removes it locally; the engine never
-//      receives it, and the running turn is unaffected.
-//   3. When the running turn emits session.idle, the held prompt is dispatched
-//      (prompt_async called) in order; the queued row is replaced by a real one.
-//   4. Posted user messages no longer expose a Delete (🗑) action; queued
-//      messages expose only Cancel (↩) and not Fork (⑂).
+//   1. While a turn is running, sending another prompt dispatches it to the
+//      engine immediately (prompt_async called) and renders it as a user row
+//      with a visual "queued" badge (derived by deriveQueued in Transcript).
+//   2. No Cancel (↩) action exists — queued badges are visual only and
+//      disappear when the turn finishes (tab.busy → false).
+//   3. Posted user messages expose Revert+Fork but not Delete (🗑) or Cancel.
+//   4. Multiple sends while busy are all dispatched in order.
 //
 // Run:  node e2e/utilities/verify-queue-e2e.mjs
 // Needs: a built webui/dist (npm run build) and a chromium_headless_shell in
@@ -270,7 +268,7 @@ async function users() {
     const pane = [...document.querySelectorAll('.tabpane')].find((p) => getComputedStyle(p).display !== 'none')
     if (!pane) return []
     return [...pane.querySelectorAll('.msg.user')].map((u) => ({
-      queued: u.classList.contains('queued'),
+      queued: !!u.querySelector('.qbadge'),
       badge: u.querySelector('.qbadge')?.textContent ?? null,
       acts: [...u.querySelectorAll('.acts .act')].map((b) => b.getAttribute('title')),
     }))
@@ -285,7 +283,7 @@ async function waitBusy() {
 }
 
 try {
-  // ===== Scenario 1: hold + cancel =====
+  // ===== Scenario 1: send while busy → immediate dispatch + queued badge =====
   await newChat()
   await send('alpha')
   await waitBusy()
@@ -296,80 +294,61 @@ try {
   check('S1 A renders as a posted (non-queued) user message', us.length === 1 && us[0].queued === false)
   check('S1 posted message has NO Delete action', !us[0].acts.includes('Delete message'))
 
-  // send B while A is running → must be held locally
+  // send B while A is running → dispatched immediately, badge is visual
   await send('beta')
   await page.waitForFunction(() => {
     const pane = [...document.querySelectorAll('.tabpane')].find((p) => getComputedStyle(p).display !== 'none')
-    return pane && pane.querySelector('.msg.user.queued')
+    return pane && pane.querySelector('.qbadge')
   }, undefined, { timeout: 8000, polling: 150 })
   st = await state()
   us = await users()
   const queued = us.find((u) => u.queued)
-  check('S1 send B while busy → held locally (no 2nd prompt_async)', st.prompts.length === 1, `prompts=${st.prompts.length}`)
-  check('S1 B renders as a queued row with "queued" badge', !!queued && queued.badge === 'queued')
-  check('S1 queued row exposes ONLY Cancel (no Fork/Delete)', queued && queued.acts.length === 1 && queued.acts[0] === 'Cancel queued message', queued ? queued.acts.join('|') : 'none')
-  check('S1 running turn unaffected (still 1 posted + 1 queued)', us.length === 2 && us.filter((u) => !u.queued).length === 1)
+  check('S1 send B while busy → dispatched immediately (2 prompt_async calls)', st.prompts.length === 2, `prompts=${st.prompts.length}`)
+  check('S1 B renders with "queued" badge', !!queued && queued.badge === 'queued')
+  check('S1 B has Revert+Fork actions (no Cancel/Delete)',
+    queued && queued.acts.includes('Revert session to before this message') && queued.acts.includes('Fork a new session from before this message') && !queued.acts.includes('Cancel queued message'),
+    queued ? queued.acts.join('|') : 'none')
+  check('S1 running turn unaffected (both messages visible)', us.length === 2)
 
-  // cancel the queued message
-  await page.locator('.msg.user.queued .act[title="Cancel queued message"]').click()
-  await page.waitForFunction(() => {
-    const pane = [...document.querySelectorAll('.tabpane')].find((p) => getComputedStyle(p).display !== 'none')
-    return pane && !pane.querySelector('.msg.user.queued')
-  }, undefined, { timeout: 8000, polling: 150 })
-  st = await state()
-  us = await users()
-  check('S1 after cancel → queued row gone', !us.some((u) => u.queued))
-  check('S1 after cancel → B never reached the engine', st.prompts.length === 1, `prompts=${st.prompts.length}`)
-
-  // finish A's turn → pumpQueue finds an empty queue, nothing new dispatched
+  // finish A's turn → badges disappear (deriveQueued returns empty when !busy)
   await idleNow(alphaSid)
   await page.waitForFunction(() => {
     const pane = [...document.querySelectorAll('.tabpane')].find((p) => getComputedStyle(p).display !== 'none')
-    return pane && !pane.querySelector('.cylon')
+    return pane && !pane.querySelector('.qbadge')
   }, undefined, { timeout: 8000, polling: 150 })
   st = await state()
-  check('S1 after A idle → still only 1 prompt_async (B was cancelled)', st.prompts.length === 1, `prompts=${st.prompts.length}`)
+  us = await users()
+  check('S1 after idle → no queued badges remain', !us.some((u) => u.queued))
+  check('S1 after idle → 2 prompt_async calls total', st.prompts.length === 2, `prompts=${st.prompts.length}`)
 
-  // ===== Scenario 2: hold + dispatch-on-idle (order preserved) =====
+  // ===== Scenario 2: multiple sends while busy → all dispatched + order preserved =====
   await newChat()
   await send('gamma')
   await waitBusy()
   await send('delta')
   await page.waitForFunction(() => {
     const pane = [...document.querySelectorAll('.tabpane')].find((p) => getComputedStyle(p).display !== 'none')
-    return pane && pane.querySelector('.msg.user.queued')
+    return pane && pane.querySelector('.qbadge')
   }, undefined, { timeout: 8000, polling: 150 })
   st = await state()
   us = await users()
   const gammaSid = st.prompts.at(-1).sid
   const s2 = () => st.prompts.filter((p) => p.sid === gammaSid)
-  check('S2 send D while busy → held locally (no 2nd prompt_async yet)',
-    s2().length === 1 && s2()[0].text === 'gamma', s2().map((x) => x.text).join(','))
-  check('S2 D held as queued row', us.some((u) => u.queued && u.badge === 'queued'))
+  check('S2 send D while busy → dispatched immediately (2 prompt_async)',
+    s2().length === 2 && s2()[0].text === 'gamma' && s2()[1].text === 'delta',
+    s2().map((x) => x.text).join('→'))
+  check('S2 D has queued badge (visual)', us.some((u) => u.queued && u.badge === 'queued'))
 
-  // finish gamma's turn → webui must dispatch delta (same session).
-  await idleNow(gammaSid)
-  await page.waitForFunction(async (sid) => {
-    const s = await (await fetch('/__state')).json()
-    return s.prompts.filter((p) => p.sid === sid).length === 2
-  }, gammaSid, { timeout: 8000, polling: 150 })
-  st = await state()
-  const s2now = st.prompts.filter((p) => p.sid === gammaSid)
-  check('S2 on gamma idle → delta dispatched (2 prompt_async calls, order preserved)',
-    s2now.length === 2 && s2now[0].text === 'gamma' && s2now[1].text === 'delta',
-    s2now.map((x) => x.text).join('→'))
-
-  // clear delta's own busy window so the UI settles (delta was dispatched,
-  // not cancelled, so it must NOT reappear as a queued row)
+  // finish gamma's turn → badges disappear (messages already sent to engine)
   await idleNow(gammaSid)
   await page.waitForFunction(() => {
     const pane = [...document.querySelectorAll('.tabpane')].find((p) => getComputedStyle(p).display !== 'none')
-    return pane && !pane.querySelector('.msg.user.queued')
+    return pane && !pane.querySelector('.qbadge')
   }, undefined, { timeout: 8000, polling: 150 })
   us = await users()
-  check('S2 after dispatch → no queued rows remain', !us.some((u) => u.queued))
+  check('S2 after idle → no queued badges remain', !us.some((u) => u.queued))
   check('S2 posted gamma/delta have Revert+Fork, no Delete',
-    us.filter((u) => !u.queued).every((u) => u.acts.includes('Revert session to before this message') && u.acts.includes('Fork a new session from before this message') && !u.acts.includes('Delete message')))
+    us.every((u) => u.acts.includes('Revert session to before this message') && u.acts.includes('Fork a new session from before this message') && !u.acts.includes('Delete message')))
 } catch (e) {
   console.log('TEST ERROR:', e.message)
   check('test ran without throwing', false, e.message)

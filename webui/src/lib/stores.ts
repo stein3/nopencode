@@ -1,5 +1,5 @@
 import { writable } from 'svelte/store'
-import { hist, type OcMessage, type OcFilePart } from './api'
+import { hist, type OcMessage } from './api'
 import { msgModel } from './util'
 
 // Engine reverts don't delete messages — they mark a revert point on the
@@ -8,21 +8,6 @@ import { msgModel } from './util'
 export interface RevertPoint {
   messageID?: string
   partID?: string
-}
-
-// ---- local prompt queue (queued messages are held client-side) ------------
-// While a turn is running, the composer enqueues new prompts here instead of
-// sending them to the engine. They render in the transcript with a "queued"
-// badge and a cancel (↩) action; on session.idle sse.pumpQueue dispatches them
-// in order. A queued prompt has no engine presence yet, so canceling it is a
-// pure local remove — it never touches the running turn or earlier messages.
-export interface QueuedPrompt {
-  id: string
-  text: string
-  files: OcFilePart[]
-  model?: ModelRef
-  agent?: string
-  sentAt?: number // set after message is sent to engine; used to determine cancel behavior
 }
 
 export interface Tab {
@@ -38,8 +23,6 @@ export interface Tab {
   errors?: { message: string; t: number }[]
   errorsFetched?: boolean // persisted errors loaded for this tab (once per open)
   revert?: RevertPoint | null
-  // local pending prompts (held while a turn runs) — dispatched on session.idle
-  queue?: QueuedPrompt[]
   pending?: boolean // not created on the engine yet
   partial?: boolean // older messages exist on the engine but aren't loaded yet
   loadingOlder?: boolean // backfill fetch in flight (transcript shows a spinner)
@@ -161,10 +144,12 @@ function makeTabs() {
           const existing = t.messages.find((x) => x.id === mid)
           // bare base: the message.part.updated event carries only the part —
           // no agent/model info. setMeta fills those from the message.updated
-          // event that follows moments later.
+          // event that follows moments later. Do NOT default role here — it
+          // causes queued user messages to render as assistant until setMeta
+          // arrives. The Transcript renderer handles undefined role gracefully.
           const base =
             existing ??
-            { id: mid, role: 'assistant', time: { created: Date.now() }, parts: [] }
+            { id: mid, time: { created: Date.now() }, parts: [] }
           const others = t.messages.filter((x) => x.id !== mid)
           const parts = [...(base.parts ?? [])]
           const i = parts.findIndex((p) => p.id === part.id)
@@ -195,7 +180,10 @@ function makeTabs() {
       )
     },
 
-    // Correct role/metadata once message.updated delivers the authoritative info
+    // Correct role/metadata once message.updated delivers the authoritative info.
+    // Upserts when the message doesn't exist yet (race: message.updated arrived
+    // before message.part.updated → upsertPart hasn't created it). Without this,
+    // queued user messages would render with no role and fall back to 'opencode'.
     setMeta(sid: string, info: any) {
       if (!info?.id) return
       // assistant info carries flat modelID/providerID, user info nests them
@@ -204,16 +192,30 @@ function makeTabs() {
       update((all) =>
         all.map((t) => {
           if (t.id !== sid) return t
-          const exists = t.messages.some((x) => x.id === info.id)
-          if (!exists) return t
-          return {
-            ...t,
-            messages: t.messages.map((x) =>
-              x.id === info.id
-                ? { ...x, role: info.role ?? x.role, agent: info.agent ?? x.agent, modelID: mm.modelID ?? x.modelID, providerID: mm.providerID ?? x.providerID, time: info.time ?? x.time, error: info.error ?? x.error }
-                : x,
-            ),
+          const existing = t.messages.find((x) => x.id === info.id)
+          if (existing) {
+            return {
+              ...t,
+              messages: t.messages.map((x) =>
+                x.id === info.id
+                  ? { ...x, role: info.role ?? x.role, agent: info.agent ?? x.agent, modelID: mm.modelID ?? x.modelID, providerID: mm.providerID ?? x.providerID, time: info.time ?? x.time, error: info.error ?? x.error }
+                  : x,
+              ),
+            }
           }
+          // Message not yet materialized — create it with authoritative metadata
+          // including parts from info so it renders correctly before refetch
+          const created: any = {
+            id: info.id,
+            role: info.role ?? 'assistant',
+            agent: info.agent ?? undefined,
+            modelID: mm.modelID,
+            providerID: mm.providerID,
+            time: info.time ?? { created: Date.now() },
+            error: info.error,
+            parts: Array.isArray(info.parts) ? info.parts : [],
+          }
+          return { ...t, messages: [...t.messages, created] }
         }),
       )
     },
@@ -247,30 +249,6 @@ function makeTabs() {
 }
 
 export const tabs = makeTabs()
-
-// ---- local prompt queue ------------------------------------------------
-// Queued prompts live on the tab so the transcript can render/cancel them and
-// sse.pumpQueue can dispatch them when the session goes idle.
-let queueSeq = 0
-export function enqueuePrompt(sid: string, item: Omit<QueuedPrompt, 'id'>) {
-  const t = tabs.snapshot(sid)
-  if (!t) return
-  const q: QueuedPrompt = { ...item, id: `q-${queueSeq++}` }
-  tabs.patch(sid, { queue: [...(t.queue ?? []), q] })
-}
-export function cancelQueuedPrompt(sid: string, id: string) {
-  const t = tabs.snapshot(sid)
-  if (!t?.queue) return
-  tabs.patch(sid, { queue: t.queue.filter((q) => q.id !== id) })
-}
-// Remove and return the oldest queued prompt for dispatch (null when empty).
-export function dequeueFirstPrompt(sid: string): QueuedPrompt | null {
-  const t = tabs.snapshot(sid)
-  if (!t?.queue?.length) return null
-  const [first, ...rest] = t.queue
-  tabs.patch(sid, { queue: rest })
-  return first
-}
 
 // ---- live per-session metrics (keeps the sidebar fresh for open tabs) ----
 // The sidebar's sqlite snapshot only changes on reload; these values are

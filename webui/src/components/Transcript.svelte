@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, afterUpdate } from 'svelte'
-  import { tabs, showThinking, showTimestamps, toast, type Tab, pendingQuestions, type PendingQuestion, lightbox, engineRetries, clearEngineRetry, cancelQueuedPrompt } from '../lib/stores'
+  import { tabs, showThinking, showTimestamps, toast, type Tab, pendingQuestions, type PendingQuestion, lightbox, engineRetries, clearEngineRetry } from '../lib/stores'
   import { oc, hist, isSessionBusy, type OcMessage } from '../lib/api'
   import { refetchNow } from '../lib/sse'
   import { md } from '../lib/markdown'
@@ -495,13 +495,23 @@
         .filter((p) => p.type === 'text' && (p.text ?? '').trim())
         .map((p) => p.text ?? '')
         .join('\n\n')
-      const s = await oc.revertTo(tab.id, lastUser.id)
-      tabs.patch(tab.id, { revert: s.revert ?? null })
-      refetchNow(tab.id)
-      clearEngineRetry(tab.id)
-      if (text.trim()) onReverted(text)
+      // Abort may return before a queued turn starts — retry revert with delay
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          const s = await oc.revertTo(tab.id, lastUser.id)
+          tabs.patch(tab.id, { revert: s.revert ?? null })
+          refetchNow(tab.id)
+          clearEngineRetry(tab.id)
+          if (text.trim()) onReverted(text)
+          break
+        } catch (e: any) {
+          if (!isSessionBusy(e)) { toast(`undo failed: ${e.message ?? e}`); break }
+          if (attempt < 2) await new Promise((r) => setTimeout(r, 300 + attempt * 200))
+          else toast('session still busy — try again')
+        }
+      }
     } catch (e: any) {
-      toast(isSessionBusy(e) ? 'session still busy — try again' : `undo failed: ${e.message ?? e}`)
+      toast(`undo failed: ${e.message ?? e}`)
     }
     aborting = false
   }
@@ -766,17 +776,35 @@
       if (text.trim()) onReverted(text)
     } catch (e: any) {
       if (isSessionBusy(e)) {
-        // session is retrying — abort the retry loop then retry the revert
+        // session is busy (engine retry loop, queued turn, etc.) — abort then
+        // retry. The abort response waits for server-side finalizers, but a
+        // queued message may immediately start a new turn. Retry the revert
+        // with a short delay to let the session idle.
         try {
           await abortForRevert()
           clearEngineRetry(tab.id)
-          const s = await oc.revertTo(tab.id, mid)
-          tabs.patch(tab.id, { revert: s.revert ?? null })
-          refetchNow(tab.id)
-          if (text.trim()) onReverted(text)
-          toast('stopped retrying — message reverted')
-        } catch (e2: any) {
-          toast(`revert failed: ${e2.message ?? e2}`)
+          // Wait for session to idle — abort stops the current turn but a
+          // queued message may start immediately. Poll with backoff.
+          let lastErr: any = e
+          for (let attempt = 0; attempt < 3; attempt++) {
+            await new Promise((r) => setTimeout(r, 300 + attempt * 200))
+            try {
+              const s = await oc.revertTo(tab.id, mid)
+              tabs.patch(tab.id, { revert: s.revert ?? null })
+              refetchNow(tab.id)
+              if (text.trim()) onReverted(text)
+              toast('stopped retrying — message reverted')
+              return
+            } catch (e2: any) {
+              if (!isSessionBusy(e2)) throw e2
+              lastErr = e2
+            }
+          }
+          // All retries exhausted — abort one more time to stop the queued turn
+          await abortForRevert()
+          toast(`revert failed: ${lastErr.message ?? lastErr}`)
+        } catch (e3: any) {
+          toast(`revert failed: ${e3.message ?? e3}`)
         }
       } else {
         alert(`revert failed: ${e.message ?? e}`)
@@ -1042,34 +1070,6 @@
       </div>
     </div>
   {/each}
-    {#each tab.queue ?? [] as q (q.id)}
-      <div class="msg user queued" id={`m-${q.id}`}>
-        <div class="head">
-          <span class="role">You</span>
-          <span class="qbadge" title="queued — not sent yet">queued</span>
-          <span class="acts">
-            <button class="act" title="Cancel queued message" on:click={() => cancelQueuedPrompt(tab.id, q.id)}>↩</button>
-          </span>
-        </div>
-        <div class="body">
-          {#if q.files?.length}
-            <div class="qfiles">
-              {#each q.files as f (f.url)}
-                {#if isImageMime(f.mime)}
-                  <img class="qimg" src={f.url} alt={f.filename} title={f.filename} />
-                {:else}
-                  <span class="msgfile" title={f.mime ?? 'file'}>
-                    <span class="fext">{extLabel(f.filename)}</span>
-                    <span class="fname">{f.filename}</span>
-                  </span>
-                {/if}
-              {/each}
-            </div>
-          {/if}
-          {@html html({ id: q.id, type: 'text', text: q.text }, false)}
-        </div>
-      </div>
-    {/each}
     {#each sidecarErrors as e, i (i)}
       <div class="msg errtile">
         <div class="head">
@@ -1146,26 +1146,6 @@
     line-height: 1.5;
     user-select: none;
     white-space: nowrap;
-  }
-  /* locally-held queued prompt: not sent to the engine yet — distinguish it
-     from a delivered user message and keep its cancel action visible */
-  .msg.queued {
-    border-left: 2px dashed var(--user-accent);
-    opacity: 0.92;
-  }
-  .msg.queued .acts {
-    display: inline-flex;
-  }
-  .qfiles {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-    margin-bottom: 6px;
-  }
-  .qimg {
-    max-height: 120px;
-    border-radius: 6px;
-    border: 1px solid var(--border);
   }
   .logo {
     font-size: 22px;

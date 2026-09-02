@@ -1,4 +1,4 @@
-import { tabs, sessionTodos, patchMetrics, metricsFromMessages, tokenTally, markSessionUnread, patchEngineRetry, clearEngineRetry, syncEngineRetryFromStatus, markSessionListDirty, sessionListDirty, toast } from './stores'
+import { tabs, sessionTodos, patchMetrics, metricsFromMessages, tokenTally, markSessionUnread, patchEngineRetry, clearEngineRetry, syncEngineRetryFromStatus, markSessionListDirty, sessionListDirty } from './stores'
 import { oc, hist } from './api'
 import { refreshPermissions } from './permissions'
 import { refreshQuestions } from './questions'
@@ -62,7 +62,22 @@ export function applyMessages(sessionId: string, msgs: any[], complete = true) {
   const cur = tabs.snapshot(sessionId)
   if (!cur) return
   const fetched = normalizeMessages(msgs)
-  let next = fetched
+  // Preserve authoritative role/agent from existing messages when the fetched
+  // version has a less-specific value. This fixes queued user messages that
+  // render as "nopencode": setMeta sets role:'user', but the refetch returns
+  // role:undefined → normalizeMessages defaults to 'assistant', overwriting.
+  const existingById = new Map(cur.messages.map((m) => [m.id, m]))
+  const merged = fetched.map((m) => {
+    const existing = existingById.get(m.id)
+    if (!existing) return m
+    // Keep the existing role when the fetched role is the default fallback
+    const role = m.role === 'assistant' && existing.role && existing.role !== 'assistant'
+      ? existing.role
+      : m.role
+    const agent = m.agent ?? existing.agent
+    return { ...m, role, agent }
+  })
+  let next = merged
   if (cur.partial && !complete && cur.messages.length) {
     const ids = new Set(fetched.map((m) => m.id))
     const older = cur.messages.filter((m) => !ids.has(m.id))
@@ -141,27 +156,6 @@ export function refetchNow(sessionId: string) {
   oc.messages(sessionId, RECENT_PAGE)
     .then((msgs) => applyMessages(sessionId, msgs, msgs.length < RECENT_PAGE))
     .catch(() => {})
-}
-
-// Dispatch the oldest locally-held queued prompt (if any) for a session that
-// just went idle. The composer enqueues prompts here instead of blocking on
-// the engine while a turn runs (see stores.QueuedPrompt); they are sent in
-// order as each turn completes. Safe to call when nothing is queued.
-export function pumpQueue(sid: string) {
-  const t = tabs.snapshot(sid)
-  if (!t || t.busy || !t.queue?.length) return
-  const next = t.queue[0]
-  const rest = t.queue.slice(1)
-  // Optimistically mark busy so a re-entrant idle event can't double-dispatch
-  // the same prompt before the engine's own busy event lands.
-  tabs.patch(sid, { queue: rest, busy: true })
-  oc.prompt(sid, next.text, next.model, next.agent, next.files ?? [])
-    .catch((e: any) => {
-      // Dispatch failed (network drop / engine unreachable): put it back at the
-      // front of the queue and clear busy so the next idle can retry.
-      tabs.patch(sid, { busy: false, queue: [next, ...rest] })
-      toast(`queued send failed: ${e?.message ?? e}`)
-    })
 }
 
 function scheduleRefetch(sessionId: string) {
@@ -281,8 +275,6 @@ export function startEvents() {
     if (!tabs.isopen(sid)) return
     if (type === 'session.idle') {
       tabs.patch(sid, { busy: false })
-      // a turn finished → dispatch the next locally-held queued prompt (if any)
-      pumpQueue(sid)
       // turn ended without a fresh error → a pending retry loop is done
       onTurnIdle(sid)
       // engine-side retry cleared — the turn succeeded or was abandoned
@@ -308,8 +300,6 @@ export function startEvents() {
       const errors = [...(cur?.errors ?? [])]
       if (!aborted && !errors.some((e) => e.message === msg)) errors.push({ message: msg, t: Date.now() })
       tabs.patch(sid, { busy: false, errors })
-      // an errored turn also frees the session → continue any queued prompts
-      pumpQueue(sid)
       if (!aborted) hist.addSessionError(sid, msg) // persist fire-and-forget
       // transient provider failure (APIError + isRetryable) → arm + auto-retry
       // with backoff; the witnessed error proves the original prompt was

@@ -590,6 +590,13 @@ registry.builtins = [
         tabs.patch(sid, { revert: s.revert ?? null, live: true })
         refetchNow(sid)
         toast('reverted last message')
+        const revertText = (lastUser?.parts ?? [])
+          .filter((p: any) => (p.type ?? p.info?.type) === 'text' && ((p.text ?? p.info?.text) ?? '').trim())
+          .map((p: any) => p.text ?? p.info?.text ?? '')
+          .join('\n\n')
+        if (revertText.trim()) {
+          window.dispatchEvent(new CustomEvent('oc:revert-refill', { detail: revertText }))
+        }
       } catch (e: any) {
         toast(`/undo failed: ${e.message ?? e}`)
       }
