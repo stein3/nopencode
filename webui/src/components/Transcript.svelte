@@ -932,7 +932,15 @@
           {/if}
           {#if m.role === 'user' && !tn}
             <button class="act" title="Revert session to before this message" on:click={() => revertTo(m.id)}>↩</button>
-            <button class="act" title="Fork a new session from before this message" on:click={() => forkFrom(m.id)}>⑂</button>
+            <button class="act" title="Fork a new session from before this message" on:click={() => forkFrom(m.id)}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="18" r="3" />
+                <circle cx="6" cy="6" r="3" />
+                <circle cx="18" cy="6" r="3" />
+                <path d="M18 9v1a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V9" />
+                <line x1="12" y1="12" x2="12" y2="15" />
+              </svg>
+            </button>
           {/if}
         </span>
       </div>

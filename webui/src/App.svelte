@@ -436,7 +436,10 @@
         title="Toggle diff pane (Ctrl+D)"
         on:click={() => (diffOpen = !diffOpen)}
       >
-        ⑂
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="2" y="3" width="20" height="18" rx="2" />
+          <line x1="12" y1="3" x2="12" y2="21" />
+        </svg>
       </button>
       <button class="burger" class:on={$infoOpen} title="Toggle info panel" on:click={toggleInfo}>▤</button>
       <button class="burger" class:on={$mcpOpen} title="Toggle MCP servers panel" on:click={toggleMcp}>⬡</button>
