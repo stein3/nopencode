@@ -14,7 +14,8 @@ import {
   modelPickerOpen,
   renameTarget,
   settingsOpen,
-  mcpOpen,
+  pluginsOpen,
+  infoOpen,
   cmdVersion,
   type DialogSpec,
 } from './stores'
@@ -378,12 +379,12 @@ registry.builtins = [
   },
   {
     name: 'mcps',
-    description: 'Toggle MCPs',
+    description: 'Show MCPs & plugins',
     source: 'builtin',
-    title: 'Toggle MCPs',
+    title: 'Show MCPs & plugins',
     category: 'System',
-    run: async () => {
-      mcpOpen.set(true)
+    run: () => {
+      infoOpen.set(true)
     },
   },
   {
@@ -426,6 +427,16 @@ registry.builtins = [
     category: 'Session',
     keybind: 'ctrl+k · ctrl+x l',
     run: (ctx) => ctx.focusSidebar(),
+  },
+  {
+    name: 'plugins',
+    description: 'Manage plugins',
+    source: 'builtin',
+    title: 'Manage plugins',
+    category: 'System',
+    run: () => {
+      pluginsOpen.set(true)
+    },
   },
   {
     name: 'settings',

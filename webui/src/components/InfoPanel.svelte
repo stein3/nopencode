@@ -14,6 +14,7 @@
     sessionListDirty,
     infoOpen,
     closeInfo,
+    toast,
   } from '../lib/stores'
   import { relTime } from '../lib/util'
   import type { Tab } from '../lib/stores'
@@ -22,6 +23,26 @@
   export let tab: Tab | null
   // linked-session rows open the child session (App wires this to openHistory)
   export let onOpen: ((id: string) => void) | undefined = undefined
+
+  // MCP + Plugins
+  let mcpServers: Record<string, any> = {}
+  let pluginState: Record<string, boolean> = {}
+  let pluginList: string[] = []
+
+  const PLUGIN_STATE_KEY = 'opencode.plugin.enabled'
+  function readPluginState(): Record<string, boolean> {
+    try { return JSON.parse(localStorage.getItem(PLUGIN_STATE_KEY) || '{}') } catch { return {} }
+  }
+  function writePluginState(state: Record<string, boolean>) {
+    try { localStorage.setItem(PLUGIN_STATE_KEY, JSON.stringify(state)) } catch {}
+  }
+
+  function togglePlugin(name: string) {
+    pluginState[name] = !(pluginState[name] ?? true)
+    pluginState = pluginState
+    writePluginState(pluginState)
+    toast(`${name} ${pluginState[name] ? 'enabled' : 'disabled'}`)
+  }
 
   let cost = 0
   // live SSE tallies (sessionMetrics) take precedence; fetchedTokens seeds
@@ -67,6 +88,14 @@
     } catch {
       /* keep previous values */
     }
+    try {
+      mcpServers = await oc.mcps().catch(() => ({}))
+    } catch {}
+    try {
+      const cfg: any = await oc.config()
+      pluginList = cfg.plugin ?? []
+    } catch {}
+    pluginState = readPluginState()
   }
 
   let lastKey = ''
@@ -292,6 +321,34 @@
       </button>
     {/each}
   {/if}
+
+  <!-- MCP Servers -->
+  {#if Object.keys(mcpServers).length}
+    <div class="sec">MCP Servers</div>
+    {#each Object.entries(mcpServers) as [name, srv] (name)}
+      <div class="mcp-row">
+        <span class="dot {(srv.status === 'connected') ? 'connected' : (srv.status === 'connecting' || srv.status === 'pending') ? 'busy' : ''}"></span>
+        <span class="mcp-name">{name}</span>
+        <span class="mcp-meta">{srv.type ?? 'local'}</span>
+      </div>
+    {/each}
+  {/if}
+
+  <!-- Plugins -->
+  {#if pluginList.length}
+    <div class="sec">Plugins</div>
+    {#each pluginList as spec (spec)}
+      {@const name = spec.includes('/') ? spec.split('/').pop()?.replace(/\.git$/, '') ?? spec : spec}
+      {@const enabled = pluginState[name] ?? true}
+      <div class="mcp-row">
+        <span class="dot {enabled ? 'connected' : ''}"></span>
+        <span class="mcp-name">{name}</span>
+        <button class="plug-toggle" class:off={!enabled} on:click={() => togglePlugin(name)} title={enabled ? 'disable' : 'enable'}>
+          <span class="plug-track"><span class="plug-thumb"></span></span>
+        </button>
+      </div>
+    {/each}
+  {/if}
 </SidePanel>
 
 <style>
@@ -437,5 +494,63 @@
     font-size: 10.5px;
     flex: none;
     margin-left: auto;
+  }
+  /* MCP/Plugins rows */
+  .mcp-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 0;
+    font-size: 12px;
+  }
+  .dot.connected { background: var(--ok); }
+  .mcp-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+  }
+  .mcp-meta {
+    color: var(--fg-dim);
+    font-size: 10.5px;
+    flex-shrink: 0;
+  }
+  /* tiny inline toggle for plugins */
+  .plug-toggle {
+    flex-shrink: 0;
+    background: none;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+  }
+  .plug-track {
+    display: block;
+    width: 24px;
+    height: 13px;
+    border-radius: 7px;
+    background: color-mix(in srgb, var(--ok) 35%, transparent);
+    border: 1px solid var(--ok);
+    transition: background 0.12s, border-color 0.12s;
+    position: relative;
+  }
+  .plug-toggle.off .plug-track {
+    background: var(--bg-hover);
+    border-color: var(--border);
+  }
+  .plug-thumb {
+    display: block;
+    position: absolute;
+    top: 1px;
+    left: 1px;
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: var(--ok);
+    transition: transform 0.12s, background 0.12s;
+  }
+  .plug-toggle.off .plug-thumb {
+    transform: translateX(11px);
+    background: var(--fg-dim);
   }
 </style>

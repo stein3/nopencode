@@ -652,6 +652,12 @@ export function closeMcp() {
   try { localStorage.setItem(MCP_KEY, '0') } catch {}
 }
 
+// ---- plugins panel (non-persisted) ----
+export const pluginsOpen = writable(false)
+export function closePlugins() {
+  pluginsOpen.set(false)
+}
+
 // ---- selected model (persisted) ----
 export interface ModelRef {
   providerID: string

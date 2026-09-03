@@ -208,6 +208,13 @@ export const oc = {
     }),
   diffRaw: () => reqText('/oc/vcs/diff/raw').catch(() => ''),
   skills: () => req<{ name: string; description?: string; location?: string }[]>('/oc/skill'),
+  // plugin config: GET /config → plugin array; PATCH /config to enable/disable
+  config: () => req<Record<string, any>>('/oc/config').catch(() => ({})),
+  configPatch: (patch: Record<string, any>) =>
+    req<Record<string, any>>('/oc/config', {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    }),
 }
 
 // ---- history (sqlite via chatserver.py) ----
