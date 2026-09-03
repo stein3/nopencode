@@ -19,8 +19,8 @@
 //   C5 ctrl+x Escape disarms → plain 'n' does NOT open a tab afterwards
 //   C6 ctrl+x z (unmapped) disarms silently, no crash
 //   C7 ctrl+x alone times out (~2s window): strip hides by ~2.5s
-//   T  typing guard: ctrl+x inside composer textarea does NOT arm; browser
-//      cut falls through and a later 'x' types into the input
+//   T  ctrl+x inside composer textarea arms the chord; typed chord keys
+//      are consumed (not typed into the input); unmapped keys also consumed
 //
 // Run:  node e2e/embedded/chords.test.mjs
 
@@ -207,16 +207,16 @@ try {
     const goneBy = await poll(async () => !(await strip.isVisible()), 2600, 100);
     check('C7', 'strip hidden within ~2.5s without any key', goneBy);
 
-    // ---- T. typing guard: no arming inside inputs ----------------------------
-    console.log('\nCASE T — ctrl+x while typing falls through (browser cut preserved)');
+    // ---- T. ctrl+x works from inside text inputs ----------------------------
+    console.log('\nCASE T — ctrl+x while typing arms the chord; chord keys consumed');
     const pane = page.locator('.tabpane[style*="flex"]');
     const input = pane.locator('#composer-input');
     await input.click();
     await page.keyboard.press('Control+x');
-    await sleep(400);
-    check('T', 'strip did NOT appear while focus is in the composer', !(await strip.isVisible()));
-    await page.keyboard.press('x');
-    check('T', "typing 'x' lands in the input (cut shortcut not hijacked)", (await input.inputValue()) === 'x');
+    check('T', 'strip appeared while focus is in the composer', await poll(() => strip.isVisible()));
+    await page.keyboard.press('n');
+    check('T', "chord n was consumed (new tab opened, not typed into input)", await poll(async () => (await tabCount()) === before + 2));
+    check('T', "input remains empty after chord resolution", (await input.inputValue()) === '');
 
     // ---- final ----------------------------------------------------------------
     check('Z', 'no uncaught page errors during the whole run', pageErrors.length === 0, pageErrors[0] ?? '');

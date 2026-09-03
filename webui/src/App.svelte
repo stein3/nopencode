@@ -268,8 +268,8 @@
       // ctrl+x leader chords (TUI parity); which-key strip shows the map
       chords: {
         n: newChat,
-        l: () => document.getElementById('sidebar-search')?.focus(),
-        b: () => sidebarOpen.update((v) => !v),
+        l: () => sidebarEl?.navSession(1),
+        b: () => toggleInfo(),
         m: () => modelPickerOpen.set(true),
         a: () => runBuiltin('agents'),
         g: () => runBuiltin('timeline'),

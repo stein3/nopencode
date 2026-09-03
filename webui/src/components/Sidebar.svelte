@@ -677,7 +677,13 @@ import { sidePanel } from '../lib/sidePanel'
     // don't hijack keys while the user is typing in an input
     const el = e.target as HTMLElement | null
     if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return
-    if (e.key === 'Enter') {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      navSession(1)
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      navSession(-1)
+    } else if (e.key === 'Enter') {
       e.preventDefault()
       navOpen()
     } else if (e.key === 'Escape') {
