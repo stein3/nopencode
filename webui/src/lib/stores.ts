@@ -893,7 +893,7 @@ export function rekeySessionModel(oldId: string, newId: string) {
 
 // ---- recently used models (persisted, most recent first) ----
 const RECENTS_KEY = 'opencode.modelRecents'
-const RECENTS_CAP = 12
+const RECENTS_CAP = 6
 
 function loadRecentsRaw(): ModelRef[] {
   try {

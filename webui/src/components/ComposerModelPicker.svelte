@@ -34,8 +34,10 @@
   // Variants available for the currently picked model
   $: modelVariants = pickedModel ? variantMap[`${pickedModel.pid}/${pickedModel.mid}`] ?? [] : []
 
-  // Sectioned list: "Recent" at the top (in recency order), then provider-grouped
-  // sections for all non-recent models (alphabetical within each group).
+  const RECENT_LIMIT = 6
+
+  // Sectioned list: "Recent" at the top (in recency order, max 6), then
+  // provider-grouped sections for ALL models (alphabetical within each group).
   $: sections = (() => {
     const all: ModelItem[] = providers.flatMap((p) =>
       Object.values(p.models ?? {}).map((m) => ({
@@ -46,11 +48,10 @@
       })),
     )
 
-    const recentKeys = new Set($recentModels.map((r) => r.providerID + '/' + r.modelID))
-
     const recentItems: ModelItem[] = []
     const recentSeen = new Set<string>()
     for (const r of $recentModels) {
+      if (recentItems.length >= RECENT_LIMIT) break
       const key = r.providerID + '/' + r.modelID
       if (recentSeen.has(key)) continue
       recentSeen.add(key)
@@ -60,7 +61,6 @@
 
     const providerGroups = new Map<string, ModelItem[]>()
     for (const it of all) {
-      if (recentKeys.has(it.pid + '/' + it.mid)) continue
       const arr = providerGroups.get(it.pid) ?? []
       arr.push(it)
       providerGroups.set(it.pid, arr)

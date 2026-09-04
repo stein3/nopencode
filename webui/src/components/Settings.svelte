@@ -261,7 +261,7 @@
           <div class="sec">Model recents</div>
           {#if $recentModels.length}
             <div class="rechead">
-              <span class="count">{$recentModels.length} saved <span class="cap">(max 12)</span></span>
+              <span class="count">{$recentModels.length} saved <span class="cap">(max 6)</span></span>
               <button class="ghostbtn" on:click={wipeRecents}>Clear recents</button>
             </div>
             <ul class="reclist">
