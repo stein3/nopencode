@@ -443,7 +443,6 @@
         </svg>
       </button>
       <button class="burger" class:on={$infoOpen} title="Toggle info panel" on:click={toggleInfo}>▤</button>
-      <button class="burger" class:on={$mcpOpen} title="Toggle MCP servers panel" on:click={toggleMcp}>⬡</button>
       {#if $permissions.length}
         <div class="perm">
           ⚠ {$permissions.length} permission{$permissions.length > 1 ? 's' : ''} pending
