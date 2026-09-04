@@ -91,14 +91,14 @@ export const oc = {
   messages: (id: string, limit?: number) =>
     // engine returns the NEWEST `limit` messages in ascending order
     req<OcMessage[]>(`/oc/session/${id}/message${limit ? `?limit=${limit}` : ''}`),
-  createSession: (title?: string, model?: { providerID: string; modelID: string }) =>
+  createSession: (title?: string, model?: { providerID: string; modelID: string; variant?: string }) =>
     req<OcSession>('/oc/session', {
       method: 'POST',
       body: JSON.stringify({
         ...(title ? { title } : {}),
         // engine ModelRef uses `id` — a session created without one inherits
         // the config default, ignoring the picker
-        ...(model ? { model: { providerID: model.providerID, id: model.modelID } } : {}),
+        ...(model ? { model: { providerID: model.providerID, id: model.modelID, ...(model.variant ? { variant: model.variant } : {}) } } : {}),
       }),
     }),
   // prompt_async returns immediately (204) — the turn streams in over SSE.
@@ -111,7 +111,7 @@ export const oc = {
   prompt: (
     sessionId: string,
     text: string,
-    model?: { providerID: string; modelID: string },
+    model?: { providerID: string; modelID: string; variant?: string },
     agent?: string,
     files?: OcFilePart[],
   ) =>
@@ -119,7 +119,8 @@ export const oc = {
       method: 'POST',
       body: JSON.stringify({
         parts: [{ type: 'text', text }, ...(files ?? [])],
-        ...(model ? { model } : {}),
+        ...(model ? { model: { providerID: model.providerID, modelID: model.modelID } } : {}),
+        ...(model?.variant ? { variant: model.variant } : {}),
         ...(agent ? { agent } : {}),
       }),
     }),
@@ -172,10 +173,10 @@ export const oc = {
       body: JSON.stringify({ agent }),
     }),
   // switch the model the CURRENT session uses (engine schema: ModelRef.id)
-  setSessionModel: (sessionId: string, m: { providerID: string; modelID: string }) =>
+  setSessionModel: (sessionId: string, m: { providerID: string; modelID: string; variant?: string }) =>
     req<unknown>(`/oc/api/session/${sessionId}/model`, {
       method: 'POST',
-      body: JSON.stringify({ model: { providerID: m.providerID, id: m.modelID } }),
+      body: JSON.stringify({ model: { providerID: m.providerID, id: m.modelID, ...(m.variant ? { variant: m.variant } : {}) } }),
     }),
   summarize: (sessionId: string, model: { providerID: string; modelID: string }) =>
     req<unknown>(`/oc/session/${sessionId}/summarize`, { method: 'POST', body: JSON.stringify(model) }),

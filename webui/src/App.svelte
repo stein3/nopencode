@@ -7,7 +7,7 @@
   import QuestionBanner from './components/QuestionBanner.svelte'
   import Footer from './components/Footer.svelte'
   import { hist, oc } from './lib/api'
-  import { tabs, permissions, sidebarOpen, selectedModel, paletteOpen, infoOpen, toggleInfo, mcpOpen, toggleMcp, toastMsg, patchMetrics, clearSessionUnread, loadOpenTabs, rekeySessionAgent, rekeySessionModel, modelPickerOpen, syncEngineRetryFromStatus, theme, markSessionListDirty, type Tab } from './lib/stores'
+  import { tabs, permissions, sidebarOpen, selectedModel, paletteOpen, infoOpen, toggleInfo, mcpOpen, toggleMcp, toastMsg, patchMetrics, clearSessionUnread, loadOpenTabs, rekeySessionAgent, rekeySessionModel, rekeySessionVariant, modelPickerOpen, syncEngineRetryFromStatus, theme, markSessionListDirty, type Tab } from './lib/stores'
   import CommandPalette from './components/CommandPalette.svelte'
   import CommandDialog from './components/CommandDialog.svelte'
   import RenameDialog from './components/RenameDialog.svelte'
@@ -16,7 +16,7 @@
   import ImageLightbox from './components/ImageLightbox.svelte'
   import ComposerToolbar from './components/ComposerToolbar.svelte'
   import InfoPanel from './components/InfoPanel.svelte'
-  import McpPanel from './components/McpPanel.svelte'
+  import Plugins from './components/Plugins.svelte'
   import { startEvents, applyMessages, backfill, loadOlder, RECENT_PAGE, JUMP_CAP } from './lib/sse'
   import { cancelRetry } from './lib/retries'
   import { answerPermission, refreshPermissions } from './lib/permissions'
@@ -200,6 +200,7 @@
     // an agent picked on the pending tab follows the session to its real id
     rekeySessionAgent(tabId, s.id)
     rekeySessionModel(tabId, s.id)
+    rekeySessionVariant(tabId, s.id)
     // sidebar won't see the new session until the 60 s poll — bump the dirty
     // signal so it reloads immediately
     markSessionListDirty()
@@ -518,9 +519,6 @@
       tab={$tabs.find((t) => t.id === $active) ?? null}
       onOpen={(id) => openHistory(id)}
     />
-  {/if}
-  {#if $mcpOpen}
-    <McpPanel />
   {/if}
   {#if diffOpen}
     <div class="diffwrap" use:sidePanel={{ side: 'right', getOpen: () => diffOpen, setOpen: (v) => (diffOpen = v) }}>

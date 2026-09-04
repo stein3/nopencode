@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { oc } from '../lib/api'
-  import { selectedModel, recentModels, recordRecent, preferredDefaultModel, sessionModels, setSessionModel, modelPickerOpen } from '../lib/stores'
+  import { selectedModel, recentModels, recordRecent, preferredDefaultModel, sessionModels, setSessionModel, sessionVariants, setSessionVariant, modelPickerOpen, extractVariants, type VariantMap } from '../lib/stores'
   import type { ModelRef } from '../lib/stores'
 
   // Per-session model pick — scoped to THIS pane's tab/session.
@@ -10,9 +10,11 @@
   let providers: { id: string; name?: string; models: Record<string, any> }[] = []
   let open = false
   let wrap: HTMLDivElement
+  let variantMap: VariantMap = {}
+  let pickedModel: { pid: string; mid: string } | null = null
 
   // ctrl+x m chord sets this store — consume it to open the picker
-  modelPickerOpen.subscribe((v) => { if (v) { open = true; modelPickerOpen.set(false) } })
+  modelPickerOpen.subscribe((v) => { if (v) { pickedModel = null; open = true; modelPickerOpen.set(false) } })
 
   interface ModelItem {
     pid: string
@@ -28,6 +30,9 @@
 
   // The effective model for this session: per-session pick > global picker > null
   $: effective = $sessionModels[sid] ?? $selectedModel
+
+  // Variants available for the currently picked model
+  $: modelVariants = pickedModel ? variantMap[`${pickedModel.pid}/${pickedModel.mid}`] ?? [] : []
 
   // Sectioned list: "Recent" at the top (in recency order), then provider-grouped
   // sections for all non-recent models (alphabetical within each group).
@@ -77,6 +82,7 @@
 
   onMount(async () => {
     providers = await oc.providers().catch(() => [])
+    variantMap = extractVariants(providers)
     if (!$selectedModel && providers.length) {
       const def = preferredDefaultModel(providers)
       if (def) selectedModel.save(def)
@@ -94,15 +100,41 @@
   }
 
   function pick(pid: string, mid: string) {
+    // If model has variants, show variant sub-selector instead of picking immediately
+    const variants = variantMap[`${pid}/${mid}`]
+    if (variants?.length) {
+      pickedModel = { pid, mid }
+      return
+    }
     const ref: ModelRef = { providerID: pid, modelID: mid }
     recordRecent(ref)
-    // also promote to the global default so brand-new sessions inherit the
-    // model the user last picked (mirrors the topbar ModelPicker). Without this,
-    // $selectedModel stays on its stale seed and every new chat reverts to it.
     selectedModel.save(ref)
     setSessionModel(sid, ref)
-    // keep the live session's engine-side model in sync (no-op for pending tabs)
     if (sid) oc.setSessionModel(sid, ref).catch(() => {})
+    open = false
+  }
+
+  function pickVariant(variant: string) {
+    if (!pickedModel) return
+    const ref: ModelRef = { providerID: pickedModel.pid, modelID: pickedModel.mid, variant }
+    recordRecent(ref)
+    selectedModel.save(ref)
+    setSessionModel(sid, ref)
+    setSessionVariant(sid, variant)
+    if (sid) oc.setSessionModel(sid, ref).catch(() => {})
+    pickedModel = null
+    open = false
+  }
+
+  function clearVariant() {
+    if (!pickedModel) return
+    const ref: ModelRef = { providerID: pickedModel.pid, modelID: pickedModel.mid }
+    recordRecent(ref)
+    selectedModel.save(ref)
+    setSessionModel(sid, ref)
+    setSessionVariant(sid, undefined)
+    if (sid) oc.setSessionModel(sid, ref).catch(() => {})
+    pickedModel = null
     open = false
   }
 
@@ -123,27 +155,46 @@
 <svelte:window on:pointerdown={onOutside} on:keydown={onKeydown} />
 
 <div class="wrap" bind:this={wrap}>
-  <button class="cur" class:open title="Model for next message" on:click={() => (open = !open)}>
+  <button class="cur" class:open title="Model for next message" on:click={() => { pickedModel = null; open = !open }}>
     <span class="lbl">{curLabel}</span>
     <span class="chev">▾</span>
   </button>
   {#if open}
     <div class="menu">
-      {#each sections as sec (sec.label)}
-        <div class="sec-head">{sec.label}</div>
-        {#each sec.items as m (m.pid + '/' + m.mid)}
+      {#if pickedModel && modelVariants.length}
+        <!-- Variant sub-selector -->
+        <div class="sec-head">thinking level</div>
+        <button class="m back" on:click={() => (pickedModel = null)}>
+          <span class="nm">← back to models</span>
+        </button>
+        {#each modelVariants as v (v.id)}
           <button
             class="m"
-            class:on={$selectedModel?.providerID === m.pid && $selectedModel?.modelID === m.mid}
-            on:click={() => pick(m.pid, m.mid)}
+            on:click={() => pickVariant(v.id)}
           >
-            <span class="nm">{m.mname}</span>
-            <span class="pv">{m.pname}</span>
+            <span class="nm">{v.label}</span>
           </button>
         {/each}
+        <button class="m variant-clear" on:click={clearVariant}>
+          <span class="nm">no thinking override</span>
+        </button>
       {:else}
-        <div class="none">engine unreachable</div>
-      {/each}
+        {#each sections as sec (sec.label)}
+          <div class="sec-head">{sec.label}</div>
+          {#each sec.items as m (m.pid + '/' + m.mid)}
+            <button
+              class="m"
+              class:on={$selectedModel?.providerID === m.pid && $selectedModel?.modelID === m.mid}
+              on:click={() => pick(m.pid, m.mid)}
+            >
+              <span class="left"><span class="nm">{m.mname}</span>{#if variantMap[m.pid + '/' + m.mid]?.length}<span class="vbadge">⚙</span>{/if}</span>
+              <span class="pv">{m.pname}</span>
+            </button>
+          {/each}
+        {:else}
+          <div class="none">engine unreachable</div>
+        {/each}
+      {/if}
     </div>
   {/if}
 </div>
@@ -228,6 +279,13 @@
     white-space: nowrap;
     min-width: 0;
   }
+  .left {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 4px;
+    min-width: 0;
+    overflow: hidden;
+  }
   .pv {
     font-size: 10px;
     color: var(--fg-dim);
@@ -260,6 +318,28 @@
   .sec-head:first-child {
     margin-top: 0;
     border-top: none;
+  }
+  .vbadge {
+    font-size: 10px;
+    color: var(--fg-dim);
+    flex-shrink: 0;
+    opacity: 0.6;
+    margin: 0 5px
+  }
+  .back {
+    color: var(--fg-dim);
+    font-size: 11.5px;
+  }
+  .back:hover {
+    color: var(--fg);
+  }
+  .variant-clear {
+    color: var(--fg-dim);
+    font-size: 11px;
+    font-style: italic;
+    border-top: 1px solid var(--border);
+    margin-top: 4px;
+    padding-top: 8px;
   }
   @media (max-width: 480px) {
     .menu {

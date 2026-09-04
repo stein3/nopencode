@@ -662,6 +662,7 @@ export function closePlugins() {
 export interface ModelRef {
   providerID: string
   modelID: string
+  variant?: string
 }
 
 const MODEL_KEY = 'opencode.model'
@@ -759,6 +760,66 @@ export function rekeySessionAgent(oldId: string, newId: string) {
   if (cur === undefined) return
   setSessionAgent(newId, cur)
   setSessionAgent(oldId, undefined)
+}
+
+// ---- per-session variant pick (thinking level) ----
+// Same pattern as sessionAgents/sessionModels: scoped to ONE session, keyed
+// by tab/session id. A missing key = no variant override (engine default).
+// Written ONLY by explicit user picks in the model pickers.
+const SESSION_VARIANTS_KEY = 'opencode.sessionVariants'
+const SESSION_VARIANTS_CAP = 200
+
+function loadSessionVariants(): Record<string, string> {
+  try {
+    const raw = localStorage.getItem(SESSION_VARIANTS_KEY)
+    const obj = raw ? JSON.parse(raw) : null
+    if (obj && typeof obj === 'object' && !Array.isArray(obj)) {
+      const out: Record<string, string> = {}
+      for (const [k, v] of Object.entries(obj)) if (k && typeof v === 'string') out[k] = v
+      return out
+    }
+  } catch {
+    /* private mode */
+  }
+  return {}
+}
+
+function persistSessionVariants(all: Record<string, string>) {
+  try {
+    localStorage.setItem(SESSION_VARIANTS_KEY, JSON.stringify(all))
+  } catch {
+    /* private mode */
+  }
+}
+
+export const sessionVariants = writable<Record<string, string>>(loadSessionVariants())
+
+export function sessionVariant(sid: string): string | undefined {
+  if (!sid) return undefined
+  let v: string | undefined
+  sessionVariants.subscribe((all) => (v = all[sid]))()
+  return v
+}
+
+export function setSessionVariant(sid: string, variant: string | undefined) {
+  if (!sid) return
+  sessionVariants.update((all) => {
+    const next: Record<string, string> = {}
+    for (const [k, v] of Object.entries(all)) if (k !== sid) next[k] = v
+    if (variant) next[sid] = variant
+    const keys = Object.keys(next)
+    for (const k of keys.slice(0, Math.max(0, keys.length - SESSION_VARIANTS_CAP))) delete next[k]
+    persistSessionVariants(next)
+    return next
+  })
+}
+
+export function rekeySessionVariant(oldId: string, newId: string) {
+  if (!oldId || oldId === newId) return
+  const cur = sessionVariant(oldId)
+  if (cur === undefined) return
+  setSessionVariant(newId, cur)
+  setSessionVariant(oldId, undefined)
 }
 
 // ---- per-session model pick (composer "model for new messages") ----
@@ -864,6 +925,24 @@ export function recordRecent(m: ModelRef) {
     }
     return next
   })
+}
+
+// Variant helpers for the providers cache (fetched once per picker open)
+export type VariantMap = Record<string, { id: string; label: string }[]>
+export function extractVariants(providers: { id: string; models?: Record<string, any> }[]): VariantMap {
+  const out: VariantMap = {}
+  for (const p of providers) {
+    for (const [mid, m] of Object.entries(p.models ?? {})) {
+      const variants = (m as any).variants
+      if (variants && typeof variants === 'object') {
+        const list = Object.keys(variants)
+          .filter((v) => !variants[v]?.disabled)
+          .map((v) => ({ id: v, label: v }))
+        if (list.length) out[`${p.id}/${mid}`] = list
+      }
+    }
+  }
+  return out
 }
 
 export function clearRecentModels() {

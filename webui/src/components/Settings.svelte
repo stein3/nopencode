@@ -10,6 +10,7 @@
     toggleInfo,
     selectedModel,
     sessionAgents,
+    sessionVariants,
     recentModels,
     clearRecentModels,
     clearLocalData,
@@ -83,6 +84,7 @@
     ? `${$selectedModel.providerID} / ${$selectedModel.modelID}`
     : 'engine default'
   $: agentPick = $sessionAgents[$activeStore]
+  $: variantPick = $sessionVariants[$activeStore]
 
   // theme definitions (sorted alphabetically)
   const themes = [
@@ -241,6 +243,10 @@
           <div class="grid">
             <span class="k">model</span>
             <span class="v" title="New prompts use this model">{modelLine}</span>
+            <span class="k">variant</span>
+            <span class="v" title="Thinking level override for the active session">
+              {#if $activeStore}{variantPick ?? 'none (engine default)'}{:else}— no session open{/if}
+            </span>
             <span class="k">agent</span>
             <span class="v" title="Agent pick for the active session (chosen per session in the composer)">
               {#if $activeStore}{agentPick ? agentPick : 'Auto (session default)'}{:else}— no session open{/if}
