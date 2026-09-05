@@ -2,6 +2,8 @@
 
 A self-hosted, fully containerized stack for running [opencode](https://github.com/opencode-ai/opencode) — the open-source AI coding agent — in a browser, with a custom web chat UI alongside the stock terminal interface, both accessible remotely via a web browser.
 
+![nopencode web UI](.shots/hero.png)
+
 The main goal of the project is to host opencode on a home server and be able to use it remotely from desktop, phone, and tablet.
 
 Three services, one image:
@@ -52,6 +54,25 @@ browser ─► opencode-engine :7682   opencode serve ◄───────�
 - Automatic retry with backoff for retryable provider failures
 - Turn-failure tiles (persisted), abort rendering, fork-from-any-message, transcript export/copy, windowed loading of very long histories
 - Mobile-friendly layout (visualViewport-aware keyboard handling)
+- 20 built-in themes (Dracula, Catppuccin, Nord, Solarized, Tokyo Night, GitHub Light, and more)
+
+### Multi-tab sessions
+
+Open multiple conversations side by side. Tabs stay mounted in memory for instant switching, with a compact tab bar showing session titles and status dots.
+
+![Multi-tab sessions](.shots/tabs.png)
+
+### Command palette
+
+Press `Ctrl+P` to open the command palette — a fast keyboard-driven menu for session management, model switching, agent selection, transcript export, and more. Supports fuzzy filtering and displays keyboard shortcuts alongside each command.
+
+![Command palette](.shots/command-palette.png)
+
+### Theming
+
+20 themes ship out of the box, selectable from the Settings page. Each theme defines accent colors, background tones, and code-highlighting palettes. The Dracula theme is shown below:
+
+![Settings — Dracula theme](.shots/settings-dracula.png)
 
 ## Quick start
 
