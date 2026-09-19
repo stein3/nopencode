@@ -712,7 +712,7 @@ import { sidePanel } from '../lib/sidePanel'
     <div class="searchwrap">
       <input
         id="sidebar-search"
-        placeholder="Search all chats…           Ctrl+K to search"
+        placeholder="Search all chats…           Ctrl+H to search"
         bind:value={$searchQuery}
         bind:this={searchEl}
         on:keydown={onSearchKey}

@@ -425,7 +425,7 @@ registry.builtins = [
     source: 'builtin',
     title: 'Switch session',
     category: 'Session',
-    keybind: 'ctrl+k · ctrl+x l',
+    keybind: 'ctrl+h · ctrl+x l',
     run: (ctx) => ctx.focusSidebar(),
   },
   {

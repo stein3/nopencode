@@ -81,9 +81,13 @@ export function initHotkeys(h: HotkeyHandlers) {
     }
 
     // ---- direct bindings --------------------------------------------------
-    if (mod && e.key.toLowerCase() === 'k') {
+    if (mod && e.key.toLowerCase() === 'h') {
       e.preventDefault()
       h.focusSearch()
+    } else if (mod && e.key.toLowerCase() === 'k') {
+      // cut selected text to clipboard (ctrl+x is reserved for leader chords)
+      e.preventDefault()
+      document.execCommand('cut')
     } else if (mod && !e.shiftKey && e.key.toLowerCase() === 'p') {
       // must precede any browser default (print dialog)
       e.preventDefault()
