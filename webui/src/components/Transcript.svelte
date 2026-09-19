@@ -532,24 +532,55 @@
   }
 
   // ---- diffs (edit/write/apply_patch) -------------------------------------
-  type DiffLine = { k: 'add' | 'del' | 'hunk' | 'meta' | 'ctx'; s: string }
+  type DiffLine = {
+    k: 'add' | 'del' | 'hunk' | 'meta' | 'ctx'
+    s: string
+    oldLine?: number
+    newLine?: number
+  }
 
   function diffLines(text: string): DiffLine[] {
-    return text
-      .split('\n')
-      .filter((l, i, a) => l.trim() !== '' || (i > 0 && i < a.length - 1))
-      .map((s) => ({
-        k: s.startsWith('+++') || s.startsWith('---')
-          ? 'meta'
-          : s.startsWith('@@') || s.startsWith('*** Update File') || s.startsWith('*** Add File') || s.startsWith('*** Delete File')
-            ? 'meta'
-            : s.startsWith('+')
-              ? 'add'
-              : s.startsWith('-')
-                ? 'del'
-                : 'ctx',
-        s,
-      }))
+    const out: DiffLine[] = []
+    let oldN: number | undefined
+    let newN: number | undefined
+    const lines = text.split('\n')
+    for (let idx = 0; idx < lines.length; idx++) {
+      const s = lines[idx]
+      // skip leading and trailing blank lines (artifact of split on trailing \n)
+      if (s === '' && (idx === 0 || idx === lines.length - 1)) continue
+
+      // Parse @@ -old,count +new,count @@ hunk headers for line numbers
+      const hunkMatch = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(s)
+      if (hunkMatch) {
+        oldN = parseInt(hunkMatch[1], 10)
+        newN = parseInt(hunkMatch[2], 10)
+        out.push({
+          k: 'meta',
+          s,
+        })
+        continue
+      }
+
+      // File headers
+      if (s.startsWith('+++') || s.startsWith('---') || s.startsWith('*** Update File') || s.startsWith('*** Add File') || s.startsWith('*** Delete File')) {
+        out.push({ k: 'meta', s })
+        continue
+      }
+
+      // Diff content lines — assign line numbers and advance counters
+      if (s.startsWith('+')) {
+        out.push({ k: 'add', s, newLine: newN })
+        if (newN !== undefined) newN++
+      } else if (s.startsWith('-')) {
+        out.push({ k: 'del', s, oldLine: oldN })
+        if (oldN !== undefined) oldN++
+      } else if (s.startsWith(' ') || s === '') {
+        out.push({ k: 'ctx', s, oldLine: oldN, newLine: newN })
+        if (oldN !== undefined) oldN++
+        if (newN !== undefined) newN++
+      }
+    }
+    return out
   }
 
   function patchTextOf(p: any): string {
@@ -1003,7 +1034,7 @@
                   {:else}
                     {#each toolDetails(p) as d (d.label)}
                       {#if d.kind === 'diff'}
-                        <div class="drow block"><span class="lbl">{d.label}</span><pre class="patch">{#each diffLines(d.value) as l, i (i)}<span class={l.k}>{l.s || ' '}</span>{/each}</pre></div>
+                        <div class="drow block"><span class="lbl">{d.label}</span><pre class="patch">{#each diffLines(d.value) as l, i (i)}<span class={l.k}><span class="ln">{#if l.oldLine != null}{l.oldLine}{/if}</span><span class="ln">{#if l.newLine != null}{l.newLine}{/if}</span><span class="lt">{l.s || ' '}</span></span>{/each}</pre></div>
                       {:else if d.block}
                         <div class="drow block"><span class="lbl">{d.label}</span><pre>{d.value}</pre></div>
                       {:else}
@@ -1602,7 +1633,21 @@
     overflow-x: auto;
   }
   .patch span {
-    display: block;
+    display: flex;
+  }
+  .patch .ln {
+    display: inline-block;
+    min-width: 3.5ch;
+    text-align: right;
+    padding-right: 8px;
+    color: var(--fg-dim);
+    opacity: 0.5;
+    user-select: none;
+    flex-shrink: 0;
+    font-size: 10px;
+  }
+  .patch .lt {
+    white-space: pre;
   }
   .patch .add {
     color: var(--ok);
