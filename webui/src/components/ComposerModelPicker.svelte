@@ -12,6 +12,8 @@
   let wrap: HTMLDivElement
   let variantMap: VariantMap = {}
   let pickedModel: { pid: string; mid: string } | null = null
+  let highlighted = -1
+  let menuEl: HTMLDivElement | null = null
 
   // ctrl+x m chord sets this store — consume it to open the picker
   modelPickerOpen.subscribe((v) => { if (v) { pickedModel = null; open = true; modelPickerOpen.set(false) } })
@@ -143,16 +145,72 @@
     if (!wrap.contains(e.target as Node)) open = false
   }
 
+  // Reset highlight when menu opens or switches to variant view
+  $: if (open || pickedModel !== null) highlighted = -1
+
+  // Flat index for section view: cumulative offset across sections
+  function flatIdx(secIdx: number, itemIdx: number): number {
+    let offset = 0
+    for (let i = 0; i < secIdx; i++) offset += sections[i].items.length
+    return offset + itemIdx
+  }
+
+  function menuItems(): HTMLElement[] {
+    const el: any = menuEl
+    return el ? [...el.querySelectorAll('.m:not(.back)')] as HTMLElement[] : []
+  }
+
+  function highlightNext() {
+    const items = menuItems()
+    if (!items.length) return
+    highlighted = highlighted < items.length - 1 ? highlighted + 1 : 0
+    items[highlighted]?.scrollIntoView({ block: 'nearest' })
+  }
+
+  function highlightPrev() {
+    const items = menuItems()
+    if (!items.length) return
+    highlighted = highlighted > 0 ? highlighted - 1 : items.length - 1
+    items[highlighted]?.scrollIntoView({ block: 'nearest' })
+  }
+
+  function activateHighlighted() {
+    const items = menuItems()
+    if (highlighted >= 0 && highlighted < items.length) {
+      items[highlighted].click()
+    }
+  }
+
   function onKeydown(e: KeyboardEvent) {
-    if (open && e.key === 'Escape') {
+    if (!open) return
+    if (e.key === 'Escape') {
       e.preventDefault()
       e.stopPropagation()
       open = false
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      e.stopPropagation()
+      highlightNext()
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      e.stopPropagation()
+      highlightPrev()
+    } else if (e.key === 'Enter' && highlighted >= 0) {
+      e.preventDefault()
+      e.stopPropagation()
+      activateHighlighted()
     }
   }
+
+  onMount(() => {
+    // Use capture-phase listener so this fires BEFORE the sidebar's bubble-phase handler
+    const handler = (e: KeyboardEvent) => onKeydown(e)
+    window.addEventListener('keydown', handler, { capture: true })
+    return () => window.removeEventListener('keydown', handler)
+  })
 </script>
 
-<svelte:window on:pointerdown={onOutside} on:keydown={onKeydown} />
+<svelte:window on:pointerdown={onOutside} />
 
 <div class="wrap" bind:this={wrap}>
   <button class="cur" class:open title="Model for next message" on:click={() => { pickedModel = null; open = !open }}>
@@ -160,7 +218,7 @@
     <span class="chev">▾</span>
   </button>
   {#if open}
-    <div class="menu">
+    <div class="menu" bind:this={menuEl}>
       {#if pickedModel && modelVariants.length}
         <!-- Variant sub-selector -->
         <div class="sec-head">thinking level</div>
@@ -170,21 +228,23 @@
         {#each modelVariants as v (v.id)}
           <button
             class="m"
+            class:hl={modelVariants.indexOf(v) === highlighted}
             on:click={() => pickVariant(v.id)}
           >
             <span class="nm">{v.label}</span>
           </button>
         {/each}
-        <button class="m variant-clear" on:click={clearVariant}>
+        <button class="m variant-clear" class:hl={modelVariants.length === highlighted} on:click={clearVariant}>
           <span class="nm">no thinking override</span>
         </button>
       {:else}
-        {#each sections as sec (sec.label)}
+        {#each sections as sec, secIdx (sec.label)}
           <div class="sec-head">{sec.label}</div>
-          {#each sec.items as m (m.pid + '/' + m.mid)}
+          {#each sec.items as m, itemIdx (m.pid + '/' + m.mid)}
             <button
               class="m"
               class:on={$selectedModel?.providerID === m.pid && $selectedModel?.modelID === m.mid}
+              class:hl={flatIdx(secIdx, itemIdx) === highlighted}
               on:click={() => pick(m.pid, m.mid)}
             >
               <span class="left"><span class="nm">{m.mname}</span>{#if variantMap[m.pid + '/' + m.mid]?.length}<span class="vbadge">⚙</span>{/if}</span>
@@ -293,6 +353,9 @@
     flex-shrink: 0;
   }
   .m:hover {
+    background: var(--bg-hover);
+  }
+  .m.hl {
     background: var(--bg-hover);
   }
   .m.on {
