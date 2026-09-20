@@ -22,7 +22,7 @@ const PURIFY_CONFIG = {
   ALLOWED_TAGS: [
     'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
     'p', 'br', 'hr',
-    'strong', 'em', 'b', 'i', 'u', 'ins', 'mark', 'del', 's',
+    'strong', 'em', 'b', 'i', 'u', 'ins', 'mark',
     'ul', 'ol', 'li',
     'blockquote', 'pre', 'code',
     'a',
