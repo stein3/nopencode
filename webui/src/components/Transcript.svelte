@@ -1500,6 +1500,27 @@
   .body :global(a) {
     color: var(--accent);
   }
+  .body :global(table) {
+    border-collapse: collapse;
+    margin: 8px 0;
+    font-size: 12.5px;
+    width: auto;
+    max-width: 100%;
+  }
+  .body :global(th),
+  .body :global(td) {
+    border: 1px solid var(--border);
+    padding: 4px 10px;
+    text-align: left;
+    white-space: nowrap;
+  }
+  .body :global(th) {
+    font-weight: 600;
+    background: var(--bg-hover);
+  }
+  .body :global(tr:nth-child(even)) {
+    background: var(--bg-hover);
+  }
   .toolcard {
     margin: 6px 0;
     border: 1px solid var(--border);
