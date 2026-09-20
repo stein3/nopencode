@@ -163,7 +163,7 @@ try {
 
     // ---- C3. chord b toggles info panel twice --------------------------------
     console.log('\nCASE C3 — ctrl+x then b toggles the info panel off/on');
-    const infoPanel = page.locator('aside.info');
+    const infoPanel = page.locator('aside.panel');
     check('C3', 'info panel hidden initially', !(await infoPanel.isVisible()));
     await page.keyboard.press('Control+x');
     check('C3', 'armed again (strip visible)', await poll(() => strip.isVisible()));
