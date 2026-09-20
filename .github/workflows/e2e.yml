@@ -27,6 +27,8 @@ jobs:
 
       - name: Build webui
         working-directory: webui
+        env:
+          WEBUI_BASE: /
         run: npm ci && npm run build
 
       - name: Upload webui dist
@@ -148,7 +150,7 @@ jobs:
 
       - name: Install Chromium
         working-directory: e2e
-        run: npx playwright install --with-deps chromium
+        run: npx playwright-core install --with-deps chromium
 
       - name: Run ${{ matrix.name }}
         run: node e2e/embedded/${{ matrix.file }}
