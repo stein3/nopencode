@@ -164,14 +164,14 @@ try {
     // ---- C3. chord b toggles info panel twice --------------------------------
     console.log('\nCASE C3 — ctrl+x then b toggles the info panel off/on');
     const infoPanel = page.locator('aside.panel');
-    check('C3', 'info panel hidden initially', !(await infoPanel.isVisible()));
+    check('C3', 'info panel visible initially (default open)', await infoPanel.isVisible());
     await page.keyboard.press('Control+x');
     check('C3', 'armed again (strip visible)', await poll(() => strip.isVisible()));
     await page.keyboard.press('b');
-    check('C3', 'info panel visible after ctrl+x b', await poll(() => infoPanel.isVisible()));
+    check('C3', 'info panel hidden after ctrl+x b', await poll(async () => !(await infoPanel.isVisible())));
     await page.keyboard.press('Control+x');
     await page.keyboard.press('b');
-    check('C3', 'info panel hidden again after second ctrl+x b', await poll(async () => !(await infoPanel.isVisible())));
+    check('C3', 'info panel visible again after second ctrl+x b', await poll(() => infoPanel.isVisible()));
 
     // ---- C4. chord m opens model picker, Escape closes ----------------------
     console.log('\nCASE C4 — ctrl+x then m opens the model picker; Escape closes');
