@@ -181,26 +181,26 @@ try {
     await trigger.click();
     await page.waitForSelector('.menu .m');
 
-    // M1: flat list, no .prov headers, every row has nm+pv
-    const provHeaders = await page.locator('.menu .prov').count();
-    check('M1', 'no provider group headers (flat list)', provHeaders === 0);
+    // M1: sectioned list with provider group headers, every row has nm+pv
+    const secHeads = await page.locator('.menu .sec-head').allInnerTexts();
+    check('M1', `provider group headers present (${secHeads.length})`, secHeads.length >= 2);
     const rows = await page.locator('.menu .m').all();
-    check('M1', `flat rows rendered (${rows.length})`, rows.length > 3);
+    check('M1', `rows rendered (${rows.length})`, rows.length > 3);
     for (const r of rows.slice(0, 5)) {
       const nm = await r.locator('.nm').textContent();
       const pv = await r.locator('.pv').textContent();
       check('M1', `row has model name + provider tag: "${nm}" / "${pv}"`, !!nm?.trim() && !!pv?.trim());
     }
 
-    // M2: sorted by provider then alphabetical within provider when no recents
+    // M2: sorted by provider label then alphabetical within provider when no recents
     const names0 = [];
     for (const r of rows) names0.push(((await r.locator('.nm').textContent()) ?? '').trim());
-    // Build expected order: provider-grouped alphabetical
+    // Build expected order: provider-label-grouped alphabetical (matches ModelPicker sections logic)
     const expectedOrder = PROVIDERS
-      .flatMap((p) => Object.keys(p.models).map((id) => ({ id, provider: p.id })))
+      .flatMap((p) => Object.keys(p.models).map((id) => ({ id, provider: p.name ?? p.id })))
       .sort((a, b) => a.provider.localeCompare(b.provider) || a.id.localeCompare(b.id))
       .map((m) => m.id);
-    check('M2', 'initial order is provider-grouped alphabetical', JSON.stringify(names0) === JSON.stringify(expectedOrder));
+    check('M2', 'initial order is provider-grouped alphabetical', JSON.stringify(names0) === JSON.stringify(expectedOrder), `got: ${JSON.stringify(names0)}, expected: ${JSON.stringify(expectedOrder)}`);
 
     // M3: pick two models -> they float to top in reverse-pick order
     const pickNth = async (n) => {
