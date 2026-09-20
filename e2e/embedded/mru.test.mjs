@@ -226,16 +226,20 @@ try {
       topTwo[0] === secondPick && topTwo[1] === firstPick,
     );
 
-    // M4: all rows still present (none lost during MRU reordering)
+    // M4: all models still present (none lost during MRU reordering)
+    // After picks, a "Recent" section appears at the top with the picked models,
+    // so total rows > original. Check that every original model name still appears.
     const allNames = [];
     for (const r of await page.locator('.menu .m').all()) {
       allNames.push(((await r.locator('.nm').textContent()) ?? '').trim());
     }
+    const allNamesSet = new Set(allNames);
+    const missingNames = names0.filter((n) => !allNamesSet.has(n));
     check(
       'M4',
       'all models still present after MRU reorder',
-      allNames.length === rows.length,
-      `got ${allNames.length}, expected ${rows.length}`,
+      missingNames.length === 0,
+      `missing: [${missingNames}], got ${allNames.length} rows`,
     );
 
     // M5: provider tag styling: smaller font + dim color vs model name
