@@ -1504,15 +1504,19 @@
     border-collapse: collapse;
     margin: 8px 0;
     font-size: 12.5px;
-    width: auto;
+    width: fit-content;
     max-width: 100%;
+    display: block;
+    overflow-x: auto;
   }
   .body :global(th),
   .body :global(td) {
     border: 1px solid var(--border);
     padding: 4px 10px;
     text-align: left;
-    white-space: nowrap;
+    white-space: normal;
+    overflow-wrap: normal;
+    word-wrap: normal;
   }
   .body :global(th) {
     font-weight: 600;
