@@ -6,7 +6,7 @@ A self-hosted, fully containerized stack for running [opencode](https://github.c
 
 The main goal of the project is to host opencode on a home server and be able to use it remotely from desktop, phone, and tablet.
 
-Three services, one image:
+The single docker image runs three services:
 
 | Service | Port | What it runs |
 |---|---|---|
@@ -14,7 +14,7 @@ Three services, one image:
 | `opencode-engine` | `7682` | Headless `opencode serve` exposing the agent's REST + SSE API |
 | `opencode-web` | `7683` | A custom web UI (`webui/`) served by a small Python backend |
 
-The TUI and the web UI are two frontends onto the same opencode instance: both containers share the same config and session-store volumes, and the TUI attaches to the shared headless engine (`opencode attach`) when it is up.
+The TUI and the web UI are two frontends onto the same opencode instance: both containers share the same config and session-store volumes, and the TUI attaches to the shared headless engine (`opencode attach`) when it is up. This provides a stable fallback during development and access to any missing features.
 
 ## Architecture
 
