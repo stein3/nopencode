@@ -1127,12 +1127,22 @@ class Handler(BaseHTTPRequestHandler):
 
         st = os.stat(full)
         etag = '"%x-%x"' % (st.st_mtime_ns, st.st_size)
-        # Hashed asset filenames are content-addressed -> cache forever;
-        # index.html must always revalidate so new deploys are picked up.
+        ctype = mimetypes.guess_type(full)[0] or "application/octet-stream"
+        # HTML carries the per-request CSP nonce, so it can never be answered
+        # with a 304: the browser would reuse its cached body (old nonce) under
+        # the fresh CSP header and block the inline theme <script>. Serve it
+        # whole every time (it's ~1.5 KB). Hashed asset filenames are
+        # content-addressed -> cache forever; everything else revalidates.
+        html = ctype == "text/html"
         immutable = path.startswith("/assets/")
-        cache_control = "public, max-age=31536000, immutable" if immutable else "no-cache"
+        if html:
+            cache_control = "no-store"
+        elif immutable:
+            cache_control = "public, max-age=31536000, immutable"
+        else:
+            cache_control = "no-cache"
 
-        if etag in (self.headers.get("If-None-Match") or ""):
+        if not html and etag in (self.headers.get("If-None-Match") or ""):
             nonce = secrets.token_urlsafe(32)
             self.send_response(304)
             self.send_header("ETag", etag)
@@ -1141,13 +1151,12 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             return
 
-        ctype = mimetypes.guess_type(full)[0] or "application/octet-stream"
         accept = self.headers.get("Accept-Encoding") or ""
         encoding = None
         body_path = full
         # Skip precompressed siblings for HTML — nonce replacement needs the
         # uncompressed bytes containing the ASCII placeholder string.
-        if ctype != "text/html":
+        if not html:
             if "br" in accept and os.path.isfile(full + ".br"):
                 encoding, body_path = "br", full + ".br"
             elif "gzip" in accept and os.path.isfile(full + ".gz"):
@@ -1164,7 +1173,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", cache_control)
-        self.send_header("ETag", etag)
+        if not html:
+            self.send_header("ETag", etag)
         self.send_header("Vary", "Accept-Encoding")
         self._apply_security(nonce)
         if encoding:
