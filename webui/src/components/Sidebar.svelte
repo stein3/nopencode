@@ -45,9 +45,11 @@ import { sidePanel } from '../lib/sidePanel'
   let hits: SearchHit[] = []
   let searching = false
   let searchTimer: ReturnType<typeof setTimeout>
+  let searchSeq = 0
   let searchEl: HTMLInputElement
 
   function clearSearch() {
+    searchSeq++ // invalidate any in-flight response
     searchQuery.set('')
     hits = []
     groups = []
@@ -141,16 +143,18 @@ import { sidePanel } from '../lib/sidePanel'
 
   $: if (searchText.length >= 2 || (searchFilters.length && q.length >= 2)) {
     clearTimeout(searchTimer)
-    searchTimer = setTimeout(runSearch, 400)
+    searchTimer = setTimeout(runSearch, 250)
   }
 
   async function runSearch() {
+    const seq = ++searchSeq
     searching = true
     try {
       // When only filters are present (no free text), use the sessions API
       // and apply filters client-side — avoids FTS highlighting filter keywords
       if (searchFilters.length && !searchText) {
         const sessions = await hist.sessions()
+        if (seq !== searchSeq) return // superseded by a newer query
         hits = sessions.map((s) => ({
           session_id: s.id,
           session_title: s.title,
@@ -169,10 +173,11 @@ import { sidePanel } from '../lib/sidePanel'
       // filter tokens are applied client-side after results arrive.
       const apiQuery = searchText || q
       const raw = apiQuery.length >= 2 ? await hist.search(apiQuery) : []
+      if (seq !== searchSeq) return // superseded — drop stale results
       hits = applyFilters(raw, searchFilters)
       groups = groupHits(hits)
     } finally {
-      searching = false
+      if (seq === searchSeq) searching = false
     }
   }
 

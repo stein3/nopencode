@@ -21,7 +21,8 @@ Single-origin backend for the webui:
   /api/history/errors
                    -> ALL persisted errors across all sessions (background
                       collector records errors even when no webui tab is open).
-  /api/search      -> case-insensitive substring search across all message parts
+  /api/search      -> full-text search (FTS5 trigram index in webui.db sidecar;
+                       falls back to a substring scan only if the sidecar is missing)
   /healthz         -> liveness
 
 A background SSE collector thread watches the engine's /event stream and
@@ -589,6 +590,7 @@ def _fts_sync():
                 if full_rebuild:
                     wc.execute("DELETE FROM part_fts")
                 # build scan query
+                wm = 0
                 if full_rebuild:
                     scan_sql = (
                         "SELECT p.rowid rid, p.id, p.message_id,"
@@ -638,11 +640,14 @@ def _fts_sync():
                          r["message_id"], r["session_id"],
                          r["role"], r["tc"]),
                     )
-                wc.execute(
-                    "INSERT OR REPLACE INTO fts_meta(k,v)"
-                    " VALUES('fts_wm',?)",
-                    (str(max_tu),),
-                )
+                # only advance the watermark — an empty incremental must not
+                # reset it to 0 (that forces a full rescan on the next sync)
+                if max_tu > wm:
+                    wc.execute(
+                        "INSERT OR REPLACE INTO fts_meta(k,v)"
+                        " VALUES('fts_wm',?)",
+                        (str(max_tu),),
+                    )
                 wc.execute(
                     "INSERT OR REPLACE INTO fts_meta(k,v)"
                     " VALUES('fts_built','1')"
@@ -667,23 +672,46 @@ def search(q):
     if len(ql) < 2 or not terms:
         return []
     hits = []
+    # Refresh the sidecar index in the BACKGROUND if stale — never block a
+    # search request on sync (a cold full rebuild holds the lock for seconds).
+    # Boot warms via fts-warm; this only covers the every-FTS_SYNC_TTL refresh.
+    if time.time() - _fts_last_sync_ts >= FTS_SYNC_TTL and not _fts_lock.locked():
+        threading.Thread(target=_fts_sync, daemon=True, name="fts-sync").start()
     with _connect() as c:
         titles = {
             r["id"]: r["title"] or r["id"][:12]
             for r in c.execute("SELECT id, title FROM session")
         }
-        # FTS path: all terms >= 3 chars (trigram tokenizer minimum)
-        if all(len(t) >= 3 for t in terms) and _fts_sync():
-            match_expr = " AND ".join(
-                '"' + t.replace('"', '""') + '"' for t in terms
-            )
+        # part_fts lives in webui.db (writable sidecar), NOT opencode.db.
+        # Table is created by _fts_sync (boot warm / background refresh).
+        try:
+            wc = sqlite3.connect("file:%s?mode=ro" % WEBUI_DB, uri=True, timeout=5)
+            wc.row_factory = sqlite3.Row
+            # unicode-aware lowercase for the short-term (sub-trigram) path
+            wc.create_function("pylower", 1, lambda s: s.lower() if s else s)
             try:
-                cur = c.execute(
-                    "SELECT pid,mid,sid,role,tc,txt"
-                    " FROM part_fts WHERE part_fts MATCH ?"
-                    " ORDER BY tc DESC",
-                    (match_expr,),
-                )
+                if all(len(t) >= 3 for t in terms):
+                    # trigram MATCH — all terms >= 3 chars
+                    match_expr = " AND ".join(
+                        '"' + t.replace('"', '""') + '"' for t in terms
+                    )
+                    cur = wc.execute(
+                        "SELECT pid,mid,sid,role,tc,txt"
+                        " FROM part_fts WHERE part_fts MATCH ?"
+                        " ORDER BY tc DESC",
+                        (match_expr,),
+                    )
+                else:
+                    # sub-trigram: substring scan of the sidecar index only
+                    # (no json_extract/part⋈message — ~40x faster than legacy)
+                    conds = " AND ".join(
+                        "instr(pylower(txt),?)>0" for _ in terms
+                    )
+                    cur = wc.execute(
+                        "SELECT pid,mid,sid,role,tc,txt FROM part_fts"
+                        " WHERE " + conds + " ORDER BY tc DESC",
+                        tuple(terms),
+                    )
                 for r in cur:
                     if r["sid"] not in titles:
                         continue
@@ -701,8 +729,10 @@ def search(q):
                     if len(hits) >= SEARCH_CAP:
                         break
                 return hits
-            except Exception:
-                pass  # fall through to legacy scan
+            finally:
+                wc.close()
+        except Exception:
+            pass  # sidecar missing/broken → legacy scan below
         # Legacy brute-force with AND semantics (one instr per term)
         conds = " AND ".join(
             "instr(pylower(CAST(json_extract(p.data,'$.text') AS TEXT)),?)>0"
@@ -722,6 +752,8 @@ def search(q):
             tuple(terms),
         )
         for r in cur:
+            if r["sid"] not in titles:
+                continue
             hits.append(
                 {
                     "session_id": r["sid"],
@@ -1147,6 +1179,8 @@ if __name__ == "__main__":
     t = threading.Thread(target=_sse_collector, daemon=True, name="sse-collector")
     t.start()
     print(f"chatserver: sse-collector watching {OC_ENGINE}", flush=True)
+    # warm the FTS index off the request path (first cold build can take seconds)
+    threading.Thread(target=_fts_sync, daemon=True, name="fts-warm").start()
     srv = ThreadingHTTPServer((HOST, PORT), Handler)
     print(f"chatserver: http://{HOST}:{PORT}  dist={WEBUI_DIST}  engine={OC_ENGINE}", flush=True)
     srv.serve_forever()
