@@ -18,16 +18,37 @@
   let open = false
   let wrap: HTMLDivElement
 
+  // what "Auto" actually resolves to: the session's engine-level agent when
+  // the session has one, else the configured default agent
+  let defGlobal = ''
+  let defSession = ''
+  let defFor = ''
+
   // One roster fetch shared by every mounted Composer pane (tab panes
   // multiply). Only a successful NON-empty result is cached, so a failed or
   // empty fetch renders nothing here but retries on the next pane mount.
-  let rosterCache: AgentInfo[] | null = null
+  let rosterCache: { list: AgentInfo[]; def: string } | null = null
   async function loadRoster(): Promise<AgentInfo[]> {
-    if (rosterCache) return rosterCache
-    const list = await oc.agents().catch(() => [])
-    const eligible = (list ?? []).filter((a) => a.mode !== 'subagent' && !a.hidden)
-    if (eligible.length) rosterCache = eligible
-    return eligible
+    if (!rosterCache) {
+      const list = (await oc.agents().catch(() => [])) ?? []
+      const eligible = list.filter((a) => a.mode !== 'subagent' && !a.hidden)
+      // engine lists the configured default agent first (api.ts agents())
+      if (eligible.length) rosterCache = { list: eligible, def: list[0]?.name ?? '' }
+    }
+    defGlobal = rosterCache?.def ?? ''
+    return rosterCache?.list ?? []
+  }
+
+  // Sending without an `agent` field = engine resolves session.agent ?? config
+  // default, so ask the session which it is. Refreshes on sid change only
+  // (pending-tab realize, tab switch, reload) — a palette /agents switch in
+  // another client shows stale until then.
+  $: if (sid !== defFor) loadSessionDef(sid)
+  async function loadSessionDef(id: string) {
+    defFor = id
+    const s = await oc.session(id).catch(() => null)
+    if (defFor !== id) return // sid rekeyed mid-flight (pending-tab realize)
+    defSession = s?.agent || ''
   }
 
   onMount(async () => {
@@ -38,7 +59,8 @@
   // read inside a function body are invisible to the compiler and the label
   // freezes (the ModelPicker `{label()}` bug)
   $: cur = $sessionAgents[sid]
-  $: curLabel = cur ? titleName(cur) : 'Auto'
+  $: defLabel = titleName(defSession || defGlobal) || 'Auto'
+  $: curLabel = cur ? titleName(cur) : defLabel
   $: curColor = cur ? (agents.find((a) => a.name === cur)?.color ?? null) : null
 
   function pick(name: string | undefined) {
@@ -70,7 +92,7 @@
       aria-haspopup="listbox"
       aria-expanded={open}
       aria-label={'Agent for new messages in this session: ' + curLabel}
-      title={cur ? 'Agent for new messages (this session): ' + curLabel : 'Agent for new messages (this session): Auto (session default)'}
+      title={'Agent for new messages (this session): ' + curLabel + (cur ? '' : ' (session default)')}
       on:click={() => (open = !open)}
     >
       {#if cur && curColor}
@@ -89,7 +111,7 @@
           title="Use the session's default agent"
           on:click={() => pick(undefined)}
         >
-          <span class="nm">Auto</span>
+          <span class="nm">{defLabel}</span>
           <span class="ds">session default</span>
         </button>
         {#each agents as a (a.name)}

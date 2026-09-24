@@ -4,20 +4,21 @@
 // test on port 8144.
 //
 // Cases:
-//   1. Fresh state: collapsed label "Auto", no persisted agent
-//   2. Menu roster: eligible agents only, Auto first, no subagent/hidden leakage
+//   1. Fresh state: collapsed label = resolved default (registry default agent), no persisted agent
+//   2. Menu roster: eligible agents only, default row first, no subagent/hidden leakage
 //   3. Menu UX: opens upward, Esc closes, click-outside closes, selection marked
 //   4. Pick Plan → label + payload carries agent:"plan" + model present
-//   5. Auto row resets label + clears localStorage
+//   5. Default row resets label + clears localStorage
 //   6. Back to Plan → current selection marked in menu
 //   7. Sticky across reload (label persists)
-//   8. Per-session isolation: second tab starts Auto despite A=Plan
+//   8. Per-session isolation: second tab starts on the default despite A=Plan
 //   9. Pending tab pick survives realize (rekey migration), label + payload
 //  10. Per-session localStorage map (A=plan, B=build)
 //  11. Switch tabs restores session A's own pick
-//  12. Auto on A doesn't affect B
-//  13. Auto omits the agent field entirely
-//  14. Mobile (360px): compact picker, menu fits viewport
+//  12. Reset on A doesn't affect B
+//  13. Reset omits the agent field entirely
+//  14. Session-level engine agent (session.agent) wins over the registry default
+//  15. Mobile (360px): compact picker, menu fits viewport
 //
 // Run: node e2e/embedded/agent-picker.test.mjs
 
@@ -120,6 +121,12 @@ const server = http.createServer(async (req, res) => {
     if (p === '/__ctl') {
       const ctl = JSON.parse((await readBody(req)) || '{}');
       if (ctl.emit) sseEmit(ctl.emit.type, ctl.emit.properties ?? {});
+      if (ctl.setAgent) {
+        // engine-level session.agent (what POST /api/session/{id}/agent sets)
+        const s = state.sessions[ctl.setAgent.sid];
+        if (s) s.agent = ctl.setAgent.agent;
+        return json(res, { ok: !!s });
+      }
       return json(res, { ok: true });
     }
 
@@ -223,7 +230,7 @@ const server = http.createServer(async (req, res) => {
       const sid = mGet[1];
       const s = state.sessions[sid];
       if (!s) return json(res, { error: 'not found' }, 404);
-      return json(res, { id: s.id, title: s.title, revert: null });
+      return json(res, { id: s.id, title: s.title, revert: null, ...(s.agent ? { agent: s.agent } : {}) });
     }
 
     // GET /oc/session/*/message — messages for session
@@ -290,8 +297,11 @@ const titleName = (s) =>
 const expectedEligible = AGENT_ROSTER
   .filter((a) => a.mode !== 'subagent' && !a.hidden)
   .map((a) => titleName(a.name));
-// expected full menu = Auto + eligible (in roster order)
-const expectedMenu = ['Auto', ...expectedEligible];
+// the default row names what "Auto" used to mean: session.agent when the
+// session has one, else the registry default (engine lists it first)
+const DEFAULT_LABEL = titleName(AGENT_ROSTER[0].name);
+// expected full menu = default row + eligible (in roster order)
+const expectedMenu = [DEFAULT_LABEL, ...expectedEligible];
 
 let page;
 const sessionIds = new Set();
@@ -356,39 +366,46 @@ try {
   try {
 
   // ====================================================================
-  // CASE 1 — fresh state: collapsed label "Auto"
+  // CASE 1 — fresh state: collapsed label = resolved default
   // ====================================================================
   console.log('\nCASE 1 — fresh state');
   await trigger().waitFor({ state: 'visible', timeout: 5000 });
   check(
-    '1.1', 'collapsed label defaults to "Auto"',
-    ((await trigger().textContent()) ?? '').includes('Auto'),
+    '1.1', `collapsed label shows the default (${DEFAULT_LABEL}), not "Auto"`,
+    ((await trigger().textContent()) ?? '').includes(DEFAULT_LABEL),
+    `got=${JSON.stringify((await trigger().textContent()) ?? '')}`,
   );
 
   // ====================================================================
-  // CASE 2 — menu roster: eligible agents only, Auto first
+  // CASE 2 — menu roster: eligible agents only, default row first
   // ====================================================================
   console.log('\nCASE 2 — menu roster');
   await trigger().click();
   await page.waitForSelector(`${PANE} .toolbar .wrap:first-child .menu button.m`);
   const names = [];
+  const isDefaultRow = [];
   for (const r of await menuRows().all()) {
-    const nm = ((await r.locator('.nm').textContent()) ?? '').trim();
-    names.push(nm);
+    names.push(((await r.locator('.nm').textContent()) ?? '').trim());
+    isDefaultRow.push(((await r.getAttribute('class')) ?? '').includes('auto'));
   }
+  const rosterNames = names.filter((_, i) => !isDefaultRow[i]);
 
   check(
     '2.1', 'all eligible agents present (no missing)',
-    expectedEligible.every((e) => names.includes(e)),
-    `expected=${JSON.stringify(expectedEligible)} got=${JSON.stringify(names.filter((n) => n !== 'Auto'))}`,
+    expectedEligible.every((e) => rosterNames.includes(e)),
+    `expected=${JSON.stringify(expectedEligible)} got=${JSON.stringify(rosterNames)}`,
   );
   check(
     '2.2', 'no subagent/hidden leakage',
-    names.filter((n) => n !== 'Auto' && !expectedEligible.includes(n)).length === 0,
+    rosterNames.filter((n) => !expectedEligible.includes(n)).length === 0,
   );
-  check('2.3', 'Auto row pinned first', names[0] === 'Auto');
   check(
-    '2.4', 'menu order matches roster (Auto first, then eligible)',
+    '2.3', 'default row pinned first and named for the default agent',
+    isDefaultRow[0] === true && names[0] === DEFAULT_LABEL,
+    `got=${JSON.stringify(names)}`,
+  );
+  check(
+    '2.4', 'menu order matches roster (default first, then eligible)',
     JSON.stringify(names) === JSON.stringify(expectedMenu),
     `got=${JSON.stringify(names)}`,
   );
@@ -459,14 +476,17 @@ try {
   check('4.7', 'payload text intact', b1?.parts?.[0]?.text === 'agent picker probe one');
 
   // ====================================================================
-  // CASE 5 — Auto row resets label + clears localStorage
+  // CASE 5 — default row resets label + clears localStorage
   // ====================================================================
-  console.log('\nCASE 5 — Auto resets');
+  console.log('\nCASE 5 — default row resets');
   await trigger().click();
   await page.waitForSelector(`${PANE} .toolbar .wrap:first-child .menu button.m`);
   await page.locator(`${PANE} .toolbar .wrap:first-child .menu button.m.auto`).click();
   await sleep(150);
-  check('5.1', 'label back to Auto', ((await trigger().textContent()) ?? '').includes('Auto'));
+  check(
+    '5.1', `label back to the default (${DEFAULT_LABEL})`,
+    ((await trigger().textContent()) ?? '').includes(DEFAULT_LABEL),
+  );
   const afterAuto = await page.evaluate(() => localStorage.getItem('opencode.sessionAgents'));
   check(
     '5.2', 'localStorage cleared on Auto',
@@ -509,14 +529,15 @@ try {
   check('7.2', 'second send still carries agent:"Plan"', b2?.agent === 'Plan');
 
   // ====================================================================
-  // CASE 8 — per-session isolation: new tab starts Auto
+  // CASE 8 — per-session isolation: new tab starts on the default
   // ====================================================================
   console.log('\nCASE 8 — per-session isolation');
   await page.click('button.add');
   await sleep(500);
   check(
-    '8.1', 'new session starts Auto (no leak from session A)',
-    ((await trigger().textContent()) ?? '').includes('Auto'),
+    '8.1', `new session starts on the default (no leak from session A)`,
+    ((await trigger().textContent()) ?? '').includes(DEFAULT_LABEL),
+    `got=${JSON.stringify((await trigger().textContent()) ?? '')}`,
   );
 
   // ====================================================================
@@ -566,16 +587,19 @@ try {
   );
 
   // ====================================================================
-  // CASE 12 — Auto on A doesn't affect B
+  // CASE 12 — reset on A doesn't affect B
   // ====================================================================
   console.log('\nCASE 12 — cross-session isolation');
   await trigger().click();
   await page.waitForSelector(`${PANE} .toolbar .wrap:first-child .menu button.m`);
   await page.locator(`${PANE} .toolbar .wrap:first-child .menu button.m.auto`).click();
-  check('12.1', 'back to Auto on A', ((await trigger().textContent()) ?? '').includes('Auto'));
+  check(
+    '12.1', `back to the default on A (${DEFAULT_LABEL})`,
+    ((await trigger().textContent()) ?? '').includes(DEFAULT_LABEL),
+  );
   await gotoTab(createdSid);
   check(
-    '12.2', 'session B unaffected by A going Auto (still Build)',
+    '12.2', 'session B unaffected by A resetting (still Build)',
     ((await trigger().textContent()) ?? '').includes('Build'),
   );
   await send('agent picker probe four');
@@ -583,21 +607,57 @@ try {
   check('12.3', 'send from B still carries agent:"Build"', b4?.agent === 'Build');
 
   // ====================================================================
-  // CASE 13 — Auto omits the agent field
+  // CASE 13 — reset omits the agent field
   // ====================================================================
-  console.log('\nCASE 13 — Auto omits agent field');
+  console.log('\nCASE 13 — default omits agent field');
   await trigger().click();
   await page.waitForSelector(`${PANE} .toolbar .wrap:first-child .menu button.m`);
   await page.locator(`${PANE} .toolbar .wrap:first-child .menu button.m.auto`).click();
-  check('13.1', 'B back to Auto', ((await trigger().textContent()) ?? '').includes('Auto'));
+  check(
+    '13.1', `B back to the default (${DEFAULT_LABEL})`,
+    ((await trigger().textContent()) ?? '').includes(DEFAULT_LABEL),
+  );
   await send('agent picker probe five');
   const b5 = bodies[bodies.length - 1];
-  check('13.2', 'Auto send omits agent field entirely', !('agent' in b5));
+  check('13.2', 'default send omits agent field entirely', !('agent' in b5));
 
   // ====================================================================
-  // CASE 14 — mobile (360px): compact picker, menu fits viewport
+  // CASE 14 — session-level engine agent beats the registry default
   // ====================================================================
-  console.log('\nCASE 14 — mobile');
+  console.log('\nCASE 14 — session engine agent');
+  // palette /agents + TUI switches set session.agent on the engine; "Auto"
+  // resolves to it, so the label must name THAT agent (needs a remount — the
+  // lookup runs on mount / sid change, not live)
+  await fetch(`${BASE}/__ctl`, {
+    method: 'POST',
+    body: JSON.stringify({ setAgent: { sid: sidA, agent: 'Plan' } }),
+  }).catch(() => {});
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await sleep(1500);
+  if (sidA && (await activeSid()) !== sidA) await gotoTab(sidA);
+  const defText = (await trigger().textContent()) ?? '';
+  check(
+    '14.1', 'default row + collapsed label name the session agent (Plan)',
+    !!sidA && defText.includes('Plan') && !defText.includes(DEFAULT_LABEL),
+    `sidA=${sidA} label=${JSON.stringify(defText)}`,
+  );
+  await trigger().click();
+  await page.waitForSelector(`${PANE} .toolbar .wrap:first-child .menu button.m`);
+  const defRowNm = (
+    (await page.locator(`${PANE} .toolbar .wrap:first-child .menu button.m.auto .nm`).textContent()) ?? ''
+  ).trim();
+  check('14.2', 'menu default row shows the session agent', defRowNm === 'Plan', `got=${defRowNm}`);
+  await page.keyboard.press('Escape');
+  // restore: no engine-level session agent → registry default again
+  await fetch(`${BASE}/__ctl`, {
+    method: 'POST',
+    body: JSON.stringify({ setAgent: { sid: sidA, agent: null } }),
+  }).catch(() => {});
+
+  // ====================================================================
+  // CASE 15 — mobile (360px): compact picker, menu fits viewport
+  // ====================================================================
+  console.log('\nCASE 15 — mobile');
   await page.evaluate(() => {
     localStorage.removeItem('opencode.agent');
     localStorage.removeItem('opencode.sessionAgents');
@@ -624,12 +684,12 @@ try {
   const b1m = await mbtn.boundingBox();
   const t1m = await mtb.boundingBox();
   check(
-    '14.1', 'picker fits within viewport at 360px',
+    '15.1', 'picker fits within viewport at 360px',
     !!b1m && b1m.x >= 0 && b1m.x + b1m.width <= 361,
     `btn right=${b1m ? Math.round(b1m.x + b1m.width) : '?'}, viewport=360`,
   );
   check(
-    '14.2', 'collapsed control compact at 360px',
+    '15.2', 'collapsed control compact at 360px',
     !!b1m && b1m.width <= 90,
     `width=${b1m ? Math.round(b1m.width) : '?'}px`,
   );
@@ -637,7 +697,7 @@ try {
   await mpane.locator('.wrap .menu').waitFor({ state: 'visible', timeout: 5000 });
   const mobMenu = await mpane.locator('.wrap .menu').boundingBox();
   check(
-    '14.3', 'mobile menu stays in viewport',
+    '15.3', 'mobile menu stays in viewport',
     mobMenu && mobMenu.x >= 0 && mobMenu.x + mobMenu.width <= 361,
     `width=${mobMenu ? Math.round(mobMenu.width) : '?'}px`,
   );
