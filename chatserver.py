@@ -2,7 +2,7 @@
 """opencode chat server.
 
 Single-origin backend for the webui:
-  /                -> webui/dist statics (SPA fallback to index.html)
+  /, /webui/       -> webui/dist statics (SPA fallback to index.html)
   /oc/*            -> reverse proxy to the opencode engine (REST + SSE, streamed)
   /api/history/*   -> read-only sqlite access to opencode.db (sessions, transcript;
                       transcript accepts ?limit=N for a newest-N window)
@@ -1080,6 +1080,11 @@ class Handler(BaseHTTPRequestHandler):
 
     # ---- static ------------------------------------------------------------
     def static(self, path):
+        # The default build uses Vite base '/webui/' (the public route strips
+        # that prefix at the proxy). Strip it here too so the same dist also
+        # works when chatserver is hit directly, e.g. http://localhost:7683/.
+        if path == "/webui" or path.startswith("/webui/"):
+            path = path[len("/webui"):] or "/"
         if path == "/" or "." not in os.path.basename(path):
             path = "/index.html"
         full = os.path.realpath(WEBUI_DIST + path)
