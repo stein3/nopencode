@@ -215,11 +215,19 @@
   }
 
   let linkedDirtyTimer: ReturnType<typeof setTimeout> | undefined
-  $: if ($sessionListDirty > 0 && !linkedDirtyTimer) {
-    linkedDirtyTimer = setTimeout(() => {
-      linkedDirtyTimer = undefined
-      refreshLinked()
-    }, 250)
+  // react on the counter CHANGING, not staying >0: the original
+  // `$sessionListDirty > 0 && !linkedDirtyTimer` re-fired the moment the timer
+  // reset itself to undefined (assignment inside the statement re-triggers it),
+  // rescheduling forever — an infinite 250ms history+status loop after any
+  // dirty bump (rename, auto-title, …)
+  let linkedDirtySeen = 0
+  $: if ($sessionListDirty !== linkedDirtySeen) {
+    linkedDirtySeen = $sessionListDirty
+    if (!linkedDirtyTimer)
+      linkedDirtyTimer = setTimeout(() => {
+        linkedDirtyTimer = undefined
+        refreshLinked()
+      }, 250)
   }
 
   // dot precedence perm > ask > busy > unread — resolved per row here so the

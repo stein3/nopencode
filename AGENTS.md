@@ -288,6 +288,12 @@ Deployment topology & procedures: see private ops notes (not tracked here).
   - A filter assertion returning unexpectedly 0 rows → dump the store's localStorage
     via `page.evaluate` BEFORE suspecting the browser — that's exactly how the
     `mutateMeta` field-wipe bug was caught (see Known quirks).
+  - **`poll()` footgun (hit 2026-09, sse-resilience)**: `poll(() => el.count() === 0, T)`
+    silently ALWAYS fails — `count()` returns a Promise, `Promise === 0` is false, so
+    the poll times out at T even when the condition is true (cost an hour of fake
+    "regressions"). Presence checks `poll(() => el.count())` accidentally work (Promise
+    is truthy) but return immediately regardless of readiness. Always:
+    `poll(async () => (await el.count()) === 0, T)` / `=== n`.
 
 ## Engine retry-loop state & the webui blind spot (root-caused 2026-08-30)
 
@@ -323,3 +329,51 @@ Deployment topology & procedures: see private ops notes (not tracked here).
   abort guarantees the following revert passes `assertNotBusy`.
 - Manual unblock without any code: `curl -X POST http://127.0.0.1:4096/session/<sid>/abort`,
   then revert/edit-resend with a different model.
+
+## Streaming disconnect resilience (webui, fixed 2026-09)
+
+Three reported bugs — (1) switching tabs loses streamed text / resumes from the
+server's lagging snapshot, (2) same loss when a mobile PWA is backgrounded,
+(3) sessions go wholly disconnected until reload/hard-refresh — root-caused and
+fixed. Invariants below; don't regress them:
+
+- **`openHistory` busy guard (App.svelte)**: re-opening an ALREADY-open BUSY tab
+  from the sidebar used to run `tabs.open({messages: []})` → merge wiped
+  `Tab.messages` → a refetch replaced live text with the engine's lagging
+  snapshot. Now: if the tab is busy → just activate, skip wipe + refetch.
+  `tabs.open`'s `messages: []` merge itself is LOAD-BEARING for the idle
+  manual-refresh path — do not "clean it up".
+- **`applyMessages` is add-only while `cur.busy`** (sse.ts): a mid-turn refetch
+  (Footer / InfoPanel / post-send `openLive`) may only APPEND messages it doesn't
+  have yet — never rewrite or truncate local delta-ahead text. Deltas +
+  `message.part.updated` remain the source of truth during the turn.
+- **EventSource recreation (sse.ts)**: browsers permanently fail an EventSource on
+  ANY non-200 / wrong-MIME attempt (spec: CLOSED, no retry — this is why a
+  chatserver 500 during engine-down, a Caddy 502 during `opencode-web` rebuild,
+  or a CF edge 5xx went dark until reload). Client now owns the lifecycle:
+  `openStream()` (closes old first; `onopen` → `catchUp()` when reconnecting),
+  `onerror` → `scheduleRecreate()` when CLOSED (backoff 1s → 15s cap),
+  10s watchdog (recreate on CLOSED, or OPEN with >30s stale frames),
+  `visibilitychange`/`online` resume (recreate if CLOSED or >15s stale — frozen
+  PWA sockets die WITHOUT an error event).
+- **`catchUp()` on every re-open**: 3s throttle → status map patches per-tab
+  `busy` (a `session.idle` missed during a blackout pins `busy=true` forever,
+  which gates every `scheduleRefetch` — this was the "stuck busy" half of the
+  bug), then refetches only non-busy, open, live, non-pending tabs. Status fetch
+  failure resets the throttle (`catchUpAt = 0`) for an immediate retry.
+- **chatserver.py `/oc/event`**: on engine-down the proxy now closes the socket
+  with NO response (browser sees a network error → retries) instead of a JSON
+  500 (spec-fatal, never retried). `BrokenPipe/ConnectionReset` still re-raised;
+  other endpoints keep re-raising.
+- Verify: `e2e/embedded/sse-resilience.test.mjs` (port 8169, CI matrix entry) —
+  A1 sidebar re-open: no wipe, no refetch; A2 mid-turn refetch is add-only;
+  B fatal 503 → client recreates the stream and applies new events; C missed
+  `session.idle` → catchUp clears stuck busy + refetches. Fake engine persists
+  message text WITHOUT the SSE deltas (mirrors engine reasoning-part lag).
+- **InfoPanel infinite dirty loop (found while building that test, fixed)**:
+  `$: if ($sessionListDirty > 0 && !linkedDirtyTimer)` re-fired the instant the
+  timer callback reset `linkedDirtyTimer = undefined` (assignment inside the
+  statement re-triggers it) → permanent 250ms `hist.sessions()` + `oc.status()`
+  hammer after ANY dirty bump (rename, auto-title, …). Fix: react on the counter
+  CHANGING (`$sessionListDirty !== linkedDirtySeen`), not on `> 0`. General rule:
+  a reactive statement whose deps include a variable IT mutates loops.

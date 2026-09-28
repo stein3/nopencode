@@ -62,6 +62,31 @@ export function applyMessages(sessionId: string, msgs: any[], complete = true) {
   const cur = tabs.snapshot(sessionId)
   if (!cur) return
   const fetched = normalizeMessages(msgs)
+  const partialNext = !complete || !!cur.partial
+  // Mid-turn the engine's GET /message snapshot can LAG the SSE deltas already
+  // applied locally (in-flight reasoning parts especially — see scheduleRefetch).
+  // Replacing existing messages with that copy truncates the streamed-so-far
+  // text and subsequent deltas resume from the server's position. So while
+  // busy a refetch may only ADD messages it doesn't have yet (newly
+  // materialized user/assistant rows, older scroll-up pages) — never rewrite
+  // existing ones. Reconciliation against committed state happens at the
+  // busy→idle flip (Footer refresh) as before.
+  if (cur.busy) {
+    flushDeltas() // land buffered chunks so local state is complete first
+    const have = new Set(cur.messages.map((m) => m.id))
+    const added = fetched.filter((m) => !have.has(m.id))
+    if (!added.length) {
+      patchMetrics(sessionId, metricsFromMessages(msgs, complete))
+      return
+    }
+    tabs.patch(sessionId, {
+      messages: [...cur.messages, ...added].sort(byCreated),
+      dirty: false,
+      partial: partialNext,
+    })
+    patchMetrics(sessionId, metricsFromMessages(msgs, complete))
+    return
+  }
   // Preserve authoritative role/agent from existing messages when the fetched
   // version has a less-specific value. This fixes queued user messages that
   // render as "nopencode": setMeta sets role:'user', but the refetch returns
@@ -86,7 +111,6 @@ export function applyMessages(sessionId: string, msgs: any[], complete = true) {
   // identical id-set + unchanged partial state → skip the swap: a new Tab
   // object re-fires every consumer (Footer refetches, Transcript re-renders),
   // which otherwise self-amplifies into a fetch loop
-  const partialNext = !complete || !!cur.partial
   const sameIds =
     next.length === cur.messages.length &&
     next.every((m, i) => m.id === cur.messages[i].id)
@@ -226,11 +250,51 @@ export function normalizeMessages(msgs: any[]): any[] {
   })
 }
 
-export function startEvents() {
-  refreshPermissions()
-  refreshQuestions()
-  const es = new EventSource('/oc/event')
-  es.onmessage = (ev) => {
+// ---- EventSource lifecycle -------------------------------------------------
+// One stream, owned by openStream(). Native EventSource reconnection only
+// survives NETWORK errors: per the HTML spec, any attempt (initial or
+// reconnect) that answers non-200 or with the wrong Content-Type "fails the
+// connection" permanently (readyState CLOSED, never retries). This deployment
+// hits exactly that often enough — chatserver answers 500 while the engine is
+// down, Caddy answers 502 while chatserver rebuilds, CF edge hiccups return
+// 5xx — and then every session goes silent until a page reload. So we
+// recreate on CLOSED ourselves, watchdog a silently half-open pipe (the engine
+// heartbeats every 10s, so 30s of silence on an OPEN stream = dead), and run
+// catchUp() after every re-open: SSE has no replay for the missed window, so
+// reconcile busy flags from the authoritative status map and refetch open
+// tabs' messages.
+let es: EventSource | null = null
+let lastFrame = 0
+let esBackoff = 1000
+let esTimer: ReturnType<typeof setTimeout> | undefined
+let esEverConnected = false
+let catchUpAt = 0
+
+function openStream() {
+  if (esTimer) {
+    clearTimeout(esTimer)
+    esTimer = undefined
+  }
+  if (es) {
+    try {
+      es.close()
+    } catch {
+      /* already dead */
+    }
+    es = null
+  }
+  lastFrame = Date.now() // grace period before the first frame counts as stale
+  const s = new EventSource('/oc/event')
+  es = s
+  s.onopen = () => {
+    esBackoff = 1000
+    lastFrame = Date.now()
+    // re-open after a gap → the events we missed never replay; catch up
+    if (esEverConnected) void catchUp()
+    esEverConnected = true
+  }
+  s.onmessage = (ev) => {
+    lastFrame = Date.now()
     let data: any
     try {
       data = JSON.parse(ev.data)
@@ -376,12 +440,15 @@ export function startEvents() {
       scheduleRefetch(sid)
     }
   }
-  es.onerror = () => {
-    // EventSource auto-reconnects; re-pull permissions AND pending questions —
-    // a question.asked during a dropout is otherwise lost until reload
-    // (GET /question is not replayed on reconnect). Also hydrate engine retry
-    // state: session.status SSE events are NOT replayed, so the only way to
-    // recover retry banners after a reconnect is the authoritative poll.
+  s.onerror = () => {
+    // fatal per spec (non-200 / wrong MIME on a reconnect) → the browser will
+    // never retry on its own; schedule our own recreation with backoff
+    if (es === s && s.readyState === EventSource.CLOSED) scheduleRecreate()
+    // Re-pull permissions AND pending questions — a question.asked during a
+    // dropout is otherwise lost until reload (GET /question is not replayed on
+    // reconnect). Also hydrate engine retry state: session.status SSE events
+    // are NOT replayed, so the only way to recover retry banners after a
+    // reconnect is the authoritative poll.
     setTimeout(async () => {
       refreshPermissions()
       refreshQuestions()
@@ -391,4 +458,74 @@ export function startEvents() {
       } catch { /* engine down */ }
     }, 1500)
   }
+}
+
+function scheduleRecreate() {
+  if (esTimer) return
+  esTimer = setTimeout(() => {
+    esTimer = undefined
+    openStream()
+  }, esBackoff)
+  esBackoff = Math.min(esBackoff * 2, 15000)
+}
+
+// Reconcile everything SSE may have missed while the stream was down or the
+// page was frozen: busy flags come from the status map (a session.idle lost
+// during a blackout otherwise pins busy=true forever, which blocks every
+// scheduleRefetch), messages are refetched only for non-busy tabs — applyMessages
+// is add-only while busy, so a mid-stream catch-up can't truncate live text.
+async function catchUp() {
+  if (Date.now() - catchUpAt < 3000) return
+  catchUpAt = Date.now()
+  refreshPermissions()
+  refreshQuestions()
+  let st: Record<string, any>
+  try {
+    st = await oc.status()
+  } catch {
+    catchUpAt = 0 // engine down — allow an immediate retry on the next open
+    return
+  }
+  syncEngineRetryFromStatus(st)
+  let all: any[] = []
+  tabs.subscribe((t) => (all = t))()
+  for (const t of all) {
+    if (t.pending || !t.live) continue
+    const v = st[t.id]
+    const busy = (v?.type ?? v?.state) === 'busy'
+    if (!!t.busy !== busy) tabs.patch(t.id, { busy })
+    if (!busy) refetchNow(t.id)
+  }
+}
+
+export function startEvents() {
+  refreshPermissions()
+  refreshQuestions()
+  openStream()
+  // watchdog: recreate a fatally-closed stream even if onerror was missed,
+  // and kill a half-open pipe that never errors but stops delivering
+  setInterval(() => {
+    if (esTimer) return // a recreate is already scheduled
+    if (!es || es.readyState === EventSource.CLOSED) {
+      openStream()
+      return
+    }
+    // engine sends server.heartbeat every 10s — 30s of silence on an OPEN
+    // stream means we're connected to nothing
+    if (es.readyState === EventSource.OPEN && Date.now() - lastFrame > 30000) openStream()
+  }, 10000)
+  // Coming back to a foregrounded PWA: sockets killed while frozen never fire
+  // onerror, so check by hand. A healthy stream (fresh frames) is left alone;
+  // a dead/stale one is reopened → onopen → catchUp() fills the gap.
+  const onResume = () => {
+    if (document.visibilityState !== 'visible') return
+    if (esTimer) return
+    if (!es || es.readyState === EventSource.CLOSED) {
+      openStream()
+      return
+    }
+    if (es.readyState === EventSource.OPEN && Date.now() - lastFrame > 15000) openStream()
+  }
+  document.addEventListener('visibilitychange', onResume)
+  window.addEventListener('online', onResume)
 }

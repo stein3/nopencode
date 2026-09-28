@@ -94,7 +94,16 @@
     // cost/tokens/todos; fall back to the pure-history snapshot only when the
     // engine doesn't know the session or is down.
     let ok = false
-    if (allowLive) {
+    // A streaming tab is already live AND holding SSE text ahead of the
+    // engine's persisted snapshot. Reopening it would wipe messages:[] into
+    // the store (tabs.open merge) and refetch the lagged copy — truncating
+    // everything streamed so far, with deltas resuming from the server's
+    // position. Just switch to it instead; live SSE keeps it current.
+    const streaming = tabs.snapshot(id)?.busy
+    if (streaming) {
+      ok = true
+      if (activate) tabs.setActive(id)
+    } else if (allowLive) {
       try {
         const s = await oc.session(id)
         openTab({ id, title: s?.title || id.slice(0, 14), messages: [], live: true })

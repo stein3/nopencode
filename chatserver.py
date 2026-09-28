@@ -1057,7 +1057,24 @@ class Handler(BaseHTTPRequestHandler):
             if path.startswith("/api/"):
                 return self.send_json({"error": "not found"}, 404)
             if path.startswith("/oc/") or path == "/oc":
-                return self.proxy(u)
+                try:
+                    return self.proxy(u)
+                except (BrokenPipeError, ConnectionResetError):
+                    raise
+                except Exception:
+                    # Engine unreachable (refused / timed out), possibly after
+                    # the SSE response already started. A non-2xx answer to
+                    # GET /oc/event is FATAL: per the EventSource spec the
+                    # browser "fails the connection" on any non-200 or
+                    # wrong-MIME response and never reconnects — the webui
+                    # would go dark until a page reload. Closing with no
+                    # response reads as a network error instead, which IS
+                    # retryable (the browser re-issues the request). All
+                    # other /oc requests keep the 500 JSON body below.
+                    if u.path.rstrip("/") == "/oc/event":
+                        self.close_connection = True
+                        return
+                    raise
             return self.static(path)
         except (BrokenPipeError, ConnectionResetError):
             pass

@@ -104,6 +104,8 @@ jobs:
             file: sidebar-model-tip.test.mjs
           - name: stall-retry
             file: stall-retry.test.mjs
+          - name: sse-resilience
+            file: sse-resilience.test.mjs
           - name: subs
             file: subs.test.mjs
           - name: tasknotice
