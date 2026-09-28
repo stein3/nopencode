@@ -933,8 +933,7 @@ class Handler(BaseHTTPRequestHandler):
             "frame-ancestors 'none'; "
             "base-uri 'self'; "
             "form-action 'self'; "
-            "trusted-types dompurify; "
-            "upgrade-insecure-requests"
+            "trusted-types dompurify"
         ).format(nonce=nonce)
         self.send_header("Content-Security-Policy", csp)
         self.send_header("X-Content-Type-Options", "nosniff")
