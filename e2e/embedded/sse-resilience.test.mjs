@@ -135,7 +135,7 @@ function json(res, obj, code = 200) {
 const server = http.createServer(async (req, res) => {
   const p = (req.path_url ??= req.url.split('?')[0]);
   try {
-    if (p === '/__state') return json(res, state);
+    if (p === '/__state') return json(res, { ...state, sseOpen: sseClients.size });
     if (p === '/__ctl') {
       const ctl = JSON.parse((await readBody(req)) || '{}');
       if (ctl.statusBusy !== undefined) state.statusBusy = !!ctl.statusBusy;
@@ -283,6 +283,10 @@ try {
 
     // Local text runs AHEAD of the persisted snapshot (the real engine's
     // in-flight reasoning lag): emit deltas WITHOUT mirroring them server-side.
+    // Wait for the stream first — CI runners are slow enough that the
+    // EventSource can connect AFTER this point, silently eating the emits.
+    const sseReady = await poll(async () => (await stateOf()).sseOpen >= 1, 10000);
+    check('A1', 'SSE stream connected before emitting', sseReady);
     for (const delta of [D1, D2]) {
       await ctl({
         emit: {
@@ -291,7 +295,12 @@ try {
         },
       });
     }
-    await sleep(300);
+    // deltaBuf coalesces ~40ms + Transcript stale-serves up to 120ms — poll
+    // instead of a fixed sleep; a busy CI runner can exceed 300ms easily
+    await poll(async () => {
+      const t = await assistantText(page);
+      return t.includes(D1) && t.includes(D2);
+    }, 8000);
     let txt = await assistantText(page);
     check('A1', 'local text includes both deltas (SSE-ahead of server)', txt.includes(D1) && txt.includes(D2), txt.slice(-90));
 
@@ -311,7 +320,7 @@ try {
         properties: { sessionID: SID, messageID: 'msg_a1', partID: 'part_a1', field: 'text', delta: D3 },
       },
     });
-    await sleep(250);
+    await poll(async () => (await assistantText(page)).includes(D3), 8000);
     txt = await assistantText(page);
     check('A1', 'stream continues on top of local text', txt.includes(D2) && txt.includes(D3), txt.slice(-90));
 
