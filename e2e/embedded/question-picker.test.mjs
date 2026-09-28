@@ -278,6 +278,7 @@ let pageErrors = [];
 function check(c, name, pass, note = '') {
   results.push({ c, name, pass: !!pass, note });
   console.log(`  [${pass ? 'PASS' : 'FAIL'}] ${c} · ${name}${note ? ` — ${note}` : ''}`);
+  return !!pass;
 }
 
 const ctl = (payload) =>
@@ -316,12 +317,29 @@ try {
     check('A', 'both questions rendered', (await qas.count()) === 2);
     const qq1 = (await qas.nth(0).locator('.qq').innerText()).trim();
     const qq2 = (await qas.nth(1).locator('.qq').innerText()).trim();
-    check(
-      'A',
-      'question texts + headers',
-      qq1.startsWith('Env: Which environments') && qq2.startsWith('Name: Codename'),
-      `${JSON.stringify(qq1)} / ${JSON.stringify(qq2)}`,
-    );
+    const qqOk = qq1.startsWith('Env: Which environments') && qq2.startsWith('Name: Codename');
+    if (!check('A', 'question texts + headers', qqOk, `${JSON.stringify(qq1)} / ${JSON.stringify(qq2)}`)) {
+      const d = {
+        vis: await page.evaluate(() => document.visibilityState).catch(() => '?'),
+        pageErrors: pageErrors.slice(0, 5),
+        // text: '' with inner: '' = empty DATA; text present + inner '' or a
+        // zero/offscreen rect = present but not rendered (visibility/CV)
+        qa: await qas
+          .evaluateAll((els) =>
+            els.map((el) => ({
+              inner: el.innerText.slice(0, 200),
+              text: (el.textContent || '').slice(0, 200),
+              html: el.outerHTML.slice(0, 300),
+              rect: ((r) => ({ x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height) }))(
+                el.getBoundingClientRect(),
+              ),
+            })),
+          )
+          .catch((e) => String(e).slice(0, 150)),
+        serverQuestions: await snap().catch((e) => String(e).slice(0, 150)),
+      };
+      console.log('  [diag A]\n' + JSON.stringify(d, null, 2));
+    }
     check(
       'A',
       '"awaiting your answer" badge on tool summary',

@@ -156,3 +156,12 @@ jobs:
 
       - name: Run ${{ matrix.name }}
         run: node e2e/embedded/${{ matrix.file }}
+
+      - name: Upload screenshots on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: shots-${{ matrix.name }}
+          path: e2e/shots/
+          if-no-files-found: ignore
+          retention-days: 7

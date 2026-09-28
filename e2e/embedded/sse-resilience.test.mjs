@@ -234,6 +234,36 @@ let pageErrors = [];
 function check(c, name, pass, note = '') {
   results.push({ c, name, pass: !!pass, note });
   console.log(`  [${pass ? 'PASS' : 'FAIL'}] ${c} · ${name}${note ? ` — ${note}` : ''}`);
+  return !!pass;
+}
+
+// Failure-time dump: enough to tell "server never wrote it" vs "client never
+// received it" vs "received and in the DOM but not rendered" apart from the CI
+// log alone. Frame `ms` is relative to page init (≈ [srv] seconds + goto lag).
+async function diag(page, label) {
+  const out = { label, pageErrors: pageErrors.slice(0, 5) };
+  try {
+    out.vis = await page.evaluate(() => document.visibilityState);
+    out.tabbar = (await page.locator('.tabbar').innerHTML().catch(() => '?')).slice(0, 300);
+    out.body = await page
+      .locator('#m-msg_a1 .body')
+      .first()
+      .evaluate((el) => ({
+        inner: el.innerText.slice(-200),
+        text: (el.textContent || '').slice(-200),
+        html: el.outerHTML.slice(0, 300),
+      }))
+      .catch((e) => 'missing: ' + String(e).slice(0, 60));
+    out.server = await stateOf();
+    out.sseFrames = await page.evaluate(() => window.__sseFrames?.slice(-15) ?? 'n/a');
+    const r1 = await page.evaluate(() => window.__rafCount?.() ?? -1);
+    await sleep(400);
+    const r2 = await page.evaluate(() => window.__rafCount?.() ?? -1);
+    out.rafIn400ms = r2 - r1; // ~24+ healthy; 0 = rAF dead on the runner
+  } catch (e) {
+    out.err = String(e).slice(0, 200);
+  }
+  console.log(`  [diag ${label}]\n${JSON.stringify(out, null, 2)}`);
 }
 const ctl = (payload) =>
   fetch(`${BASE}/__ctl`, { method: 'POST', body: JSON.stringify(payload) }).then((r) => r.json());
@@ -270,6 +300,33 @@ try {
   const browser = await launchBrowser();
   const page = await browser.newPage({ viewport: { width: 1280, height: 1000 } });
   page.on('pageerror', (e) => pageErrors.push(e.message));
+  // Record what the page's EventSource ACTUALLY received (correlate with the
+  // [srv] write timestamps) + a rAF heartbeat: frames received but text never
+  // rendered = dead frame loop on the runner.
+  await page.addInitScript(() => {
+    const t0 = Date.now();
+    const frames = [];
+    window.__sseFrames = frames;
+    const Orig = window.EventSource;
+    window.EventSource = class extends Orig {
+      constructor(...args) {
+        super(...args);
+        const tag = (d) => {
+          try {
+            frames.push({ ms: Date.now() - t0, ...d });
+            if (frames.length > 80) frames.shift();
+          } catch { /* ignore */ }
+        };
+        this.addEventListener('open', () => tag({ ev: 'open' }));
+        this.addEventListener('error', () => tag({ ev: 'error', rs: this.readyState }));
+        this.addEventListener('message', (ev) => tag({ data: String(ev.data).slice(0, 160) }));
+      }
+    };
+    let n = 0;
+    const tick = () => { n++; requestAnimationFrame(tick); };
+    requestAnimationFrame(tick);
+    window.__rafCount = () => n;
+  });
   const pane = page.locator('.tabpane[style*="flex"]');
   const busyDot = page.locator(`.tabbar .tab[data-sid="${SID}"] .dot.busy`);
 
@@ -302,7 +359,8 @@ try {
       return t.includes(D1) && t.includes(D2);
     }, 8000);
     let txt = await assistantText(page);
-    check('A1', 'local text includes both deltas (SSE-ahead of server)', txt.includes(D1) && txt.includes(D2), txt.slice(-90));
+    if (!check('A1', 'local text includes both deltas (SSE-ahead of server)', txt.includes(D1) && txt.includes(D2), txt.slice(-90)))
+      await diag(page, 'A1-deltas');
 
     // ---- CASE A1: sidebar re-open of the open BUSY tab ------------------
     console.log('\nCASE A1 — sidebar re-open of open busy tab: no wipe, no refetch');
@@ -311,7 +369,8 @@ try {
     await sleep(800);
     const after = (await stateOf()).messages[SID];
     txt = await assistantText(page);
-    check('A1', 'streamed text intact after sidebar re-open', txt.includes(D1) && txt.includes(D2), txt.slice(-90));
+    if (!check('A1', 'streamed text intact after sidebar re-open', txt.includes(D1) && txt.includes(D2), txt.slice(-90)))
+      await diag(page, 'A1-reopen');
     check('A1', 'no GET /message refetch fired by the re-open', after === before, `${before} → ${after}`);
     // stream keeps appending from the LOCAL position (not the server's)
     await ctl({
@@ -322,7 +381,8 @@ try {
     });
     await poll(async () => (await assistantText(page)).includes(D3), 8000);
     txt = await assistantText(page);
-    check('A1', 'stream continues on top of local text', txt.includes(D2) && txt.includes(D3), txt.slice(-90));
+    if (!check('A1', 'stream continues on top of local text', txt.includes(D2) && txt.includes(D3), txt.slice(-90)))
+      await diag(page, 'A1-D3');
 
     // ---- CASE A2: mid-turn refetch (post-send openLive) is add-only -------
     console.log('\nCASE A2 — mid-turn refetch appends the user msg, keeps local text');
@@ -336,7 +396,8 @@ try {
     const userVisible = (await page.locator('.msg', { hasText: 'follow-up after streaming' }).count()) > 0;
     txt = await assistantText(page);
     check('A2', 'new user message materialized from the mid-turn refetch', userVisible);
-    check('A2', 'existing streamed text NOT truncated by the refetch', txt.includes(D1) && txt.includes(D2), txt.slice(-90));
+    if (!check('A2', 'existing streamed text NOT truncated by the refetch', txt.includes(D1) && txt.includes(D2), txt.slice(-90)))
+      await diag(page, 'A2-addonly');
     await screenshot(page, 'sse-resilience-busy');
 
     // ---- CASE B: spec-fatal SSE reconnect → client must recreate ----------
@@ -364,7 +425,8 @@ try {
     });
     await poll(async () => (await page.locator('.tabbar .label', { hasText: 'reconnected-title' }).count()) > 0, 6000);
     const gotTitle = (await page.locator('.tabbar .label', { hasText: 'reconnected-title' }).count()) > 0;
-    check('B', 'SSE event on the new stream applied (tab title)', gotTitle);
+    if (!check('B', 'SSE event on the new stream applied (tab title)', gotTitle))
+      await diag(page, 'B-reconnect');
     await screenshot(page, 'sse-resilience-reconnect');
 
     // ---- CASE C: missed session.idle → busy heals on reconnect ------------
@@ -376,13 +438,10 @@ try {
     await ctl({ statusBusy: false, dropSse: true }); // stream drops, engine idle
     // reconnect → onopen → catchUp(): busy=false from status + refetchNow
     const dotGone = await poll(async () => (await busyDot.count()) === 0, 12000);
-    if (!dotGone) {
-      console.log('  [debug] tabbar:', await page.locator('.tabbar').innerHTML().catch(() => '?'));
-      console.log('  [debug] state:', JSON.stringify(await stateOf()));
-    }
     await poll(async () => (await stateOf()).messages[SID] > cBefore, 8000).catch(() => 0);
     const cAfter = (await stateOf()).messages[SID];
-    check('C', 'stuck busy cleared from status on reconnect', dotGone);
+    if (!check('C', 'stuck busy cleared from status on reconnect', dotGone))
+      await diag(page, 'C-catchup');
     check('C', 'messages refetched for the open tab', cAfter > cBefore, `${cBefore} → ${cAfter}`);
     await screenshot(page, 'sse-resilience-healed');
 
