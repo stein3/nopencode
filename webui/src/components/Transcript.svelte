@@ -34,8 +34,23 @@
   // finishes.
   const streamThrottle = new Map<string, { len: number; html: string; at: number }>()
   const STREAM_THROTTLE_MS = 120
+  // A stale serve inside the window MUST guarantee a later render: if the
+  // burst's final delta is the last store change (quiet runner / test fakes,
+  // vs prod's continuous deltas + part.updated snapshots), nothing else
+  // re-invokes the template and the old HTML sticks until an unrelated tab
+  // patch — the "streamed text missing until I click" failure. One pending
+  // timer bumps a counter the live {@html} expressions carry as an argument.
+  let throttleTick = 0
+  let throttleTimer: ReturnType<typeof setTimeout> | undefined
+  function scheduleThrottleRefresh(remaining: number) {
+    if (throttleTimer !== undefined) return
+    throttleTimer = setTimeout(() => {
+      throttleTimer = undefined
+      throttleTick++
+    }, Math.max(remaining, 0))
+  }
 
-  function html(part: any, live?: boolean): string {
+  function html(part: any, live?: boolean, _throttleTick?: number): string {
     if (part.type !== 'text' && part.type !== 'reasoning') return ''
     const id = String(part.id ?? 'x')
     const text = part.text ?? ''
@@ -47,9 +62,12 @@
       // streaming message) → serve as-is; deltas are append-only, so equal
       // length means equal text
       if (th && text.length === th.len) return th.html
-      // grew inside the throttle window → keep the stale HTML; expiry (or the
-      // turn ending) triggers a fresh parse of the full text
-      if (th && text.length > th.len && Date.now() - th.at < STREAM_THROTTLE_MS) return th.html
+      // grew inside the throttle window → keep the stale HTML, but schedule
+      // the fresh parse for when the window expires (see throttleTick)
+      if (th && text.length > th.len && Date.now() - th.at < STREAM_THROTTLE_MS) {
+        scheduleThrottleRefresh(STREAM_THROTTLE_MS - (Date.now() - th.at))
+        return th.html
+      }
       // live renders go into streamThrottle ONLY: they may contain the cheap
       // plaintext-fallback fences, so they must never satisfy a later
       // final-quality renderCache lookup at the same length
@@ -985,16 +1003,16 @@
                   <span class="tsum">{clip(taskPreview(p.text ?? ''), 120)}</span>
                   <span class="tcount">{(p.text ?? '').length.toLocaleString()} chars</span>
                 </summary>
-                <div class="tnote-body">{@html html({ ...p, text: taskBody(p.text ?? '') }, tab.busy && m === lastMsg)}</div>
+                <div class="tnote-body">{@html html({ ...p, text: taskBody(p.text ?? '') }, tab.busy && m === lastMsg, throttleTick)}</div>
               </details>
             {:else}
-              {@html html(p, tab.busy && m === lastMsg)}
+              {@html html(p, tab.busy && m === lastMsg, throttleTick)}
             {/if}
           {:else if p.type === 'reasoning' && (p.text ?? '').trim()}
             <details class="thinking" open={$showThinking || p.id === liveReasoningId || undefined}>
               <summary>💭 Thinking</summary>
               {#if p.id === liveReasoningId}
-                <div class="think-body" bind:this={liveThinkEl} on:scroll={onThinkScroll}>{@html html(p, tab.busy && p.id === liveReasoningId)}</div>
+                <div class="think-body" bind:this={liveThinkEl} on:scroll={onThinkScroll}>{@html html(p, tab.busy && p.id === liveReasoningId, throttleTick)}</div>
               {:else}
                 <div class="think-body">{@html html(p)}</div>
               {/if}
