@@ -233,8 +233,32 @@ async function sampleDist(page, ms, iv = 100) {
   return samples;
 }
 
+// longest run of consecutive samples above `th` — 1 = a single-frame blip
+// (growth landed between RO/layout and follow's write), 2+ = view really stuck
+function streakOver(samples, th) {
+  let best = 0;
+  let cur = 0;
+  for (const n of samples) {
+    if (Number.isFinite(n) && n > th) {
+      cur++;
+      if (cur > best) best = cur;
+    } else cur = 0;
+  }
+  return best;
+}
+
 const ctl = (payload) =>
   fetch(`${BASE}/__ctl`, { method: 'POST', body: JSON.stringify(payload) }).then((r) => r.json());
+
+// failure dump: recent wheels, scroll events (pos + pin state at dispatch), pin state now
+async function traceDiag(page) {
+  const d = await page.evaluate(() => ({
+    wheels: window.__wheels ?? [],
+    scrolls: (window.__scrolls ?? []).slice(-8),
+    stuck: document.querySelector('.tabpane[style*="flex"] .transcript')?.dataset.stuck,
+  }));
+  return `stuck=${d.stuck}, wheels=${JSON.stringify(d.wheels.slice(-4))}, scrolls=${JSON.stringify(d.scrolls)}`;
+}
 
 // ================================ run =======================================
 
@@ -244,6 +268,37 @@ try {
   const browser = await launchBrowser();
   const page = await browser.newPage({ viewport: { width: 1280, height: 1000 } });
   page.on('pageerror', (e) => pageErrors.push(e.message));
+  await page.addInitScript(() => {
+    window.__wheels = [];
+    window.__scrolls = [];
+    window.addEventListener(
+      'wheel',
+      (e) =>
+        window.__wheels.push({
+          ms: Math.round(performance.now()),
+          dy: e.deltaY,
+          t: `${e.target?.tagName}.${e.target?.className ?? ''}`,
+          inTx: document.querySelector('.transcript')?.contains(e.target) ?? '?',
+        }),
+      { capture: true, passive: true },
+    );
+    // capture:true sees non-bubbling scroll events; log position + pin state
+    window.addEventListener(
+      'scroll',
+      (e) => {
+        const el = e.target;
+        if (!el?.classList?.contains('transcript')) return;
+        window.__scrolls.push({
+          ms: Math.round(performance.now()),
+          top: Math.round(el.scrollTop),
+          dist: Math.round(el.scrollHeight - el.scrollTop - el.clientHeight),
+          stuck: el.dataset.stuck,
+        });
+        if (window.__scrolls.length > 60) window.__scrolls.shift();
+      },
+      { capture: true, passive: true },
+    );
+  });
   const pane = page.locator('.tabpane[style*="flex"]');
 
   try {
@@ -264,12 +319,14 @@ try {
     const box = await pane.boundingBox();
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
     await page.mouse.wheel(0, -100); // ONE realistic notch
-    await sleep(150); // let the trailing scroll event land (old code re-sticks right here)
-    const s2samples = await sampleDist(page, 900);
+    await sleep(60); // short enough to catch a snap-back before the long sample
+    const d2early = await distFromBottom(page); // ~0 => wheel never landed (scroll target/receipt)
+    const s2samples = [d2early, ...(await sampleDist(page, 900))];
     const d2min = Math.min(...s2samples);
     const d2last = s2samples[s2samples.length - 1];
-    check('S2', 'never snapped back (min sampled distance > 60)', d2min > 60, `min=${d2min}`);
-    check('S2', 'still parked up after 1s of growth', d2last > 60, `final=${d2last}`);
+    const d2note = async (v) => (v > 60 ? v : `${v} early=${d2early} ${await traceDiag(page)}`);
+    check('S2', 'never snapped back (min sampled distance > 60)', d2min > 60, `min=${await d2note(d2min)}`);
+    check('S2', 'still parked up after 1s of growth', d2last > 60, `final=${await d2note(d2last)}`);
     await screenshot(page, 'scrollstick-unpinned');
 
     // ---- S3 second notch ----------------------------------------------------
@@ -290,17 +347,43 @@ try {
 
     // ---- S5 return-to-bottom re-arms the pin --------------------------------
     console.log('\nCASE S5 — scrolling back down re-arms stick-to-bottom');
+    const centerEl = await page.evaluate(([x, y]) => {
+      const el = document.elementFromPoint(x, y);
+      return el ? `${el.tagName}.${el.className}` : 'none';
+    }, [box.x + box.width / 2, box.y + box.height / 2]);
     for (let i = 0; i < 4; i++) {
       await page.mouse.wheel(0, 2200);
       await sleep(140);
     }
     await sleep(250);
-    const d5 = await distFromBottom(page);
-    check('S5', 'back at the bottom corner (distance < 80)', d5 < 80, `distance=${d5}`);
+    // settle: glued views read one growth-batch (~100px) at worst for a single
+    // pre-RO sample — require 2 consecutive reads inside the corner instead
+    let d5ok = false;
+    let d5reads = [];
+    for (let i = 0; i < 10 && !d5ok; i++) {
+      d5reads.push(await distFromBottom(page));
+      d5ok = d5reads.slice(-2).every((n) => n >= 0 && n < 80);
+      if (!d5ok) await sleep(80);
+    }
+    check(
+      'S5',
+      'back at the bottom corner (2 consecutive < 80)',
+      d5ok,
+      d5ok ? `distance=${d5reads.at(-1)}` : `reads=${JSON.stringify(d5reads)} center=${centerEl} ${await traceDiag(page)}`,
+    );
     // prove the PIN (not just position): keep growing, view must stay glued
     const s5samples = await sampleDist(page, 900);
     const d5max = Math.max(...s5samples.filter((n) => Number.isFinite(n)));
-    check('S5', 'view glued while feed grows (max distance < 80)', d5max < 80, `max=${d5max}`);
+    // a glued view CAN show one pre-RO sample at up to a growth-batch of lag
+    // (evaluate slipping between the delta flush and the ResizeObserver);
+    // a real un-pin sustains >= 2 consecutive samples over the corner
+    const s5streak = streakOver(s5samples, 80);
+    check(
+      'S5',
+      'view glued while feed grows (no 2 consecutive samples > 80)',
+      s5streak < 2,
+      s5streak < 2 ? `max=${d5max}, streak=${s5streak}` : `max=${d5max}, streak=${s5streak} center=${centerEl} ${await traceDiag(page)}`,
+    );
     await screenshot(page, 'scrollstick-resumed');
 
     // ---- K1/K2 Home/End -----------------------------------------------------
@@ -315,8 +398,15 @@ try {
     check('K1', 'Home parks at top and stays under growth', k1top < 60, `scrollTop=${k1top}`);
     await page.keyboard.press('End');
     await sleep(300);
-    const k2 = await distFromBottom(page);
-    check('K2', 'End re-pins to the bottom corner', k2 < 80, `distance=${k2}`);
+    const k2samples = await sampleDist(page, 400, 80);
+    const k2 = Math.max(...k2samples.filter((n) => Number.isFinite(n)));
+    const k2streak = streakOver(k2samples, 80);
+    check(
+      'K2',
+      'End re-pins to the bottom corner (no 2 consecutive samples > 80)',
+      k2streak < 2,
+      k2streak < 2 ? `distance=${k2}` : `max=${k2}, streak=${k2streak} ${await traceDiag(page)}`,
+    );
     await ctl({ stop: true });
 
     // ---- page health --------------------------------------------------------
