@@ -201,28 +201,50 @@
   }
 
   let lastTop = 0
-  let followRan = false
-  let scrolledByFollow = false
+  // A follow() write's scroll event dispatches on the NEXT frame and looks
+  // exactly like a user scroll down to the bottom — it must not re-arm the
+  // pin (issue #7). The flag is set only when a write actually moves
+  // scrollTop and is consumed by the first scroll dispatch after it. It must
+  // NEVER be reset at follow() call time: a follow() called between a write
+  // and its dispatch (RO fires every growth flush) used to clear the old
+  // followRan flag that way, so the write's own event re-armed the pin right
+  // after a wheel-up and yanked the reader back to the bottom.
+  let suppressRearm = false
+  // e2e diagnostics: scrollstick reads pin state off the DOM
+  $: if (scroller) scroller.dataset.stuck = String(stuck)
   function onScroll() {
     // offsetParent is null under display:none — restore/clamp noise, not user
     if (!scroller || !scroller.offsetParent) return
     const goingUp = scroller.scrollTop < lastTop
     lastTop = scroller.scrollTop
-    // Re-arm the pin when the user scrolls down to the bottom corner, BUT
-    // suppress when the scroll came from follow() (issue #7).  follow() writes
-    // scrollTop asynchronously → onScroll fires in a separate task.  The
-    // followRan/scrolledByFollow pair tracks this across two frames: follow()
-    // sets followRan before the write, onScroll sees it and marks consumed via
-    // scrolledByFollow; both reset at the start of the next follow() call.
-    if (!goingUp && nearBottom(scroller) && !(followRan && !scrolledByFollow)) {
-      stuck = true
-    }
-    if (followRan) scrolledByFollow = true
+    if (suppressRearm) suppressRearm = false
+    else if (!goingUp && nearBottom(scroller)) stuck = true
     void maybeLoadOlder()
+  }
+
+  // Input-driven re-arm: scrolling DOWN (wheel / touch / arrow+page keys) is
+  // the user's intent to reach the bottom. Checked one frame later (after the
+  // browser applies the scroll) rather than from the scroll event — under
+  // main-thread jank scroll events dispatch 20-90ms late, by which time
+  // streaming growth has already pushed the view past a tight positional
+  // corner and the re-arm silently missed (S5: "wheels reached the bottom but
+  // the pin never came back"). Only DOWN input reaches here, so wheel-UP can
+  // never re-arm (issue #7) — the check itself is an exact clamp test, see cap.
+  function rearmSoon() {
+    if (!scroller) return
+    // bottom as of the input; the input's own scroll happens after this
+    // handler, so "scrollTop still at the old cap next frame" proves the
+    // scroll CLAMPED at the bottom — exact, unlike a slop guess, and immune
+    // to growth that lands in between (it raises the cap, not scrollTop).
+    const cap = scroller.scrollHeight - scroller.clientHeight
+    requestAnimationFrame(() => {
+      if (scroller?.offsetParent && scroller.scrollTop >= cap - 2) stuck = true
+    })
   }
 
   function onWheel(e: WheelEvent) {
     if (e.deltaY < 0) stuck = false
+    else if (e.deltaY > 0) rearmSoon()
   }
 
   let touchY = 0
@@ -232,6 +254,7 @@
   function onTouchMove(e: TouchEvent) {
     const y = e.touches[0]?.clientY ?? 0
     if (y > touchY + 6) stuck = false // downward drag = scrolling up = reading back
+    else if (y < touchY - 6) rearmSoon() // finger up = scrolling down toward the corner
     touchY = y
   }
 
@@ -252,28 +275,37 @@
       follow(true)
     } else if (e.key === 'ArrowUp' || e.key === 'PageUp') {
       stuck = false
+    } else if (e.key === 'ArrowDown' || e.key === 'PageDown') {
+      rearmSoon()
     }
   }
 
+  let forceQueued = false
   function follow(force = false) {
     if ((!stuck && !force) || !scroller) return
-    followRan = false
-    scrolledByFollow = false
-    requestAnimationFrame(() => {
+    const apply = () => {
       if (!scroller?.offsetParent) return
       if (tab.jumpTo) return // an anchor jump owns scrolling until it parks
-      if (stuck || force) {
-        followRan = true
-        scroller.scrollTop = scroller.scrollHeight
-        // Self-heal: if still stuck but the write didn't quite reach the bottom
-        // (content arrived during this frame), schedule another pass so the view
-        // converges within 1-2 frames instead of falling behind.  Cost is zero
-        // when at bottom (nearBottom is true → no re-schedule).
-        if (stuck && !nearBottom(scroller)) {
-          follow(false)
-        }
-      }
-    })
+      if (!stuck && !force) return // wheel-up landed between schedule and run
+      const before = scroller.scrollTop
+      scroller.scrollTop = scroller.scrollHeight
+      if (scroller.scrollTop !== before) suppressRearm = true
+    }
+    if (force) {
+      // activation / End: land after any browser restore-scroll (rAF, coalesced)
+      if (forceQueued) return
+      forceQueued = true
+      requestAnimationFrame(() => {
+        forceQueued = false
+        apply()
+      })
+      return
+    }
+    // streaming path: write synchronously from the ResizeObserver callback —
+    // it runs after layout, BEFORE this frame's paint, so a glued view never
+    // paints a one-frame lag (the ~84-105px sample blips). Scroll events
+    // still dispatch next frame, which is what suppressRearm covers.
+    apply()
   }
 
   // ---- older-history backfill -------------------------------------------
@@ -312,12 +344,8 @@
 
   onMount(() => {
     const ro = new ResizeObserver(() => {
-      // When feed grows and the reader is near the bottom, re-arm the pin so
-      // follow() keeps the view glued.  This covers the gap where onScroll
-      // suppresses re-arming because follow() wrote scrollTop in the same
-      // frame (issue #7 fix).  Only re-arm when already pinned — a reader
-      // who scrolled up stays unpinned even as content arrives.
-      if (stuck && scroller?.offsetParent && nearBottom(scroller)) stuck = true
+      // Feed grew: if the reader is pinned, glue them down before paint.
+      // A reader who scrolled up (stuck=false) is never yanked back.
       follow()
     })
     if (feed) ro.observe(feed)
