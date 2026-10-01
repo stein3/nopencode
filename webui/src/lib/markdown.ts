@@ -90,14 +90,16 @@ const FINAL_HIGHLIGHT_CAP_AT = 100_000
 // can interleave on the single thread.
 let liveParse = false
 
-// Every fence gets a copy button. The button sits in a wrapper div, NOT inside
-// the <pre>: the pre is the horizontally-scrolling box, and keeping the button
-// outside it means the affordance never scrolls away. The text is read back off
+// Every fence gets a copy button and (when the language is known, or was
+// detected) a label. Both live in a wrapper div, NOT inside the <pre>: the pre
+// is the horizontally-scrolling box, so keeping them outside means neither
+// scrolls away, and the copied text stays byte-exact. The text is read back off
 // the sibling <code> element (textContent of hljs-marked-up code == source),
 // so nothing extra has to survive the sanitizer.
 const COPY_BTN = '<button class="code-copy" type="button" title="Copy code">📋</button>'
-function fence(inner: string): string {
-  return `<div class="codeblock">${COPY_BTN}<pre>${inner}</pre></div>`
+function fence(lang: string, inner: string): string {
+  const label = lang ? `<span class="code-lang">${escapeHtml(lang)}</span>` : ''
+  return `<div class="codeblock">${label}${COPY_BTN}<pre>${inner}</pre></div>`
 }
 
 const renderer = new marked.Renderer()
@@ -110,11 +112,21 @@ renderer.code = ((arg: unknown, maybeLang?: string) => {
   // generous cap so completed parts show real colors
   const cap = liveParse ? (known ? HIGHLIGHT_CAP_AT : AUTO_SKIP_AT) : FINAL_HIGHLIGHT_CAP_AT
   if (text.length > cap) {
-    return fence(`<code class="hljs language-plaintext">${escapeHtml(text)}</code>`)
+    // no detection ran, so there's no honest label to show
+    return fence('', `<code class="hljs language-plaintext">${escapeHtml(text)}</code>`)
   }
   const l = known ? (lang as string) : 'plaintext'
-  const body = lang ? hljs.highlight(text, { language: l }).value : hljs.highlightAuto(text).value
-  return fence(`<code class="hljs language-${l}">${body}</code>`)
+  if (lang) {
+    const label = hljs.getLanguage(l)?.name ?? l
+    const body = hljs.highlight(text, { language: l }).value
+    return fence(label, `<code class="hljs language-${l}">${body}</code>`)
+  }
+  // unlabeled fence: highlightAuto reports what it guessed, free of extra cost.
+  // It's often wrong on prose/small snippets — CSS hides the label unless the
+  // block is hovered, focused within, or wide enough that the author clearly
+  // meant real code.
+  const auto = hljs.highlightAuto(text)
+  return fence(auto.language ?? '', `<code class="hljs language-plaintext">${auto.value}</code>`)
 }) as typeof renderer.code
 
 marked.use({ renderer, breaks: true, gfm: true })

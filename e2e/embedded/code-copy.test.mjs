@@ -10,6 +10,9 @@
 //      get a button too
 //   D. the message-level copy act still works (delegation didn't swallow it)
 //   E. a model-authored <button> in message text is stripped by the sanitizer
+//   F. language labels: "TypeScript" for the labeled fence, nothing at all for
+//      the oversized fence (no detection ran → no honest label), and the label
+//      is outside the <pre> so it never lands in the copied text
 //
 // Run: node e2e/embedded/code-copy.test.mjs
 
@@ -227,6 +230,19 @@ try {
     await evil.waitFor({ timeout: 10000 });
     check('E', 'model-authored button stripped', (await evil.locator('button.evil').count()) === 0);
     check('E', 'surrounding markup survives', (await evil.locator('b').count()) === 1);
+
+    // ---- F. language labels --------------------------------------------------
+    console.log('\nCASE F — language labels (pretty name, none for the un-detected fence)');
+    const blocks = row.locator('.codeblock');
+    // textContent = the canonical hljs name; rendered text is lowercased by CSS
+    check('F', 'labeled fence shows hljs canonical name', (await blocks.nth(0).locator('.code-lang').textContent()) === 'TypeScript');
+    check('F', 'label is visible', (await blocks.nth(0).locator('.code-lang').evaluate((el) => getComputedStyle(el).display)) === 'block');
+    check('F', 'label sits outside the <pre>', (await row.locator('pre .code-lang').count()) === 0);
+    check('F', 'oversized fence has NO label element at all', (await blocks.nth(1).locator('.code-lang').count()) === 0);
+    check('F', 'its copy button still shows on hover', await blocks.nth(1).hover().then(async () => (await blocks.nth(1).locator('.code-copy').evaluate((el) => getComputedStyle(el).opacity)) === '1'));
+    check('F', 'copy text unaffected by the label', (await copied(page, 0)).replace(/\n$/, '') === CODE);
+    await row.locator('.codeblock').nth(1).screenshot({ path: path.join(SHOTS_DIR, 'codecopy-plain-nolabel.png') });
+    await screenshot(page, 'codecopy-labels');
   } finally {
     await browser.close();
     await new Promise((r) => server.close(r));

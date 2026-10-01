@@ -1523,9 +1523,35 @@
   .transcript :global(.codeblock) {
     position: relative;
   }
-  /* keep the first line's tail clear of the button */
+  /* language label — own row above the <pre> so it never sits on the code. For
+     an unlabeled fence the name is highlightAuto's guess, so it stays hidden
+     unless the block is hovered / keyboard-reached / clearly real code. */
+  .transcript :global(.code-lang) {
+    display: none;
+    padding: 0 12px 2px;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.04em;
+    text-transform: lowercase;
+    color: var(--fg-dim);
+  }
+  /* :empty (oversized fence — no detection ran) stays hidden even when hovered */
+  .transcript :global(.code-lang:empty) {
+    display: none;
+  }
+  .transcript :global(.codeblock:hover .code-lang),
+  .transcript :global(.codeblock:focus-within .code-lang),
+  .transcript :global(.code-lang:not(:empty)) {
+    display: block;
+  }
+  /* keep the first line's tail clear of the copy button */
   .transcript :global(.codeblock pre) {
     padding-right: 44px;
+  }
+  @media (min-width: 620px) {
+    .transcript :global(.codeblock pre) {
+      min-width: 45ch;
+    }
   }
   .transcript :global(.code-copy) {
     position: absolute;
