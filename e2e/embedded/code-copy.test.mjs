@@ -4,7 +4,9 @@
 // webui/dist — no live engine/chatserver needed.
 //
 // Checks:
-//   A. every fence renders a button, OUTSIDE the scrolling <pre>
+//   A. a fence with a language gets a header row (label + button) inside the
+//      block's own box; one without gets no row at all (no blank bar) and the
+//      button overlays the code with clearance reserved. Never inside the <pre>
 //   B. click copies the exact fence text (hljs markup doesn't leak into it)
 //   C. glyph flips to ✓ then back to 📋; oversized plaintext-fallback fences
 //      get a button too
@@ -166,6 +168,7 @@ function check(c, name, pass, note = '') {
   console.log(`  [${pass ? 'PASS' : 'FAIL'}] ${c} · ${name}${note ? ` — ${note}` : ''}`);
 }
 const copied = (page, i = 0) => page.evaluate((n) => window.__copied?.[n], i);
+const blocks0 = (row) => row.locator('.codeblock');
 
 try {
   await new Promise((r) => server.listen(PORT, '127.0.0.1', r));
@@ -188,11 +191,30 @@ try {
     await row.waitFor({ timeout: 15000 });
 
     // ---- A. markup shape -----------------------------------------------------
-    console.log('\nCASE A — one copy button per fence, outside the scrolling <pre>');
+    console.log('\nCASE A — one header row per fence, inside the block box, outside the <pre>');
     check('A', 'two fences → two buttons', (await row.locator('.codeblock .code-copy').count()) === 2);
-    check('A', 'buttons are <button type="button"> (keyboard reachable)', (await row.locator('.codeblock > button.code-copy[type="button"]').count()) === 2);
+    check('A', 'buttons are <button type="button"> (keyboard reachable)', (await row.locator('.codeblock button.code-copy[type="button"]').count()) === 2);
     check('A', 'no button nested inside <pre> (would scroll away)', (await row.locator('pre button').count()) === 0);
-    check('A', 'wrapper is positioned (absolute anchor for the button)', (await row.locator('.codeblock').first().evaluate((el) => getComputedStyle(el).position)) === 'relative');
+    check('A', 'labeled fence: header row holds label + button', await row.locator('.codeblock').first().evaluate((el) => {
+      const head = el.querySelector('.code-head');
+      return !!head?.querySelector('.code-lang') && !!head.querySelector('button.code-copy');
+    }));
+    check('A', 'no-label fence gets NO header row (no blank bar)', await blocks0(row).nth(1).evaluate((el) => el.querySelector('.code-head') === null && el.classList.contains('nohead')));
+    check('A', 'its button overlays the code with clearance reserved', await blocks0(row).nth(1).evaluate((el) => {
+      const btn = getComputedStyle(el.querySelector(':scope > .code-copy'));
+      return btn.position === 'absolute' && parseFloat(getComputedStyle(el.querySelector('pre')).paddingRight) >= 40;
+    }));
+    check('A', 'wrapper draws the box; the <pre> inside is borderless/transparent', await row.locator('.codeblock').first().evaluate((el) => {
+      const cs = getComputedStyle(el);
+      const pre = getComputedStyle(el.querySelector('pre'));
+      return cs.backgroundColor !== 'rgba(0, 0, 0, 0)' && cs.borderTopWidth === '1px' && pre.borderTopWidth === '0px' && pre.backgroundColor === 'rgba(0, 0, 0, 0)';
+    }));
+    check('A', 'header sits above the code, sharing the box background', await row.locator('.codeblock').first().evaluate((el) => {
+      const head = el.querySelector('.code-head').getBoundingClientRect();
+      const pre = el.querySelector('pre').getBoundingClientRect();
+      return head.bottom <= pre.top + 1 && head.top >= el.getBoundingClientRect().top - 1;
+    }));
+    check('A', 'gap between header and first code line stays tight', await row.locator('.codeblock').first().evaluate((el) => parseFloat(getComputedStyle(el.querySelector('pre')).paddingTop) <= 6));
     await screenshot(page, 'codecopy-blocks');
 
     // ---- B. click copies the fence text --------------------------------------

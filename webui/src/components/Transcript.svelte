@@ -1517,62 +1517,73 @@
     background: transparent;
     padding: 0;
   }
-  /* fence copy button — injected by md(), so it needs :global. Kept dim until
-     hover/focus so it doesn't fight the syntax colors, and solid enough to tap
-     on touch (no hover there). Sits outside the <pre> so it never scrolls. */
+  /* The wrapper owns the box (background/border/radius); the <pre> inside only
+     scrolls and pads, so the header row reads as part of the block instead of
+     floating above it. */
   .transcript :global(.codeblock) {
     position: relative;
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
   }
-  /* language label — own row above the <pre> so it never sits on the code. For
-     an unlabeled fence the name is highlightAuto's guess, so it stays hidden
-     unless the block is hovered / keyboard-reached / clearly real code. */
+  .transcript :global(.codeblock pre) {
+    background: transparent;
+    border: 0;
+    border-radius: 0;
+    /* the context rules pad the <pre> 10px (8px in .think-body); under a header
+       row that reads as a gap, so only the leading half-line is left */
+    padding-top: 4px;
+  }
+  /* header row: language label left, copy button right, hairline underneath */
+  .transcript :global(.code-head) {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 6px 0 12px;
+    border-bottom: 1px solid var(--border);
+  }
   .transcript :global(.code-lang) {
-    display: none;
-    padding: 0 12px 2px;
     font-family: var(--mono);
     font-size: 10px;
     letter-spacing: 0.04em;
     text-transform: lowercase;
     color: var(--fg-dim);
   }
-  /* :empty (oversized fence — no detection ran) stays hidden even when hovered */
-  .transcript :global(.code-lang:empty) {
-    display: none;
-  }
-  .transcript :global(.codeblock:hover .code-lang),
-  .transcript :global(.codeblock:focus-within .code-lang),
-  .transcript :global(.code-lang:not(:empty)) {
-    display: block;
-  }
-  /* keep the first line's tail clear of the copy button */
-  .transcript :global(.codeblock pre) {
-    padding-right: 44px;
-  }
-  @media (min-width: 620px) {
-    .transcript :global(.codeblock pre) {
-      min-width: 45ch;
-    }
-  }
+  /* in a header row the button is just a flex child; with no header (fence had
+     no language) it overlays the code's top-right on a matching background */
   .transcript :global(.code-copy) {
-    position: absolute;
-    top: 6px;
-    right: 6px;
-    z-index: 1;
-    padding: 2px 6px;
+    margin-left: auto;
+    padding: 1px 6px;
     font-family: var(--mono);
     font-size: 11px;
     line-height: 1.2;
     color: var(--fg-dim);
-    background: var(--bg-code);
-    border: 1px solid var(--border);
+    background: transparent;
+    border: 1px solid transparent;
     border-radius: 4px;
     cursor: pointer;
     opacity: 0.55;
+  }
+  .transcript :global(.codeblock.nohead > .code-copy) {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    background: var(--bg-code);
+    border-color: var(--border);
+  }
+  /* keep the first line clear of that overlay button */
+  .transcript :global(.codeblock.nohead pre) {
+    padding-right: 44px;
   }
   .transcript :global(.codeblock:hover .code-copy),
   .transcript :global(.code-copy:focus-visible) {
     opacity: 1;
     color: var(--fg);
+  }
+  .transcript :global(.codeblock > .code-copy:hover),
+  .transcript :global(.codeblock > .code-copy:focus-visible) {
+    border-color: var(--fg-dim);
   }
   .body :global(a) {
     color: var(--accent);

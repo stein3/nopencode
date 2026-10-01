@@ -90,16 +90,22 @@ const FINAL_HIGHLIGHT_CAP_AT = 100_000
 // can interleave on the single thread.
 let liveParse = false
 
-// Every fence gets a copy button and (when the language is known, or was
-// detected) a label. Both live in a wrapper div, NOT inside the <pre>: the pre
-// is the horizontally-scrolling box, so keeping them outside means neither
-// scrolls away, and the copied text stays byte-exact. The text is read back off
-// the sibling <code> element (textContent of hljs-marked-up code == source),
-// so nothing extra has to survive the sanitizer.
+// Every fence gets a copy button, and a header row when there's a language to
+// name. The row and the button live outside the <pre>: the pre is the
+// horizontally-scrolling box, so keeping them outside means neither scrolls
+// away, and the copied text stays byte-exact (read back off the sibling <code>
+// — textContent of hljs-marked-up code == source). CSS puts the background on
+// .codeblock so the header reads as part of the block.
+//
+// No label → no header row at all (an empty bar is just dead space); the
+// button overlays the code's top-right on a matching background instead.
 const COPY_BTN = '<button class="code-copy" type="button" title="Copy code">📋</button>'
 function fence(lang: string, inner: string): string {
-  const label = lang ? `<span class="code-lang">${escapeHtml(lang)}</span>` : ''
-  return `<div class="codeblock">${label}${COPY_BTN}<pre>${inner}</pre></div>`
+  const head = lang
+    ? `<div class="code-head"><span class="code-lang">${escapeHtml(lang)}</span>${COPY_BTN}</div>`
+    : ''
+  const cls = lang ? 'codeblock' : 'codeblock nohead'
+  return `<div class="${cls}">${head || COPY_BTN}<pre>${inner}</pre></div>`
 }
 
 const renderer = new marked.Renderer()
