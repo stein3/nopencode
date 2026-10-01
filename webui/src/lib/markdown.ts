@@ -11,6 +11,10 @@ DOMPurify.addHook('afterSanitizeAttributes', (node: Element) => {
     node.setAttribute('target', '_blank')
     node.setAttribute('rel', 'noopener noreferrer')
   }
+  // <button> is allowed ONLY to carry the app's own fence-copy button
+  // (fence() below). Model-authored buttons are dropped so untrusted content
+  // can't inject interactive UI.
+  if (node.tagName === 'BUTTON' && node.getAttribute('class') !== 'code-copy') node.remove()
 })
 
 // Block javascript:/data:/vbscript: and any other dangerous URI schemes in
@@ -24,7 +28,7 @@ const PURIFY_CONFIG = {
     'p', 'br', 'hr',
     'strong', 'em', 'b', 'i', 'u', 'ins', 'mark',
     'ul', 'ol', 'li',
-    'blockquote', 'pre', 'code',
+    'blockquote', 'pre', 'code', 'button',
     'a',
     'table', 'thead', 'tbody', 'tr', 'th', 'td',
     'img',
@@ -33,14 +37,16 @@ const PURIFY_CONFIG = {
   ALLOWED_ATTR: [
     'href', 'title', 'alt', 'src', 'width', 'height',
     'colspan', 'rowspan', 'align', 'valign',
-    'open',
+    'open', 'type',
     'class',
   ],
   ALLOWED_URI_REGEXP: PURIFY_URI_REGEXP,
   // CSS-injection surface: never let untrusted content become CSS.
+  // FORBID_TAGS overrides ALLOWED_TAGS, so 'button' must NOT be listed here —
+  // it is allowlisted for the fence copy button and filtered in the hook above.
   FORBID_TAGS: [
     'style', 'script', 'iframe', 'object', 'embed', 'applet',
-    'form', 'input', 'textarea', 'select', 'button',
+    'form', 'input', 'textarea', 'select',
     'meta', 'link', 'base', 'svg', 'foreignObject', 'math',
   ],
   FORBID_ATTR: ['style'],
@@ -84,6 +90,16 @@ const FINAL_HIGHLIGHT_CAP_AT = 100_000
 // can interleave on the single thread.
 let liveParse = false
 
+// Every fence gets a copy button. The button sits in a wrapper div, NOT inside
+// the <pre>: the pre is the horizontally-scrolling box, and keeping the button
+// outside it means the affordance never scrolls away. The text is read back off
+// the sibling <code> element (textContent of hljs-marked-up code == source),
+// so nothing extra has to survive the sanitizer.
+const COPY_BTN = '<button class="code-copy" type="button" title="Copy code">📋</button>'
+function fence(inner: string): string {
+  return `<div class="codeblock">${COPY_BTN}<pre>${inner}</pre></div>`
+}
+
 const renderer = new marked.Renderer()
 renderer.code = ((arg: unknown, maybeLang?: string) => {
   // marked >=13 passes an object; older versions pass positional args
@@ -94,11 +110,11 @@ renderer.code = ((arg: unknown, maybeLang?: string) => {
   // generous cap so completed parts show real colors
   const cap = liveParse ? (known ? HIGHLIGHT_CAP_AT : AUTO_SKIP_AT) : FINAL_HIGHLIGHT_CAP_AT
   if (text.length > cap) {
-    return `<pre><code class="hljs language-plaintext">${escapeHtml(text)}</code></pre>`
+    return fence(`<code class="hljs language-plaintext">${escapeHtml(text)}</code>`)
   }
   const l = known ? (lang as string) : 'plaintext'
   const body = lang ? hljs.highlight(text, { language: l }).value : hljs.highlightAuto(text).value
-  return `<pre><code class="hljs language-${l}">${body}</code></pre>`
+  return fence(`<code class="hljs language-${l}">${body}</code>`)
 }) as typeof renderer.code
 
 marked.use({ renderer, breaks: true, gfm: true })

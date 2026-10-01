@@ -60,6 +60,8 @@
 - `launchBrowser()` in `e2e/helpers/setup.mjs` bakes in swiftshader + font flags for sandbox.
 - **`poll()` footgun**: `poll(() => el.count() === 0, T)` always times out — `count()` returns a Promise and `Promise === 0` is false. Always await: `poll(async () => (await el.count()) === 0, T)`.
 - Agent-picker fixtures need the dist built as `WEBUI_BASE=/ npm run build` — with the default `/webui/` base the fake's static handler 404s `/webui/assets/*` and nothing renders (masquerades as a picker bug).
+- Same trap applies to ANY embedded test that waits on `.msg` / `.sidebar` (modelid, tasknotice, …): default-base dist ⇒ blank app, not a fixture bug. Build `WEBUI_BASE=/` before running them.
+- `~/.cache/ms-playwright` can be empty in a fresh sandbox — every embedded test dies with "Executable doesn't exist". Restore: `cd e2e && node node_modules/playwright-core/cli.js install chromium-headless-shell`.
 
 ### Mobile
 

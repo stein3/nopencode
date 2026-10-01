@@ -20,7 +20,7 @@ import {
   type DialogSpec,
 } from './stores'
 import { refetchNow } from './sse'
-import { roleLabel, taskNoticeOf } from './util'
+import { roleLabel, taskNoticeOf, copyText } from './util'
 
 export type CmdSource = 'builtin' | 'command' | 'skill'
 
@@ -180,27 +180,6 @@ function transcriptMarkdown(sid: string): string {
 
 function openDialog(d: DialogSpec) {
   dialog.set(d)
-}
-
-async function copyText(text: string): Promise<boolean> {
-  try {
-    await navigator.clipboard.writeText(text)
-    return true
-  } catch {
-    try {
-      const ta = document.createElement('textarea')
-      ta.value = text
-      ta.style.position = 'fixed'
-      ta.style.opacity = '0'
-      document.body.appendChild(ta)
-      ta.select()
-      const ok = document.execCommand('copy')
-      ta.remove()
-      return ok
-    } catch {
-      return false
-    }
-  }
 }
 
 function download(name: string, text: string) {

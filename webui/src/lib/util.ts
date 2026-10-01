@@ -78,6 +78,30 @@ export function taskNoticeOf(m: any): TaskNotice | undefined {
   return undefined
 }
 
+// Clipboard write with a hidden-textarea fallback for non-secure contexts
+// (plain-HTTP LAN, older WebViews). Returns false when the platform refuses
+// both paths so callers can surface a failure instead of a fake success.
+export async function copyText(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text)
+    return true
+  } catch {
+    try {
+      const ta = document.createElement('textarea')
+      ta.value = text
+      ta.style.position = 'fixed'
+      ta.style.opacity = '0'
+      document.body.appendChild(ta)
+      ta.select()
+      const ok = document.execCommand('copy')
+      ta.remove()
+      return ok
+    } catch {
+      return false
+    }
+  }
+}
+
 // head/export label for one message: user rows are "you", errored turns
 // present as "Error", everything else shows the engine-stamped agent name
 // titlecased; missing agent falls back to the product name. Shared by

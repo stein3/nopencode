@@ -6,7 +6,7 @@
   import { md } from '../lib/markdown'
   import { isImagePath, imageDataUrl } from '../lib/images'
   import { extLabel, isImageMime } from '../lib/attachments'
-  import { isAborted, roleLabel, taskNoticeOf } from '../lib/util'
+  import { isAborted, roleLabel, taskNoticeOf, copyText } from '../lib/util'
   import { retryState, cancelRetry, nextPayloadKind } from '../lib/retries'
   import ModelSelect from './ModelSelect.svelte'
   import QuestionPicker from './QuestionPicker.svelte'
@@ -898,24 +898,25 @@
       toast('no text to copy')
       return
     }
-    try {
-      await navigator.clipboard.writeText(text)
-      toast('copied')
-    } catch {
-      try {
-        const ta = document.createElement('textarea')
-        ta.value = text
-        ta.style.position = 'fixed'
-        ta.style.opacity = '0'
-        document.body.appendChild(ta)
-        ta.select()
-        document.execCommand('copy')
-        ta.remove()
-        toast('copied')
-      } catch {
-        toast('copy failed')
-      }
-    }
+    toast((await copyText(text)) ? 'copied' : 'copy failed')
+  }
+
+  // Fence copy button. One delegated handler covers every {@html} markdown
+  // sink (message bodies, thinking, subagent notes) — the button is inert HTML
+  // from md(), so match it by class and read the text off its sibling <code>
+  // (hljs markup preserves the source in textContent).
+  function onBodyClick(e: MouseEvent) {
+    const btn = (e.target as Element | null)?.closest?.('button.code-copy') as
+      | HTMLButtonElement
+      | null
+    const code = btn?.closest('.codeblock')?.querySelector('code')
+    if (!btn || !code) return
+    copyText(code.textContent ?? '').then((ok) => toast(ok ? 'code copied' : 'copy failed'))
+    btn.textContent = '✓'
+    setTimeout(() => {
+      // a streaming re-render may have replaced the node already
+      if (btn.isConnected) btn.textContent = '📋'
+    }, 1200)
   }
 </script>
 
@@ -924,6 +925,7 @@
 <div
   class="transcript"
   bind:this={scroller}
+  on:click={onBodyClick}
   on:scroll={onScroll}
   on:wheel={onWheel}
   on:touchstart|passive={onTouchStart}
@@ -1514,6 +1516,37 @@
   .body :global(pre code) {
     background: transparent;
     padding: 0;
+  }
+  /* fence copy button — injected by md(), so it needs :global. Kept dim until
+     hover/focus so it doesn't fight the syntax colors, and solid enough to tap
+     on touch (no hover there). Sits outside the <pre> so it never scrolls. */
+  .transcript :global(.codeblock) {
+    position: relative;
+  }
+  /* keep the first line's tail clear of the button */
+  .transcript :global(.codeblock pre) {
+    padding-right: 44px;
+  }
+  .transcript :global(.code-copy) {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    z-index: 1;
+    padding: 2px 6px;
+    font-family: var(--mono);
+    font-size: 11px;
+    line-height: 1.2;
+    color: var(--fg-dim);
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    cursor: pointer;
+    opacity: 0.55;
+  }
+  .transcript :global(.codeblock:hover .code-copy),
+  .transcript :global(.code-copy:focus-visible) {
+    opacity: 1;
+    color: var(--fg);
   }
   .body :global(a) {
     color: var(--accent);
