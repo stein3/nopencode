@@ -50,7 +50,11 @@
     }, Math.max(remaining, 0))
   }
 
-  function html(part: any, live?: boolean, _throttleTick?: number): string {
+  // headings=false: user-role text renders heading lines literally (they
+  // paste console/code where `#` is a comment — see keepHeadings in
+  // markdown.ts). Role is immutable per part, so the id+length cache keys
+  // below can't mix modes for one key.
+  function html(part: any, live?: boolean, _throttleTick?: number, headings = true): string {
     if (part.type !== 'text' && part.type !== 'reasoning') return ''
     const id = String(part.id ?? 'x')
     const text = part.text ?? ''
@@ -71,7 +75,7 @@
       // live renders go into streamThrottle ONLY: they may contain the cheap
       // plaintext-fallback fences, so they must never satisfy a later
       // final-quality renderCache lookup at the same length
-      const safe = md(text, true)
+      const safe = md(text, true, headings)
       streamThrottle.set(id, { len: text.length, html: safe, at: Date.now() })
       return safe
     }
@@ -80,7 +84,7 @@
     const hit = renderCache.get(key)
     if (hit) return hit
     // final render: full-quality parse (real hljs colors), cached for reloads
-    const safe = md(text, false)
+    const safe = md(text, false, headings)
     if (renderCache.size > 400) renderCache.clear()
     renderCache.set(key, safe)
     return safe
@@ -1008,7 +1012,7 @@
                 <div class="tnote-body">{@html html({ ...p, text: taskBody(p.text ?? '') }, tab.busy && m === lastMsg, throttleTick)}</div>
               </details>
             {:else}
-              {@html html(p, tab.busy && m === lastMsg, throttleTick)}
+              {@html html(p, tab.busy && m === lastMsg, throttleTick, m.role !== 'user')}
             {/if}
           {:else if p.type === 'reasoning' && (p.text ?? '').trim()}
             <details class="thinking" open={$showThinking || p.id === liveReasoningId || undefined}>

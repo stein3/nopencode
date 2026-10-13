@@ -70,7 +70,8 @@
 
 ### Streaming / rendering
 
-- `markdown.ts md(src, live=false)`: live path has fence caps (unlabeled >4k / labeled >50k → plaintext). **Transcript's `renderCache` is written ONLY by the non-live path** — live renders must never satisfy a later final-quality lookup.
+- `markdown.ts md(src, live=false, headings=true)`: live path has fence caps (unlabeled >4k / labeled >50k → plaintext). **Transcript's `renderCache` is written ONLY by the non-live path** — live renders must never satisfy a later final-quality lookup.
+- `headings=false` (user-role messages only — Transcript passes `m.role !== 'user'`): `renderer.heading` returns the raw line as literal `<p>` (token.raw carries the `#`/setext markers; trailing `\n` trimmed). Suppression MUST live in the renderer, never as a pre-escape regex — `\#` corrupts `# comments` inside ``` fences. Returning `false` from the override delegates to marked's default (the `marked.use` wrapper falls back only on strict `false`; `''` swallows the heading). Agent/reasoning/subagent text keeps full markdown. Guard: `e2e/embedded/user-md.test.mjs`.
 - Delta coalescing in `sse.ts`: `message.part.delta` chunks buffered per key with ~40ms flush; `message.part.updated` snapshot ALWAYS drops buffered deltas first to prevent duplication.
 - `scheduleRefetch()` gated on `!busy` in `message.updated` handler — otherwise in-progress thinking text gets overwritten by stale engine snapshots.
 - `streamThrottle` stale-serves ≤120 ms (`STREAM_THROTTLE_MS`); a stale serve must schedule `throttleTick++` at window expiry or a burst whose final delta lands inside the window never re-renders ("streamed text missing until I click").

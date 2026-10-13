@@ -85,10 +85,14 @@ const HIGHLIGHT_CAP_AT = 50000
 // colors survive. Only truly pathological blobs fall back to plaintext.
 const FINAL_HIGHLIGHT_CAP_AT = 100_000
 
-// Mode flag for the current marked.parse call: set by md() right before
-// parsing, read by renderer.code. Safe because parse is synchronous — nothing
-// can interleave on the single thread.
+// Mode flags for the current marked.parse call: set by md() right before
+// parsing, read by renderer.code / renderer.heading. Safe because parse is
+// synchronous — nothing can interleave on the single thread.
 let liveParse = false
+// false while rendering the user's own messages: they paste code/console
+// snippets where a leading `#` is a comment, not a banner. Agent-authored
+// text (assistant/reasoning/subagent results) keeps full markdown.
+let keepHeadings = true
 
 // Every fence gets a copy button, and a header row when there's a language to
 // name. The row and the button live outside the <pre>: the pre is the
@@ -135,13 +139,33 @@ renderer.code = ((arg: unknown, maybeLang?: string) => {
   return fence(auto.language ?? '', `<code class="hljs language-plaintext">${auto.value}</code>`)
 }) as typeof renderer.code
 
+// Heading suppression for the user's own messages (see keepHeadings): emit the
+// source line literally instead of an <hN>. token.raw already carries the `#`
+// markers (ATX) or the `===`/`---` underline (setext), so fidelity is just
+// escaping it — inline markdown inside the line stays literal too, which is
+// what pasted console text should do. Returning false delegates to marked's
+// default: the marked.use() wrapper below invokes this fn with the real
+// parser-bound renderer, and on strict `false` falls back to the default impl
+// (returning '' would swallow the heading — the wrapper only falls back on
+// false). Never fires for fenced/list/inline-code content: those don't lex as
+// heading tokens, so intentional ```-fences in the user's messages keep byte
+// fidelity.
+renderer.heading = ((arg: unknown) => {
+  if (keepHeadings) return false as unknown as string
+  const t = (arg ?? {}) as { raw?: string; text?: string; depth?: number }
+  const raw = (t.raw ?? t.text ?? '').replace(/\s+$/, '')
+  return `<p>${escapeHtml(raw).replace(/\n/g, '<br>')}</p>`
+}) as typeof renderer.heading
+
 marked.use({ renderer, breaks: true, gfm: true })
 
-export function md(src: string, live = false): string {
+export function md(src: string, live = false, headings = true): string {
   liveParse = live
+  keepHeadings = headings
   try {
     return DOMPurify.sanitize(marked.parse(src, { async: false }) as string, PURIFY_CONFIG_WITH_TT)
   } finally {
     liveParse = false
+    keepHeadings = true
   }
 }
