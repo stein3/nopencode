@@ -57,7 +57,7 @@
 
   // reactive statements, NOT functions called in the template — stores/vars
   // read inside a function body are invisible to the compiler and the label
-  // freezes (the ModelPicker `{label()}` bug)
+  // freezes (the ComposerModelPicker `{label()}` bug)
   $: cur = $sessionAgents[sid]
   $: defLabel = titleName(defSession || defGlobal) || 'Auto'
   $: curLabel = cur ? titleName(cur) : defLabel
@@ -143,7 +143,7 @@
     flex: none; /* never fight the textarea's flex: 1 */
     align-self: center;
   }
-  /* tokens mirror ModelPicker's collapsed button */
+  /* tokens mirror ComposerModelPicker's collapsed button */
   .cur {
     display: inline-flex;
     align-items: center;
@@ -161,7 +161,7 @@
     color: var(--fg);
     border-color: var(--accent);
   }
-  /* open-state affordance — no transition: ModelPicker has none either */
+  /* open-state affordance — no transition: ComposerModelPicker has none either */
   .cur.open {
     border-color: var(--accent);
     color: var(--fg);
@@ -186,7 +186,7 @@
     flex-shrink: 0;
   }
   /* opens UPWARD — the composer sits at viewport bottom (slash-menu precedent),
-     unlike the topbar ModelPicker whose menu drops down */
+     unlike a topbar-style picker whose menu drops down */
   .menu {
     position: absolute;
     bottom: calc(100% + 14px);

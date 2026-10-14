@@ -13,6 +13,7 @@
   let variantMap: VariantMap = {}
   let pickedModel: { pid: string; mid: string } | null = null
   let highlighted = -1
+  let filter = ''
   let menuEl: HTMLDivElement | null = null
 
   // ctrl+x m chord sets this store — consume it to open the picker
@@ -40,7 +41,10 @@
 
   // Sectioned list: "Recent" at the top (in recency order, max 6), then
   // provider-grouped sections for ALL models (alphabetical within each group).
+  // While a type-filter is active, Recent is dropped (it would just duplicate
+  // provider hits) and sections only keep models whose name/id/provider match.
   $: sections = (() => {
+    const q = filter.trim().toLowerCase()
     const all: ModelItem[] = providers.flatMap((p) =>
       Object.values(p.models ?? {}).map((m) => ({
         pid: p.id,
@@ -49,20 +53,25 @@
         mname: m.name ?? m.id,
       })),
     )
+    const matched = q
+      ? all.filter((it) => (it.mname + ' ' + it.mid + ' ' + it.pname).toLowerCase().includes(q))
+      : all
 
     const recentItems: ModelItem[] = []
     const recentSeen = new Set<string>()
-    for (const r of $recentModels) {
-      if (recentItems.length >= RECENT_LIMIT) break
-      const key = r.providerID + '/' + r.modelID
-      if (recentSeen.has(key)) continue
-      recentSeen.add(key)
-      const item = all.find((it) => it.pid === r.providerID && it.mid === r.modelID)
-      if (item) recentItems.push(item)
+    if (!q) {
+      for (const r of $recentModels) {
+        if (recentItems.length >= RECENT_LIMIT) break
+        const key = r.providerID + '/' + r.modelID
+        if (recentSeen.has(key)) continue
+        recentSeen.add(key)
+        const item = all.find((it) => it.pid === r.providerID && it.mid === r.modelID)
+        if (item) recentItems.push(item)
+      }
     }
 
     const providerGroups = new Map<string, ModelItem[]>()
-    for (const it of all) {
+    for (const it of matched) {
       const arr = providerGroups.get(it.pid) ?? []
       arr.push(it)
       providerGroups.set(it.pid, arr)
@@ -147,6 +156,8 @@
 
   // Reset highlight when menu opens or switches to variant view
   $: if (open || pickedModel !== null) highlighted = -1
+  // Fresh filter each time the menu opens
+  $: if (open) filter = ''
 
   // Flat index for section view: cumulative offset across sections
   function flatIdx(secIdx: number, itemIdx: number): number {
@@ -186,6 +197,11 @@
     if (e.key === 'Escape') {
       e.preventDefault()
       e.stopPropagation()
+      if (!pickedModel && filter) {
+        filter = ''
+        highlighted = -1
+        return
+      }
       open = false
     } else if (e.key === 'ArrowDown') {
       e.preventDefault()
@@ -195,10 +211,25 @@
       e.preventDefault()
       e.stopPropagation()
       highlightPrev()
-    } else if (e.key === 'Enter' && highlighted >= 0) {
+    } else if (e.key === 'Enter') {
+      if (highlighted >= 0) {
+        e.preventDefault()
+        e.stopPropagation()
+        activateHighlighted()
+      } else if (!pickedModel && filter && sections.length) {
+        // filtering with no explicit highlight — Enter takes the top hit
+        e.preventDefault()
+        e.stopPropagation()
+        const first = menuItems()[0]
+        first?.click()
+      }
+    } else if (!pickedModel && (e.key === 'Backspace' || (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey))) {
+      // capture-phase + stopPropagation keeps the keystroke out of the composer
+      // textarea and the bubble-phase hotkeys (e.g. "/" focus-composer)
       e.preventDefault()
       e.stopPropagation()
-      activateHighlighted()
+      filter = e.key === 'Backspace' ? filter.slice(0, -1) : filter + e.key
+      highlighted = -1
     }
   }
 
@@ -238,6 +269,9 @@
           <span class="nm">no thinking override</span>
         </button>
       {:else}
+        {#if filter}
+          <div class="filt"><span class="fq">{filter}</span><span class="fh">esc clears</span></div>
+        {/if}
         {#each sections as sec, secIdx (sec.label)}
           <div class="sec-head">{sec.label}</div>
           {#each sec.items as m, itemIdx (m.pid + '/' + m.mid)}
@@ -252,7 +286,7 @@
             </button>
           {/each}
         {:else}
-          <div class="none">engine unreachable</div>
+          <div class="none">{filter ? 'no matching models' : 'engine unreachable'}</div>
         {/each}
       {/if}
     </div>
@@ -403,6 +437,27 @@
     border-top: 1px solid var(--border);
     margin-top: 4px;
     padding-top: 8px;
+  }
+  .filt {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 6px 10px 4px;
+    font-size: 11px;
+    color: var(--fg);
+    border-bottom: 1px solid var(--border);
+  }
+  .fq {
+    font-family: inherit;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .fh {
+    font-size: 10px;
+    color: var(--fg-dim);
+    flex-shrink: 0;
   }
   @media (max-width: 480px) {
     .menu {

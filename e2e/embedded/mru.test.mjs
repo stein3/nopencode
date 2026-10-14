@@ -1,4 +1,4 @@
-// verify-mru.mjs — Model recency ordering in the topbar ModelPicker menu.
+// verify-mru.mjs — Model recency ordering in the ComposerModelPicker menu.
 //
 // Self-contained fake engine: serves webui/dist + stub /oc endpoints + SSE,
 // driven via /__ctl + introspected via /__state.  No live engine/chatserver.
@@ -195,7 +195,7 @@ try {
     // M2: sorted by provider label then alphabetical within provider when no recents
     const names0 = [];
     for (const r of rows) names0.push(((await r.locator('.nm').textContent()) ?? '').trim());
-    // Build expected order: provider-label-grouped alphabetical (matches ModelPicker sections logic)
+    // Build expected order: provider-label-grouped alphabetical (matches ComposerModelPicker sections logic)
     const expectedOrder = PROVIDERS
       .flatMap((p) => Object.keys(p.models).map((id) => ({ id, provider: p.name ?? p.id })))
       .sort((a, b) => a.provider.localeCompare(b.provider) || a.id.localeCompare(b.id))

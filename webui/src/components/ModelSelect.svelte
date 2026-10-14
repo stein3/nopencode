@@ -4,8 +4,8 @@
   import { selectedModel, preferredDefaultModel, extractVariants, type VariantMap } from '../lib/stores'
 
   // Compact native-select model picker for the new-session empty state.
-  // Same store as the topbar ModelPicker — both views stay in sync because
-  // they read/write the persisted selection.
+  // Same store as the composer ComposerModelPicker — both views stay in sync
+  // because they read/write the persisted selection.
   let providers: { id: string; name?: string; models: Record<string, any> }[] = []
   let variantMap: VariantMap = {}
 

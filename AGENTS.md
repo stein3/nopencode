@@ -26,7 +26,7 @@
 
 ### Svelte gotchas
 
-- **Frozen reactive expressions**: a function called in a template (`{fn($store)}`) only re-runs when the function *binding* is dirtied — reactive vars read *inside* the body are invisible to the compiler. Fix: `$: result = fn($store)` and render `{result}`. Affected: ModelPicker label, CommandPalette sid resolution, rename dialog seeding.
+- **Frozen reactive expressions**: a function called in a template (`{fn($store)}`) only re-runs when the function *binding* is dirtied — reactive vars read *inside* the body are invisible to the compiler. Fix: `$: result = fn($store)` and render `{result}`. Affected: ComposerModelPicker label, CommandPalette sid resolution, rename dialog seeding.
 - **localStorage invisible to reactivity**: `$: x = localStorage.getItem(...)` never re-runs when localStorage changes. Keep such data in a writable store.
 - **Attribute type coercion**: `open={p.id === someBoolean}` (string vs boolean) is silently always-false — no build-time error.
 - **A reactive block that mutates its own dep loops**: InfoPanel's `$: if ($sessionListDirty > 0 && !linkedDirtyTimer)` re-fired the instant the timer callback reset `linkedDirtyTimer = undefined` → permanent 250 ms `hist.sessions()` + `oc.status()` hammer. React on the counter *changing* (`$sessionListDirty !== linkedDirtySeen`), not on `> 0`.

@@ -3,7 +3,7 @@
 //
 // Cases:
 //   1. Empty session: select from dropdown → prompt POST carries the picked model
-//   2. Non-empty session: topbar ModelPicker pick changes model for next prompt
+//   2. Non-empty session: composer-toolbar model picker changes model for next prompt
 //   3. Prompt bodies reflect the picks
 //
 // Run: node e2e/embedded/model-picker.test.mjs
@@ -223,8 +223,8 @@ try {
     const m1 = state.promptBodies[0]?.body?.model;
     check('M', 'prompt #1 model is big-pickle', m1?.modelID === 'big-pickle', JSON.stringify(m1));
 
-    // ---- Phase 2: topbar picker changes model for next prompt ----------------
-    console.log('\nPHASE 2 — topbar picker changes model');
+    // ---- Phase 2: composer picker changes model for next prompt ----------------
+    console.log('\nPHASE 2 — composer picker changes model');
     // After sending a message the pane is no longer empty, but ComposerModelPicker
     // (inside ComposerToolbar) is always visible above the composer input.
     // Wait for busy to clear (SSE session.idle) before clicking the picker.
@@ -237,7 +237,7 @@ try {
     await sleep(500);
 
     const stored = await page.evaluate(() => localStorage.getItem('opencode.model'));
-    check('M', 'localStorage updated after topbar pick', !!stored, stored);
+    check('M', 'localStorage updated after composer pick', !!stored, stored);
 
     // Send the second prompt
     await page.fill(`${PANE} #composer-input:visible`, 'probe two');
@@ -247,6 +247,38 @@ try {
     check('M', 'prompt #2 captured', state.promptBodies.length >= 2);
     const m2 = state.promptBodies[1]?.body?.model;
     check('M', 'prompt #2 model present', !!m2, JSON.stringify(m2));
+
+    // ---- Phase 3: type-to-filter while menu is open --------------------------
+    console.log('\nPHASE 3 — type-to-filter');
+    // Open via the ctrl+x m chord with focus in the composer textarea — the
+    // open menu must capture keystrokes before they reach the textarea.
+    await page.click(`${PANE} #composer-input:visible`);
+    await page.keyboard.press('Control+x');
+    await page.keyboard.press('m');
+    await page.locator(`${PANE} .menu`).waitFor({ state: 'visible', timeout: 5000 });
+    const allRows = await page.locator(`${PANE} .menu .m`).count();
+    check('M', 'unfiltered menu lists all models', allRows >= 3, `${allRows} rows`);
+
+    await page.keyboard.type('alpha');
+    await sleep(300);
+    const rows = await page.locator(`${PANE} .menu .m`).allInnerTexts();
+    check('M', 'filter narrows to matching model', rows.length === 1 && rows[0].includes('ox-alpha-free'), JSON.stringify(rows));
+    const taVal = await page.inputValue(`${PANE} #composer-input:visible`);
+    check('M', 'typed filter did not leak into composer', taVal === '', taVal);
+
+    // Enter with no explicit highlight picks the top (only) match
+    await page.keyboard.press('Enter');
+    await sleep(500);
+    const menuGone = (await page.locator(`${PANE} .menu`).count()) === 0;
+    const stored3 = await page.evaluate(() => localStorage.getItem('opencode.model'));
+    check('M', 'Enter picks top filtered match', menuGone && !!stored3?.includes('ox-alpha-free'), stored3);
+
+    // filter resets on reopen
+    await page.click(`${PANE} button[title="Model for next message"]`);
+    await page.locator(`${PANE} .menu`).waitFor({ state: 'visible', timeout: 5000 });
+    const reopenRows = await page.locator(`${PANE} .menu .m`).count();
+    check('M', 'filter cleared on reopen', reopenRows >= 3, `${reopenRows} rows`);
+    await page.keyboard.press('Escape');
 
     await screenshot(page, 'model-picker-final');
 

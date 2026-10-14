@@ -4,7 +4,7 @@
 // Data path: chatserver's /api/history/sessions entry gained `model_provider`
 // (projected from the session JSON's providerID); Sidebar renders the bare id
 // in a `.mmeta` span whose title resolves the display name from
-// /oc/config/providers (same lookup as ModelPicker).
+// /oc/config/providers (same lookup as ComposerModelPicker).
 //
 // Runs against an EMBEDDED fake engine: in-process HTTP server serving
 // webui/dist + stubbed /oc + /api/history endpoints. No live engine needed.
