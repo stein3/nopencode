@@ -126,8 +126,15 @@ rather than rediscovering them.
 
 ### Build first
 
-Fake servers serve `webui/dist` from disk. Always `cd webui && npm run build`
-before running tests, or a stale bundle silently tests stale code.
+Fake servers serve `webui/dist` from disk. Always build before running tests,
+or a stale bundle silently tests stale code. **Build with `WEBUI_BASE=/`** —
+the default `/webui/` base makes index.html request `/webui/assets/*`, which
+the fakes' static handler 404s, so the app renders blank and every test that
+waits on `.sidebar` / `.msg` times out (masquerades as a fixture bug):
+
+```
+cd ../webui && WEBUI_BASE=/ npm run build
+```
 
 ### `/__state` + `/__ctl` convention
 
