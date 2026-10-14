@@ -679,6 +679,9 @@ import { sidePanel } from '../lib/sidePanel'
 
   function onNavKey(e: KeyboardEvent) {
     if (!focusedId) return
+    // alt+arrows are hotkeys.ts's job; handling them here too double-fires
+    // navSession and skips two rows per press
+    if (e.altKey || e.ctrlKey || e.metaKey) return
     // don't hijack keys while the user is typing in an input
     const el = e.target as HTMLElement | null
     if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return
