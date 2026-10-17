@@ -387,11 +387,24 @@
     return firstInput(p.state ?? {}, ['command', 'cmd', 'script'])
   }
 
-  // read-tool parts that loaded a picture file render an inline thumbnail
-  function imageOf(p: any): string | null {
+  // read-tool parts that loaded a file render inline media: pictures as a
+  // thumbnail, .scad as a live 3D render
+  function readFileOf(p: any): string | null {
     if (!/read|view|cat|open/.test(String(p.tool ?? '').toLowerCase())) return null
     const path = p.state?.input?.filePath ?? p.state?.input?.file_path ?? p.state?.input?.path
-    return typeof path === 'string' && isImagePath(path) ? path : null
+    return typeof path === 'string' ? path : null
+  }
+
+  function imageOf(p: any): string | null {
+    const path = readFileOf(p)
+    return path && isImagePath(path) ? path : null
+  }
+
+  function scadOf(p: any): string | null {
+    // a failed read has no source to compile — don't spend the wasm on it
+    if (isToolErr(p)) return null
+    const path = readFileOf(p)
+    return path && /\.scad$/i.test(path) ? path : null
   }
 
   function openLightbox(src: string, caption?: string) {
@@ -1026,6 +1039,7 @@
           {:else if p.type === 'tool'}
             {@const pq = findPending(p, $pendingQuestions)}
             {@const imgPath = imageOf(p)}
+            {@const scadPath = scadOf(p)}
             <div class="toolcard" class:toolerr={isToolErr(p)}>
               <details class="tool" open={pq ? true : undefined}>
                 <summary>
@@ -1079,6 +1093,11 @@
                   </button>
                 {:catch}
                   <!-- missing/unreadable: the plain tool card says enough -->
+                {/await}
+              {:else if scadPath}
+                <!-- lazy: three.js + the openscad wasm worker are a lazy chunk -->
+                {#await import('./ScadView.svelte') then ScadView}
+                  <ScadView.default path={scadPath} />
                 {/await}
               {/if}
               {#if isShellTool(p) || isGrepTool(p)}

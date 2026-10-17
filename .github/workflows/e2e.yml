@@ -92,6 +92,8 @@ jobs:
             file: question-picker.test.mjs
           - name: queue-e2e
             file: queue-e2e.test.mjs
+          - name: scadview
+            file: scadview.test.mjs
           - name: scrollstick
             file: scrollstick.test.mjs
           - name: search-groups

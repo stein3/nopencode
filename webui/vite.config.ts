@@ -38,6 +38,10 @@ export default defineConfig({
       includeAssets: ['fonts/*.woff2'],
       workbox: {
         maximumFileSizeToCacheInBytes: 4 * 1024 * 1024, // 4 MiB — DiffPane lazy chunk is ~2.7 MB
+        // the OpenSCAD wasm (11 MB) is fetched lazily by the .scad viewer;
+        // precaching it would bloat every install for a feature most sessions
+        // never touch
+        globIgnores: ['**/openscad-*.wasm'],
       },
       manifest: {
         name: 'nopencode',

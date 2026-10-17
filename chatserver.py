@@ -917,13 +917,16 @@ class Handler(BaseHTTPRequestHandler):
 
     def _apply_security(self, nonce):
         # Strict CSP. Scripts are locked to same-origin + this nonce (no inline
-        # scripts can execute). Styles allow 'unsafe-inline' because Svelte
-        # component style: directives compile to inline style= attributes; the
-        # CSS-injection defense lives in DOMPurify (FORBID_TAGS/FORBID_ATTR
-        # ['style']), which strips every style= from untrusted message content.
+        # scripts can execute). 'wasm-unsafe-eval' is the narrow directive that
+        # permits WebAssembly.compile/instantiate — the webui's .scad viewer
+        # compiles OpenSCAD in a worker — without allowing eval() in JS. Styles
+        # allow 'unsafe-inline' because Svelte component style: directives
+        # compile to inline style= attributes; the CSS-injection defense lives
+        # in DOMPurify (FORBID_TAGS/FORBID_ATTR ['style']), which strips every
+        # style= from untrusted message content.
         csp = (
             "default-src 'none'; "
-            "script-src 'self' 'nonce-{nonce}'; "
+            "script-src 'self' 'nonce-{nonce}' 'wasm-unsafe-eval'; "
             "style-src 'self' 'unsafe-inline'; "
             "img-src 'self' data:; "
             "font-src 'self'; "
