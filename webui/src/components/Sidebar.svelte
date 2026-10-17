@@ -353,6 +353,9 @@ import { sidePanel } from '../lib/sidePanel'
   // any active filters?
   $: hasFilters = filterStarred || filterTags.size > 0 || filterUntagged
 
+  // filter bar is one row until the user expands it
+  let tagsExpanded = false
+
   function toggleFilterTag(tag: string) {
     const next = new Set(filterTags)
     if (next.has(tag)) next.delete(tag)
@@ -737,7 +740,21 @@ import { sidePanel } from '../lib/sidePanel'
   </div>
 
   {#if !q.length && (hasStars || uniqueTags.length)}
-    <div class="filterbar">
+    <div class="filterbar" class:open={tagsExpanded}>
+      <button
+        class="tagbar-toggle"
+        title={tagsExpanded ? 'Collapse tags' : 'Expand tags'}
+        on:click={() => (tagsExpanded = !tagsExpanded)}
+      >
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 8 8"
+          style:transform={tagsExpanded ? 'rotate(90deg)' : 'none'}
+        >
+          <path d="M2 1 L6.5 4 L2 7 Z" fill="currentColor" />
+        </svg>
+      </button>
       <button
         class="filterchip"
         class:active={filterStarred}
@@ -745,6 +762,14 @@ import { sidePanel } from '../lib/sidePanel'
         on:click={() => { filterStarred = !filterStarred }}
       >
         <span class="ficon">{filterStarred ? '★' : '☆'}</span>
+      </button>
+      <button
+        class="filterchip untaggedchip"
+        class:active={filterUntagged}
+        title="Show only sessions without tags"
+        on:click={() => (filterUntagged = !filterUntagged)}
+      >
+        {#if filterUntagged}<span class="ficon">✓</span>{/if}untagged
       </button>
       {#each uniqueTags as tag}
         <button
@@ -756,14 +781,6 @@ import { sidePanel } from '../lib/sidePanel'
           {#if filterTags.has(tag)}<span class="ficon">✓</span>{/if}{tag}
         </button>
       {/each}
-      <button
-        class="filterchip untaggedchip"
-        class:active={filterUntagged}
-        title="Show only sessions without tags"
-        on:click={() => (filterUntagged = !filterUntagged)}
-      >
-        {#if filterUntagged}<span class="ficon">✓</span>{/if}untagged
-      </button>
       {#if hasFilters}
         <button class="filterclear" title="Clear all filters" on:click={clearFilters}>×</button>
       {/if}
@@ -1446,10 +1463,33 @@ import { sidePanel } from '../lib/sidePanel'
     padding: 6px 10px;
     overflow-x: auto;
     scrollbar-width: none;
-    flex-wrap: wrap;
+    /* ponytail: single row, scrolls horizontally (nowrap is the flex default) */
+    flex-wrap: nowrap;
   }
   .filterbar::-webkit-scrollbar {
     display: none;
+  }
+  .filterbar.open {
+    flex-wrap: wrap;
+    overflow-x: visible;
+  }
+  /* sticky so it stays reachable when the collapsed row scrolls horizontally */
+  .tagbar-toggle {
+    position: sticky;
+    left: 0;
+    flex: none;
+    align-self: center;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: var(--accent);
+    cursor: pointer;
+    transition: transform 0.12s;
   }
   .filterchip {
     flex: none;

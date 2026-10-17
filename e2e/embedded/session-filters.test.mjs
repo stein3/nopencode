@@ -493,6 +493,25 @@ try {
   const starStillActive = await starChip.evaluate((el) => el.classList.contains('active'));
   check('R8', 'star chip deactivated after clear', !starStillActive);
 
+  // ======== R10 — tag bar collapse/expand ===================================
+  console.log('\nCASE R10 — tag bar collapse/expand');
+  const bar = page.locator('.filterbar');
+  const geom = async () => bar.evaluate((el) => ({
+    scrollH: el.scrollHeight, clientH: el.clientHeight,
+  }));
+  let g = await geom();
+  const tog = page.locator('.tagbar-toggle');
+  check('R10', 'toggle visible', await tog.isVisible());
+  await tog.click();
+  await sleep(200);
+  g = await geom();
+  check('R10', 'expanded bar wraps (no vertical overflow)', g.scrollH <= g.clientH + 2,
+    `scrollH=${g.scrollH} clientH=${g.clientH}`);
+  await tog.click();
+  await sleep(200);
+  g = await geom();
+  check('R10', 'collapses back to one row', g.scrollH <= g.clientH + 2, `scrollH=${g.scrollH}`);
+
   // ======== R9 — persistence across reload =================================
   console.log('\nCASE R9 — persistence');
   // Clear localStorage to prove server is the source of truth
