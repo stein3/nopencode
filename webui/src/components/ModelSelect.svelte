@@ -82,6 +82,10 @@
     align-items: center;
     gap: 6px;
     margin-top: 14px;
+    max-width: 100%;
+    flex-wrap: wrap;
+    justify-content: center;
+    justify-content: safe center;
   }
   .msel {
     display: inline-flex;
@@ -92,6 +96,9 @@
     border-radius: 8px;
     padding: 5px 10px;
     cursor: pointer;
+    max-width: 100%;
+    box-sizing: border-box;
+    min-width: 0;
   }
   .msel:hover {
     border-color: var(--accent);
@@ -111,6 +118,8 @@
     font: inherit;
     font-size: 12.5px;
     max-width: 300px;
+    max-width: min(300px, 100%);
+    min-width: 0;
     cursor: pointer;
   }
   select option,

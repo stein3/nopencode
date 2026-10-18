@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
+  import { onMount, tick } from 'svelte'
   import { oc } from '../lib/api'
   import { selectedModel, recentModels, recordRecent, preferredDefaultModel, sessionModels, setSessionModel, sessionVariants, setSessionVariant, modelPickerOpen, extractVariants, type VariantMap } from '../lib/stores'
   import type { ModelRef } from '../lib/stores'
@@ -15,6 +15,34 @@
   let highlighted = -1
   let filter = ''
   let menuEl: HTMLDivElement | null = null
+
+  // Keep the dropdown inside the viewport on mobile: right-align only when the
+  // button sits close to the right edge, otherwise left-align.
+  async function positionMenu() {
+    await tick()
+    if (!menuEl || !wrap) return
+    // On narrow screens the CSS makes the menu span the viewport; don't
+    // override that with button-aligned inline styles.
+    if (window.matchMedia('(max-width: 480px)').matches) return
+    const w = wrap.getBoundingClientRect()
+    const m = menuEl.getBoundingClientRect()
+    const vw = window.innerWidth
+    // Keep the menu fully on-screen: left-align when it fits, right-align when the
+    // button is near the right edge, otherwise clamp to the viewport.
+    let left = 0
+    if (w.left + m.width > vw - 4) {
+      const rightAlignLeft = w.width - m.width
+      if (w.left + rightAlignLeft + m.width <= vw - 4 && rightAlignLeft + w.left >= 4) {
+        left = rightAlignLeft
+      } else {
+        left = Math.max(4 - w.left, 0)
+      }
+    }
+    menuEl.style.left = `${left}px`
+    menuEl.style.right = 'auto'
+    menuEl.style.maxWidth = `${Math.max(vw - Math.max(w.left, 0) - 4, 100)}px`
+  }
+  $: if (open) positionMenu()
 
   // ctrl+x m chord sets this store — consume it to open the picker
   modelPickerOpen.subscribe((v) => { if (v) { pickedModel = null; open = true; modelPickerOpen.set(false) } })
@@ -345,6 +373,7 @@
     border: 1px solid var(--border);
     border-radius: 10px;
     min-width: 240px;
+    max-width: calc(100vw - 8px);
     max-height: 40vh;
     overflow-y: auto;
     z-index: 80;
@@ -461,12 +490,14 @@
   }
   @media (max-width: 480px) {
     .menu {
-      left: auto;
+      left: 4px;
       right: 4px;
+      width: auto;
       min-width: 0;
-      max-width: calc(100vw - 16px);
-      width: max-content;
+      max-width: none;
     }
+  }
+  @media (max-width: 900px) {
     .pv {
       overflow: hidden;
       text-overflow: ellipsis;

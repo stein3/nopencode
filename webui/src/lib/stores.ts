@@ -384,7 +384,18 @@ export interface PendingQuestion {
   tool?: { messageID?: string; callID?: string }
 }
 export const pendingQuestions = writable<PendingQuestion[]>([])
-export const sidebarOpen = writable(true)
+export const sidebarOpen = writable(
+  (() => {
+    try {
+      // On mobile, start closed so the transcript gets the full width; the
+      // sidebar is opened via the edge swipe / burger. Desktop keeps it open.
+      if (typeof window !== 'undefined' && window.matchMedia('(max-width: 900px)').matches) return false
+      return true
+    } catch {
+      return true
+    }
+  })(),
+)
 export const searchQuery = writable('')
 export const paletteOpen = writable(false)
 // true while a ctrl+x leader chord is armed (drives the WhichKey hint strip)
@@ -606,6 +617,9 @@ const INFO_KEY = 'opencode.infoOpen'
 export const infoOpen = writable(
   (() => {
     try {
+      // On mobile, start closed so the transcript gets the full width; the
+      // info panel is opened via the edge swipe. Desktop respects persisted.
+      if (typeof window !== 'undefined' && window.matchMedia('(max-width: 900px)').matches) return false
       return localStorage.getItem(INFO_KEY) !== '0'
     } catch {
       return true

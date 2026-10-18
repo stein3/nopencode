@@ -1238,6 +1238,9 @@
   .modelrow {
     display: flex;
     justify-content: center;
+    justify-content: safe center;
+    padding: 0 12px;
+    box-sizing: border-box;
   }
   .msg {
     max-width: 860px;
