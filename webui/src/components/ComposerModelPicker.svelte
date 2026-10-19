@@ -21,12 +21,19 @@
   async function positionMenu() {
     await tick()
     if (!menuEl || !wrap) return
-    // On narrow screens the CSS makes the menu span the viewport; don't
-    // override that with button-aligned inline styles.
-    if (window.matchMedia('(max-width: 480px)').matches) return
     const w = wrap.getBoundingClientRect()
     const m = menuEl.getBoundingClientRect()
     const vw = window.innerWidth
+    // Narrow screens: pin the menu to the viewport (not the button, whose
+    // containing block is only as wide as the button). `left/right` in the
+    // media query resolve against .wrap, so override with absolute pixels.
+    if (window.matchMedia('(max-width: 480px)').matches) {
+      menuEl.style.left = `${4 - w.left}px`
+      menuEl.style.right = 'auto'
+      menuEl.style.width = `${vw - 8}px`
+      menuEl.style.maxWidth = 'none'
+      return
+    }
     // Keep the menu fully on-screen: left-align when it fits, right-align when the
     // button is near the right edge, otherwise clamp to the viewport.
     let left = 0
