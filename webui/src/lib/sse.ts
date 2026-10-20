@@ -228,7 +228,12 @@ export function normalizeMessages(msgs: any[]): any[] {
       tokens: info.tokens,
       // keep the { created } object shape used everywhere else (OcMessage,
       // upsertPart, setMeta) — flattening here silently killed timestamps
-      time: { created: info.time?.created ?? info.time?.created_at ?? Date.now() },
+      // `completed` (history + final update) is the engine's own turn
+      // duration end — keep it or every historical message loses timing
+      time: {
+        created: info.time?.created ?? info.time?.created_at ?? Date.now(),
+        completed: info.time?.completed,
+      },
       parts: (m.parts ?? info.parts ?? []).map((p: any) => ({
         id: p.id,
         type: p.type,

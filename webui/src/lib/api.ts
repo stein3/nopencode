@@ -57,7 +57,7 @@ export interface OcMessage {
   agent?: string
   modelID?: string
   providerID?: string
-  time?: { created?: number }
+  time?: { created?: number; completed?: number }
   tokens?: Record<string, any>
   parts?: OcPart[]
   // mid-turn turn failure stamped on the assistant message by the engine

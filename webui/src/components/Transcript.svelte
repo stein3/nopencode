@@ -814,6 +814,19 @@
     return ''
   }
 
+  // per-message generation only: output + reasoning. (input is the whole
+  // prompt context, which grows every turn — counting it made tokens/t/s
+  // read as a session running total)
+  function genTally(t?: Record<string, any> | null): number | undefined {
+    if (!t) return undefined
+    const n = (t.output ?? 0) + (t.reasoning ?? 0)
+    return n > 0 ? n : undefined
+  }
+  // id of the last reasoning part in a message — the thinking count is
+  // per-message, so stamp it on only one summary instead of every block
+  function lastReasoningId(m: any): string | undefined {
+    return (m.parts ?? []).filter((p: any) => p.type === 'reasoning').at(-1)?.id
+  }
   function timeStr(t?: number): string {
     return t ? new Date(t < 1e12 ? t * 1000 : t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''
   }
@@ -988,6 +1001,15 @@
           <span class="role" class:errole={m.error && m.role !== 'user' && !isAborted(m.error)}>{roleLabel(m)}</span>
         {/if}
         {#if m.modelID}<span class="model-id" title={m.providerID ? `${m.providerID}/${m.modelID}` : m.modelID}>{m.modelID}</span>{/if}
+        {#if genTally(m.tokens ?? m.info?.tokens)}
+          {@const toks = genTally(m.tokens ?? m.info?.tokens) ?? 0}
+          {@const dur = m.time?.completed && m.time.created ? m.time.completed - m.time.created : 0}
+          <button class="stat" title={`output ${m.tokens?.output ?? 0} + reasoning ${m.tokens?.reasoning ?? 0} tokens (turn's full context input not shown)`}>{toks} tokens</button>
+          {#if dur && dur > 0}
+            <button class="stat" title="time">{(dur/1000).toFixed(1)}s</button>
+            <button class="stat" title="tokens/s">{(toks/(dur/1000)).toFixed(2)} t/s</button>
+          {/if}
+        {/if}
         {#if $showTimestamps}
           <span class="time">{timeStr(m.time?.created)}</span>
         {/if}
@@ -1029,7 +1051,7 @@
             {/if}
           {:else if p.type === 'reasoning' && (p.text ?? '').trim()}
             <details class="thinking" open={$showThinking || p.id === liveReasoningId || undefined}>
-              <summary>💭 Thinking</summary>
+              <summary>💭 Thinking{#if lastReasoningId(m) === p.id && m.tokens?.reasoning}<span class="think-tok"> · {m.tokens.reasoning.toLocaleString()} reasoning tok</span>{/if}</summary>
               {#if p.id === liveReasoningId}
                 <div class="think-body" bind:this={liveThinkEl} on:scroll={onThinkScroll}>{@html html(p, tab.busy && p.id === liveReasoningId, throttleTick)}</div>
               {:else}
@@ -1487,6 +1509,10 @@
   }
   .time {
     opacity: 0.7;
+  }
+  .stat {
+    opacity: 0.7;
+    font-size: 0.85em;
   }
   .model-id {
     font-family: var(--mono);
@@ -1967,6 +1993,10 @@
   .ocount {
     flex: none;
     opacity: 0.7;
+  }
+  .think-tok {
+    opacity: 0.6;
+    font-weight: normal;
   }
   details.thinking {
     margin: 6px 0;
