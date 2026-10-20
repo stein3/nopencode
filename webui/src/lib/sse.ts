@@ -344,6 +344,11 @@ function openStream() {
     if (!tabs.isopen(sid)) return
     if (type === 'session.idle') {
       tabs.patch(sid, { busy: false })
+      // reconcile against the engine's finished state NOW: scheduleRefetch is
+      // busy-gated (every message.updated refetch during the turn no-ops), so
+      // without this nothing re-fetches `time.completed`/final tokens after a
+      // turn — stats only appeared after a full page refresh
+      scheduleRefetch(sid)
       // turn ended without a fresh error → a pending retry loop is done
       onTurnIdle(sid)
       // engine-side retry cleared — the turn succeeded or was abandoned

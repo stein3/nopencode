@@ -198,7 +198,20 @@ function makeTabs() {
               ...t,
               messages: t.messages.map((x) =>
                 x.id === info.id
-                  ? { ...x, role: info.role ?? x.role, agent: info.agent ?? x.agent, modelID: mm.modelID ?? x.modelID, providerID: mm.providerID ?? x.providerID, time: info.time ?? x.time, error: info.error ?? x.error }
+                  ? {
+                      ...x,
+                      role: info.role ?? x.role,
+                      agent: info.agent ?? x.agent,
+                      modelID: mm.modelID ?? x.modelID,
+                      providerID: mm.providerID ?? x.providerID,
+                      // merge, don't replace: a later event's { created } must not
+                      // drop a `completed` stamped by an earlier one
+                      time: { ...x.time, ...info.time },
+                      error: info.error ?? x.error,
+                      // live message.updated carries the per-message token tally;
+                      // without this the badge only appears after a refetch
+                      tokens: info.tokens ?? x.tokens,
+                    }
                   : x,
               ),
             }
@@ -213,6 +226,7 @@ function makeTabs() {
             providerID: mm.providerID,
             time: info.time ?? { created: Date.now() },
             error: info.error,
+            tokens: info.tokens,
             parts: Array.isArray(info.parts) ? info.parts : [],
           }
           return { ...t, messages: [...t.messages, created] }
