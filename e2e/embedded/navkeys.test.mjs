@@ -147,7 +147,7 @@ try {
   await new Promise((r) => server.listen(PORT, '127.0.0.1', r))
 
   const browser = await launchBrowser()
-  const page = await browser.newPage({ viewport: { width: 900, height: 600 } })
+  const page = await browser.newPage({ viewport: { width: 1024, height: 700 } })
   page.on('pageerror', (e) => pageErrors.push(e.message))
   page.on('console', (msg) => {
     if (msg.type() !== 'error') return

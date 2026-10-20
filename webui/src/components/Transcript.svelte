@@ -166,7 +166,8 @@
   // taller content, firing a synthetic scroll that would clear `stuck` before
   // follow()'s rAF gets to run (rAF callbacks run after scroll-event dispatch).
   // Guarded three ways: activation re-pins, scrolls from hidden state are
-  // ignored, and only real upward input (wheel / swipe / reading keys) unsticks.
+  // ignored, and only real upward movement (>2px in onScroll — covers wheel,
+  // touch, scrollbar drag, autoscroll, keys) unsticks.
   // Re-sticking additionally requires DOWNWARD progress (#7): a wheel notch
   // travels ~100px, inside the old 120px positional slop, so the scroll event
   // trailing a wheel-up re-declared "at bottom" and the next RO tick yanked
@@ -208,35 +209,42 @@
   let followRan = false
   let scrolledByFollow = false
   function onScroll() {
-    // offsetParent is null under display:none — restore/clamp noise, not user
-    if (!scroller || !scroller.offsetParent) return
+    // offsetParent is null under display:none — restore/clamp noise, not user.
+    // Keep lastTop in sync anyway: a stale baseline would read the first
+    // scroll after re-show as "up" and kill the pin right after activation.
+    if (!scroller || !scroller.offsetParent) {
+      lastTop = scroller?.scrollTop ?? 0
+      return
+    }
     const goingUp = scroller.scrollTop < lastTop
+    const upBy = lastTop - scroller.scrollTop
     lastTop = scroller.scrollTop
+    // ANY real upward scroll is the user reading back — kill the pin. The old
+    // wheel/touch/key handlers alone miss scrollbar drags, middle-click
+    // autoscroll and every other non-wheel input: `stuck` stayed true and the
+    // next ResizeObserver tick yanked the reader back to the bottom
+    // mid-gesture (flicker while dragging, snap-back on release). The >2px
+    // deadband ignores the tiny upward clamps fired when content shrinks.
+    if (goingUp && upBy > 2) {
+      stuck = false
+    }
     // Re-arm the pin when the user scrolls down to the bottom corner, BUT
     // suppress when the scroll came from follow() (issue #7).  follow() writes
     // scrollTop asynchronously → onScroll fires in a separate task.  The
     // followRan/scrolledByFollow pair tracks this across two frames: follow()
     // sets followRan before the write, onScroll sees it and marks consumed via
     // scrolledByFollow; both reset at the start of the next follow() call.
-    if (!goingUp && nearBottom(scroller) && !(followRan && !scrolledByFollow)) {
+    else if (!goingUp && nearBottom(scroller) && !(followRan && !scrolledByFollow)) {
       stuck = true
     }
     if (followRan) scrolledByFollow = true
+    // Backfill in flight: keep the anchor live. afterUpdate restores
+    // scrollTop = scrollHeight - anchorFromBottom, which discards any scroll
+    // the user did during the await and teleports them back to the frozen
+    // position. Re-basing on every scroll event makes the restore preserve
+    // their real position shifted by exactly the prepended height.
+    if (anchoring) anchorFromBottom = scroller.scrollHeight - scroller.scrollTop
     void maybeLoadOlder()
-  }
-
-  function onWheel(e: WheelEvent) {
-    if (e.deltaY < 0) stuck = false
-  }
-
-  let touchY = 0
-  function onTouchStart(e: TouchEvent) {
-    touchY = e.touches[0]?.clientY ?? 0
-  }
-  function onTouchMove(e: TouchEvent) {
-    const y = e.touches[0]?.clientY ?? 0
-    if (y > touchY + 6) stuck = false // downward drag = scrolling up = reading back
-    touchY = y
   }
 
   function onKey(e: KeyboardEvent) {
@@ -957,9 +965,6 @@
   bind:this={scroller}
   on:click={onBodyClick}
   on:scroll={onScroll}
-  on:wheel={onWheel}
-  on:touchstart|passive={onTouchStart}
-  on:touchmove|passive={onTouchMove}
 >
   <div class="feed" bind:this={feed}>
     {#if dormant}
@@ -1270,11 +1275,6 @@
     padding: 5px 4px;
     user-select: text;
     cursor: text;
-    /* Skip style/layout/paint for rows far outside the viewport — the bulk of
-       open-latency and streaming reflow on long transcripts. `auto` remembers
-       each row's last-rendered size so scrollbar math stays honest. */
-    content-visibility: auto;
-    contain-intrinsic-size: auto 160px;
   }
   .msg.user {
     background: var(--bg-user);

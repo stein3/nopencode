@@ -303,6 +303,30 @@ try {
     check('S5', 'view glued while feed grows (max distance < 80)', d5max < 80, `max=${d5max}`);
     await screenshot(page, 'scrollstick-resumed');
 
+    // ---- S6 non-wheel scroll-up (scrollbar drag / autoscroll / JS) ----------
+    // Regression: `stuck` used to clear only on wheel/touch/key handlers, so
+    // ANY scroll-up without a wheel event (scrollbar drag, middle-click
+    // autoscroll, programmatic writes) left the pin armed — the next RO tick
+    // yanked the reader back to the bottom mid-gesture and on release.
+    console.log('\nCASE S6 — scroll-up without a wheel event breaks the pin too');
+    await ctl({ burst: { n: 120, size: 120, iv: 45 } }); // growth pressure for the probe
+    await sleep(400); // let deltas flow so RO/follow pressure is live
+    const pinned = await distFromBottom(page);
+    check('S6', 'precondition: pinned before the non-wheel scroll-up', pinned < 80, `distance=${pinned}`);
+    // scrollTop write = real scroll events, zero wheel/touch/key involvement
+    await page.evaluate(() => {
+      document.querySelector('.tabpane[style*="flex"] .transcript').scrollTop = 0;
+    });
+    await sleep(150); // let a trailing RO tick fire (old code snaps back here)
+    const s6samples = await sampleDist(page, 900);
+    const s6max = Math.max(...s6samples.filter((n) => Number.isFinite(n)));
+    const s6last = s6samples[s6samples.length - 1];
+    check('S6', 'never yanked back to the bottom (max distance > 1000)', s6max > 1000, `max=${s6max}`);
+    check('S6', 'still parked at the top after 1s of growth', s6last > 1000, `final=${s6last}`);
+    // recover the pin for the K cases (the burst keeps running; K stops it)
+    await page.keyboard.press('End');
+    await sleep(300);
+
     // ---- K1/K2 Home/End -----------------------------------------------------
     console.log('\nCASE K — Home unpins, End re-pins');
     await ctl({ stop: true });
