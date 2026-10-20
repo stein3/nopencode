@@ -11,6 +11,7 @@ import {
   showThinking,
   showTimestamps,
   selectedModel,
+  effectiveSessionModel,
   modelPickerOpen,
   renameTarget,
   settingsOpen,
@@ -237,12 +238,19 @@ registry.builtins = [
     run: async (ctx) => {
       const sid = needSession(ctx)
       if (!sid) return
-      const model = $selectedModelSnapshot()
+      // same chain as a prompt — compact on another device must use that
+      // session's model, not this device's global picker
+      const model = effectiveSessionModel(sid, $selectedModelSnapshot())
       if (!model) return toast('/compact needs a selected model')
+      // summarize is a blocking POST that runs the same loop as a turn —
+      // flip busy so the stop button (abort) is available while it runs;
+      // session.idle over SSE clears it on success
+      tabs.patch(sid, { busy: true })
+      toast('compacting session…')
       try {
         await oc.summarize(sid, model)
-        toast('compacting session…')
       } catch (e: any) {
+        tabs.patch(sid, { busy: false })
         toast(`/compact failed: ${e.message ?? e}`)
       }
     },

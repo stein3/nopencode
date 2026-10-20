@@ -699,7 +699,7 @@ try {
   check(
     '15.3', 'mobile menu stays in viewport',
     mobMenu && mobMenu.x >= 0 && mobMenu.x + mobMenu.width <= 361,
-    `width=${mobMenu ? Math.round(mobMenu.width) : '?'}px`,
+    `x=${mobMenu ? Math.round(mobMenu.x) : '?'}, width=${mobMenu ? Math.round(mobMenu.width) : '?'}px`,
   );
 
   // ====================================================================

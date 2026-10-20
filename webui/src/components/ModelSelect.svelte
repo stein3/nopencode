@@ -1,11 +1,14 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { oc } from '../lib/api'
-  import { selectedModel, preferredDefaultModel, extractVariants, type VariantMap } from '../lib/stores'
+  import { selectedModel, sessionModels, sessionSyncedModels, setSessionModel, setSessionVariant, preferredDefaultModel, extractVariants, type VariantMap } from '../lib/stores'
 
   // Compact native-select model picker for the new-session empty state.
-  // Same store as the composer ComposerModelPicker — both views stay in sync
-  // because they read/write the persisted selection.
+  // Reads the same precedence chain as ComposerModelPicker (this session's
+  // pick > the engine's session model > global) and writes the same stores,
+  // so the two views stay in sync — a change here is a change for the next
+  // message in THIS session, not just a global default.
+  export let sid = ''
   let providers: { id: string; name?: string; models: Record<string, any> }[] = []
   let variantMap: VariantMap = {}
 
@@ -18,25 +21,34 @@
     }
   })
 
-  $: value = $selectedModel ? `${$selectedModel.providerID}/${$selectedModel.modelID}` : ''
-  $: modelKey = $selectedModel ? `${$selectedModel.providerID}/${$selectedModel.modelID}` : ''
+  $: eff = (sid ? $sessionModels[sid] ?? $sessionSyncedModels[sid] : undefined) ?? $selectedModel
+  $: value = eff ? `${eff.providerID}/${eff.modelID}` : ''
+  $: modelKey = eff ? `${eff.providerID}/${eff.modelID}` : ''
   $: variants = modelKey ? variantMap[modelKey] ?? [] : []
-  $: variantValue = $selectedModel?.variant ?? ''
+  $: variantValue = eff?.variant ?? ''
+
+  function save(ref: { providerID: string; modelID: string; variant?: string }) {
+    selectedModel.save(ref)
+    if (!sid) return
+    setSessionModel(sid, ref)
+    oc.setSessionModel(sid, ref).catch(() => {})
+  }
 
   function change() {
     const [providerID, modelID] = value.split('/')
     if (providerID && modelID) {
-      const cur = $selectedModel?.variant
+      const cur = eff?.variant
       // Keep variant only if it's still valid for the new model
       const valid = cur && variantMap[`${providerID}/${modelID}`]?.some((v) => v.id === cur)
-      selectedModel.save({ providerID, modelID, ...(valid ? { variant: cur } : {}) })
+      save({ providerID, modelID, ...(valid ? { variant: cur } : {}) })
     }
   }
 
   function changeVariant(e: Event) {
-    if (!$selectedModel) return
+    if (!eff) return
     const val = (e.target as HTMLSelectElement).value || undefined
-    selectedModel.save({ ...$selectedModel, variant: val })
+    save({ ...eff, variant: val })
+    if (sid) setSessionVariant(sid, val)
   }
 
   function short(name: string): string {

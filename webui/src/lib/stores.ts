@@ -905,6 +905,63 @@ export function rekeySessionModel(oldId: string, newId: string) {
   setSessionModel(oldId, undefined)
 }
 
+// ---- the session's model AS THE ENGINE KNOWS IT (not persisted) ----
+// Cross-client coordination: the engine persists the session's active model
+// (GET /session/{id}.model — set by every prompt that carries one, from any
+// client), so each client re-reads it on tab open instead of trusting its own
+// localStorage. Cache only, refreshed on every open, never written by user
+// picks: `sessionModels` (an explicit pick on THIS device) stays ahead of it
+// in every read chain, so hydration can never clobber a fresh pick — that was
+// the old "model didn't stick" bug, which wrote session.model into
+// `selectedModel` itself.
+export const sessionSyncedModels = writable<Record<string, ModelRef>>({})
+
+// Sync read for send paths outside Svelte reactivity (Composer.submit,
+// retries.fire).
+export function sessionSynced(sid: string): ModelRef | undefined {
+  if (!sid) return undefined
+  let v: ModelRef | undefined
+  sessionSyncedModels.subscribe((all) => (v = all[sid]))()
+  return v
+}
+
+export function setSessionSynced(sid: string, model: ModelRef | undefined) {
+  if (!sid) return
+  sessionSyncedModels.update((all) => {
+    if (!model) {
+      if (!(sid in all)) return all
+      const next = { ...all }
+      delete next[sid]
+      return next
+    }
+    return { ...all, [sid]: model }
+  })
+}
+
+// Engine ModelRef is {providerID, id, variant?} and reports variant:"default"
+// whenever no variant is set — treat that as unset so a variant-less model
+// never gets an explicit "default" it might reject.
+export function refFromEngine(
+  m?: { providerID?: string; id?: string; variant?: string } | null,
+): ModelRef | undefined {
+  if (!m?.providerID || !m?.id) return undefined
+  return {
+    providerID: m.providerID,
+    modelID: m.id,
+    ...(m.variant && m.variant !== 'default' ? { variant: m.variant } : {}),
+  }
+}
+
+// Precedence for the NEXT prompt: this device's explicit pick > the engine's
+// session model (any client's last prompt) > the global picker. Every send
+// path goes through this so they can't drift apart.
+export function effectiveSessionModel(
+  sid: string,
+  global: ModelRef | null | undefined,
+): ModelRef | undefined {
+  return sessionModel(sid) ?? sessionSynced(sid) ?? global ?? undefined
+}
+
 // ---- recently used models (persisted, most recent first) ----
 const RECENTS_KEY = 'opencode.modelRecents'
 const RECENTS_CAP = 6

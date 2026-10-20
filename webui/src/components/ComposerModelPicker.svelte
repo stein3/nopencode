@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte'
   import { oc } from '../lib/api'
-  import { selectedModel, recentModels, recordRecent, preferredDefaultModel, sessionModels, setSessionModel, sessionVariants, setSessionVariant, modelPickerOpen, extractVariants, type VariantMap } from '../lib/stores'
+  import { selectedModel, recentModels, recordRecent, preferredDefaultModel, sessionModels, sessionSyncedModels, setSessionModel, sessionVariants, setSessionVariant, modelPickerOpen, extractVariants, type VariantMap } from '../lib/stores'
   import type { ModelRef } from '../lib/stores'
 
   // Per-session model pick — scoped to THIS pane's tab/session.
@@ -66,8 +66,9 @@
     items: ModelItem[]
   }
 
-  // The effective model for this session: per-session pick > global picker > null
-  $: effective = $sessionModels[sid] ?? $selectedModel
+  // The effective model for this session: this device's pick > the engine's
+  // session model (set by any client's last prompt) > the global picker
+  $: effective = $sessionModels[sid] ?? $sessionSyncedModels[sid] ?? $selectedModel
 
   // Variants available for the currently picked model
   $: modelVariants = pickedModel ? variantMap[`${pickedModel.pid}/${pickedModel.mid}`] ?? [] : []
@@ -312,7 +313,7 @@
           {#each sec.items as m, itemIdx (m.pid + '/' + m.mid)}
             <button
               class="m"
-              class:on={$selectedModel?.providerID === m.pid && $selectedModel?.modelID === m.mid}
+              class:on={effective?.providerID === m.pid && effective?.modelID === m.mid}
               class:hl={flatIdx(secIdx, itemIdx) === highlighted}
               on:click={() => pick(m.pid, m.mid)}
             >

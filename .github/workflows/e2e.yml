@@ -80,6 +80,8 @@ jobs:
             file: model-badge.test.mjs
           - name: model-picker
             file: model-picker.test.mjs
+          - name: model-sync
+            file: model-sync.test.mjs
           - name: modelid
             file: modelid.test.mjs
           - name: mru

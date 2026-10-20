@@ -1,4 +1,4 @@
-# /workspace/opencode — ttyd/webui stack
+# nopencode — ttyd/webui stack
 
 ## Navigation
 
@@ -41,6 +41,7 @@
 - **Monaco codicon font** must be explicitly imported in DiffPane or glyph icons render blank.
 - **Statics**: hashed `/assets/*` are `Cache-Control: immutable`; `index.html` is served whole (`no-store`, no ETag) because it carries the per-request CSP nonce — a 304 would pair a cached body with a fresh CSP header and block the inline theme script. The same dist is served at `/` and `/webui/` (chatserver strips the prefix).
 - **Agent picker**: picks are per-session (`sessionAgents` localStorage, migrated by `rekeySessionAgent` on pending-tab realize); collapsed label and first menu row show the *resolved* default (`session.agent` → `agents()[0]` → "Auto"). Field omitted from the prompt when no pick.
+- **Session model coordination (cross-client)**: the engine's `GET /session/{id}.model` is the source of truth — every prompt that carries a model updates it **synchronously before its 204**, from any client. Read chain, in order: `sessionModels[sid]` (an explicit pick on THIS device) → `sessionSyncedModels[sid]` (engine value, refreshed in `App.openLive`, in-memory only) → global `selectedModel`. One helper (`effectiveSessionModel`) backs Composer.send + retries; the pickers (`ComposerModelPicker`, empty-state `ModelSelect`) render the same chain. **Never** echo `session.model` into `selectedModel` (the old "model didn't stick" bug) and never lock a send into `sessionModels` (that froze one device's stale cache over another device's newer model). Verify: `e2e/embedded/model-sync.test.mjs`.
 - **`.scad` viewer** (`ScadView.svelte` + `lib/scad*.ts`): read-tool parts of `.scad` files render inline 3D. Source comes from the engine's `/file/content` (text), compiles via OpenSCAD wasm in a worker, draws with three.js. The wasm is the npm dep `@kreijstal/openscad-wasm`, **exact-pinned** (no `main`/`exports` map → subpath import; types hand-written in `src/openscad-wasm.d.ts`). Traps: CSP needs `'wasm-unsafe-eval'` (chatserver `_apply_security`); the wasm build has no GL so **only mesh export** (no PNG); `main()` runs **once per instance** — a fresh `OpenSCAD()` per render, only the compiled `WebAssembly.Module` is cached; results are cached by SOURCE, not path (a path-keyed cache served stale geometry after a re-read of an edited file), and `$: show(path)` is guarded by a `shown` local because Svelte re-invalidates props on every parent update — Transcript re-renders constantly while streaming; `camera.up` must be set BEFORE `new OrbitControls(...)` — the controls build their rotation basis once in the constructor, so a later change leaves the drag math and `lookAt` in different frames and orbit feels non-logical; the 11 MB wasm is `globIgnore`d from the PWA precache (Vite names the asset after the source file, so the glob still matches when installed from npm).
 
 ### Engine API traps
@@ -51,6 +52,7 @@
 - Session-level `tokens` on `GET /session/{id}` are **cumulative all-turn totals**, NOT context size — never use for "% used".
 - `/permission` items have NO `title`, `pattern`, `path`, or `type` field. Use `patterns[0]` for file path, `metadata.input` for command.
 - `POST /session/{id}/fork` takes undocumented `{messageID}` body — exclusive copy before that message.
+- **`POST /api/session/{id}/model` (switchModel) 500s for every session created after ~2026-10-05**: it inserts a `model-switched` row into `session_message`, whose FK targets `session_v2(id)`, but new sessions only land in `session` (v1) — `SQLiteError: FOREIGN KEY constraint failed`, ref `err_*` in `log/opencode.log`. The webui's `oc.setSessionModel` swallows it (`.catch(() => {})`), so a picker pick does NOT reach the engine until the next prompt carries it in the body. Engine-side (opencode 1.18.18); prompt bodies are the only working write path meanwhile.
 
 ### E2E tests
 

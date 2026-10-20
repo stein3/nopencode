@@ -7,7 +7,7 @@
   import QuestionBanner from './components/QuestionBanner.svelte'
   import Footer from './components/Footer.svelte'
   import { hist, oc } from './lib/api'
-  import { tabs, permissions, sidebarOpen, selectedModel, paletteOpen, infoOpen, toggleInfo, mcpOpen, toggleMcp, toastMsg, patchMetrics, clearSessionUnread, loadOpenTabs, rekeySessionAgent, rekeySessionModel, rekeySessionVariant, modelPickerOpen, syncEngineRetryFromStatus, theme, markSessionListDirty, type Tab } from './lib/stores'
+  import { tabs, permissions, sidebarOpen, selectedModel, paletteOpen, infoOpen, toggleInfo, mcpOpen, toggleMcp, toastMsg, patchMetrics, clearSessionUnread, loadOpenTabs, rekeySessionAgent, rekeySessionModel, rekeySessionVariant, modelPickerOpen, syncEngineRetryFromStatus, theme, markSessionListDirty, setSessionSynced, refFromEngine, type Tab } from './lib/stores'
   import CommandPalette from './components/CommandPalette.svelte'
   import CommandDialog from './components/CommandDialog.svelte'
   import RenameDialog from './components/RenameDialog.svelte'
@@ -165,10 +165,14 @@
       loadErrors(id)
       // session cost is engine-maintained; the messages payload can't derive it
       if (typeof s?.cost === 'number') patchMetrics(id, { cost: s.cost })
-      // NOTE: no selectedModel sync from the session here — this runs on every
-      // tab open and right after each send, so echoing session.model back into
-      // the picker clobbered fresh user picks (the "model didn't stick" bug).
-      // The picker is the single source of truth for the next prompt's model.
+      // Cross-client model coordination: adopt the engine's session model into
+      // the synced cache (the engine applies a prompt's model synchronously
+      // before its 204, so this is current even on the post-send refetch).
+      // Local picks in `sessionModels` stay ahead of it in every read chain —
+      // unlike the old session.model → selectedModel echo, hydration can't
+      // clobber a fresh pick (the "model didn't stick" bug). `s === null` is a
+      // failed fetch, not "the session has no model" — leave the cache alone.
+      if (s) setSessionSynced(id, refFromEngine(s.model))
     } catch {
       // not an engine session (pure history) — fall back to history view;
       // allowLive=false prevents openHistory ↔ openLive recursion

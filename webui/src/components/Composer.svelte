@@ -2,7 +2,7 @@
   import { onMount, tick } from 'svelte'
   import { oc } from '../lib/api'
   import type { OcFilePart } from '../lib/api'
-  import { tabs, selectedModel, sessionModel, setSessionModel, sessionAgent, sessionVariant, cmdVersion } from '../lib/stores'
+  import { tabs, selectedModel, effectiveSessionModel, setSessionSynced, sessionAgent, sessionVariant, cmdVersion } from '../lib/stores'
   import type { Tab } from '../lib/stores'
   import { registry, type Cmd } from '../lib/commands'
   import { RECENT_PAGE, normalizeMessages } from '../lib/sse'
@@ -244,12 +244,14 @@
         // NOTE: error tiles are NOT cleared here — they're history (a record
         // of the failed turn), not a transient banner. A resend that fails
         // again dedupes server-side (UNIQUE sid,msg).
-        const sendModel = sessionModel(sid) ?? $selectedModel ?? undefined
-        const sendVariant = sessionVariant(sid)
-        // Lock in the resolved model for this session so a later global change
-        // (e.g. picking model B in another tab) doesn't retroactively affect
-        // this session. Once a session sends with a model, it stays on it.
-        if (sendModel) setSessionModel(sid, sendModel)
+        const sendModel = effectiveSessionModel(sid, $selectedModel)
+        const sendVariant = sessionVariant(sid) ?? sendModel?.variant
+        // Remember what this tab just sent so the next prompt in the same tab
+        // stays on it; the engine records the same value in session.model, so
+        // other clients pick it up on their next open. (A local lock-in here
+        // would instead freeze this device's cache over a newer model set
+        // elsewhere — that was the cross-client bug.)
+        if (sendModel) setSessionSynced(sid, sendModel)
         flight =
           m
             ? oc.runCommand(sid, m[1], m[2] ? [m[2]] : [])

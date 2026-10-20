@@ -964,7 +964,7 @@
           Loading…
         {:else if tab.live}
           Type below to start the conversation.
-          <div class="modelrow"><ModelSelect /></div>
+          <div class="modelrow"><ModelSelect sid={tab.id} /></div>
         {:else}
           No message data for this session.
         {/if}
