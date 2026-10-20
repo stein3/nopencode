@@ -386,6 +386,9 @@ try {
     const mpage = await mctx.newPage();
     mpage.on('pageerror', (e) => pageErrors.push(e.message));
     await mpage.goto(`${BASE}/`, { waitUntil: 'domcontentloaded', timeout: 20000 });
+    // mobile boots with the sidebar closed (stores.ts sidebarOpen default) —
+    // open it via the topbar burger before hunting for the gear
+    await mpage.click('.topbar .burger[title="Toggle sidebar"]');
     await mpage.waitForSelector('.sidebar .gear', { timeout: 15000 });
     await mpage.click('.sidebar .gear');
     await mpage.waitForSelector('.settings', { timeout: 5000 });

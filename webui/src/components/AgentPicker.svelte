@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
+  import { onMount, tick } from 'svelte'
   import { oc } from '../lib/api'
   import { sessionAgents, setSessionAgent } from '../lib/stores'
   import { titleName } from '../lib/util'
@@ -17,6 +17,23 @@
   let agents: AgentInfo[] = []
   let open = false
   let wrap: HTMLDivElement
+  let menuEl: HTMLDivElement | null = null
+
+  // Narrow screens: pin the menu to the viewport, not the button — a squeezed
+  // pane (open sidebar at 360px) puts the button near the right edge and the
+  // menu's 230px min-width lands off-screen. Same approach as
+  // ComposerModelPicker.positionMenu; on desktop left:0 in CSS is correct.
+  async function positionMenu() {
+    await tick()
+    if (!menuEl || !wrap) return
+    if (!window.matchMedia('(max-width: 480px)').matches) return
+    const w = wrap.getBoundingClientRect()
+    menuEl.style.left = `${4 - w.left}px`
+    menuEl.style.right = 'auto'
+    menuEl.style.width = `${window.innerWidth - 8}px`
+    menuEl.style.maxWidth = 'none'
+  }
+  $: if (open) positionMenu()
 
   // what "Auto" actually resolves to: the session's engine-level agent when
   // the session has one, else the configured default agent
@@ -102,7 +119,7 @@
       <span class="chev">▾</span>
     </button>
     {#if open}
-      <div class="menu" role="listbox" aria-label="Agent">
+      <div class="menu" bind:this={menuEl} role="listbox" aria-label="Agent">
         <button
           class="m auto"
           class:on={!cur}
