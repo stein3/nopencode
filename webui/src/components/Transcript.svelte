@@ -1014,11 +1014,13 @@
         {#if genTally(m.tokens ?? m.info?.tokens)}
           {@const toks = genTally(m.tokens ?? m.info?.tokens) ?? 0}
           {@const dur = m.time?.completed && m.time.created ? m.time.completed - m.time.created : 0}
-          <button class="stat" title={`output ${m.tokens?.output ?? 0} + reasoning ${m.tokens?.reasoning ?? 0} tokens (turn's full context input not shown)`}>{toks} tokens</button>
-          {#if dur && dur > 0}
-            <button class="stat" title="time">{(dur/1000).toFixed(1)}s</button>
-            <button class="stat" title="tokens/s">{(toks/(dur/1000)).toFixed(2)} t/s</button>
-          {/if}
+          <span class="statgroup">
+            <span class="stat" title={`output ${m.tokens?.output ?? 0} + reasoning ${m.tokens?.reasoning ?? 0} tokens (turn's full context input not shown)`}>{toks} tokens</span>
+            {#if dur && dur > 0}
+              <span class="stat" title="time">{(dur/1000).toFixed(1)}s</span>
+              <span class="stat" title="tokens/s">{(toks/(dur/1000)).toFixed(2)} t/s</span>
+            {/if}
+          </span>
         {/if}
         {#if $showTimestamps}
           <span class="time">{timeStr(m.time?.created)}</span>
@@ -1513,15 +1515,27 @@
     color: var(--accent);
   }
   .time {
-    opacity: 0.7;
+    color: var(--fg-dim);
+  }
+  .statgroup {
+    display: inline-flex;
+    gap: 8px;
   }
   .stat {
-    opacity: 0.7;
-    font-size: 0.85em;
+    color: var(--fg-dim);
+    font-family: var(--mono);
+  }
+  /* keep the stat cluster readable as one unit, pull it away from model /
+     timestamp only when there's room */
+  @media (min-width: 720px) {
+    .statgroup {
+      margin-left: 16px;
+      margin-right: 16px;
+    }
   }
   .model-id {
     font-family: var(--mono);
-    opacity: 0.6;
+    color: var(--fg-dim);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
