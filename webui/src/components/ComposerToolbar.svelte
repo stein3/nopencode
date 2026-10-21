@@ -14,7 +14,9 @@
         p.type === 'tool' ||
         p.type === 'file',
     )
-  $: liveThinking = tab.busy && (!lastMsg || lastMsg.role !== 'assistant' || !lastHasVisible)
+  // liveThinking is the "Thinking…" label; it must not claim thinking while
+  // a compaction summary is what's actually running (transcript shows that)
+  $: liveThinking = tab.busy && !tab.compacting && (!lastMsg || lastMsg.role !== 'assistant' || !lastHasVisible)
 </script>
 
 <div class="toolbar">

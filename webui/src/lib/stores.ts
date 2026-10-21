@@ -16,6 +16,9 @@ export interface Tab {
   messages: OcMessage[] // loaded window, chronological — NOT necessarily the whole session
   live: boolean // engine-backed vs pure history snapshot
   busy?: boolean
+  // engine is generating a compaction summary (session.next.compaction.* SSE)
+  // — the transcript shows an inline indicator until ended/idle clears it
+  compacting?: boolean
   dirty?: boolean // refetch pending
   // turn-failure tiles (SSE session.error). Persisted server-side by
   // chatserver (sidecar webui.db) so they survive reloads; cleared on the

@@ -343,7 +343,7 @@ function openStream() {
     if (!sid) return
     if (!tabs.isopen(sid)) return
     if (type === 'session.idle') {
-      tabs.patch(sid, { busy: false })
+      tabs.patch(sid, { busy: false, compacting: false })
       // reconcile against the engine's finished state NOW: scheduleRefetch is
       // busy-gated (every message.updated refetch during the turn no-ops), so
       // without this nothing re-fetches `time.completed`/final tokens after a
@@ -373,7 +373,7 @@ function openStream() {
       // duplicate event can't double-render a tile before the next reload
       const errors = [...(cur?.errors ?? [])]
       if (!aborted && !errors.some((e) => e.message === msg)) errors.push({ message: msg, t: Date.now() })
-      tabs.patch(sid, { busy: false, errors })
+      tabs.patch(sid, { busy: false, compacting: false, errors })
       if (!aborted) hist.addSessionError(sid, msg) // persist fire-and-forget
       // transient provider failure (APIError + isRetryable) → arm + auto-retry
       // with backoff; the witnessed error proves the original prompt was
@@ -403,6 +403,22 @@ function openStream() {
       }
       // DO NOT fall through to the catch-all scheduleRefetch below
       return
+    } else if (type === 'session.next.compaction.started') {
+      // engine is generating a compaction summary (manual /compact or auto
+      // near-limit, from any client). No message.part events stream for it —
+      // the transcript would otherwise sit frozen with no busy feedback.
+      // .ended / session.compacted / session.idle clear it.
+      tabs.patch(sid, { busy: true, compacting: true })
+      return
+    } else if (type === 'session.next.compaction.ended') {
+      // summary text finished generating — the turn may continue (auto
+      // compaction) or idle (manual); stop claiming "compacting" either way
+      tabs.patch(sid, { compacting: false })
+      return
+    } else if (type === 'session.compacted') {
+      // compaction committed (history pruned) — clear the indicator and fall
+      // through so the catch-all scheduleRefetch reconciles the new history
+      tabs.patch(sid, { compacting: false })
     }
 
     // true streaming: snapshots replace, deltas append
@@ -504,6 +520,8 @@ async function catchUp() {
     const v = st[t.id]
     const busy = (v?.type ?? v?.state) === 'busy'
     if (!!t.busy !== busy) tabs.patch(t.id, { busy })
+    // a missed session.next.compaction.ended must not pin the indicator forever
+    if (!busy && t.compacting) tabs.patch(t.id, { compacting: false })
     if (!busy) refetchNow(t.id)
   }
 }

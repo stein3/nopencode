@@ -244,13 +244,15 @@ registry.builtins = [
       if (!model) return toast('/compact needs a selected model')
       // summarize is a blocking POST that runs the same loop as a turn —
       // flip busy so the stop button (abort) is available while it runs;
-      // session.idle over SSE clears it on success
-      tabs.patch(sid, { busy: true })
+      // session.idle over SSE clears it on success. compacting drives the
+      // transcript's inline indicator (SSE started/ended keep it in sync
+      // from other clients too; this covers the initiating client).
+      tabs.patch(sid, { busy: true, compacting: true })
       toast('compacting session…')
       try {
         await oc.summarize(sid, model)
       } catch (e: any) {
-        tabs.patch(sid, { busy: false })
+        tabs.patch(sid, { busy: false, compacting: false })
         toast(`/compact failed: ${e.message ?? e}`)
       }
     },

@@ -1220,6 +1220,9 @@
         <button class="erbtn erundo" disabled={aborting} title="Undo & resend" on:click={undoResendEngineRetry}>↩ undo</button>
       </div>
     {/if}
+    {#if tab.compacting}
+      <div class="compacting" role="status">Compacting session<span class="cdots"><i>.</i><i>.</i><i>.</i></span></div>
+    {/if}
     {/if}
   </div>
 </div>
@@ -1455,6 +1458,25 @@
      distinguish from the webui's own auto-retry */
   .retryline.engineretry {
     color: #e0a030;
+  }
+  /* inline compaction indicator (session.next.compaction.* SSE) — same
+     muted treatment as the composer's live-thinking dots */
+  .compacting {
+    max-width: 860px;
+    margin: 0 auto;
+    padding: 4px 18px;
+    color: var(--fg-dim);
+    font-size: 12px;
+  }
+  .compacting .cdots i {
+    font-style: normal;
+    animation: cdotblink 1.4s infinite both;
+  }
+  .compacting .cdots i:nth-child(2) { animation-delay: 0.2s; }
+  .compacting .cdots i:nth-child(3) { animation-delay: 0.4s; }
+  @keyframes cdotblink {
+    0%, 80%, 100% { opacity: 0; }
+    40% { opacity: 1; }
   }
   .erinfo {
     flex: 1;
