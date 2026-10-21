@@ -840,6 +840,20 @@
   function lastReasoningId(m: any): string | undefined {
     return (m.parts ?? []).filter((p: any) => p.type === 'reasoning').at(-1)?.id
   }
+  // message duration = model generation + tool execution; the tool part's
+  // state.time window sits at the tail of the message (verified against
+  // history: next message's created ~5ms after tool end), so split it out
+  function splitTiming(m: any): { agentMs: number; toolMs: number } {
+    const start = m.time?.created
+    const end = m.time?.completed
+    const total = start && end ? Math.max(0, end - start) : 0
+    let toolMs = 0
+    for (const p of m.parts ?? []) {
+      const t = p.type === 'tool' ? p.state?.time : null
+      if (t?.start && t.end) toolMs += Math.max(0, t.end - t.start)
+    }
+    return { agentMs: Math.max(0, total - toolMs), toolMs }
+  }
   function timeStr(t?: number): string {
     return t ? new Date(t < 1e12 ? t * 1000 : t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''
   }
@@ -1013,12 +1027,12 @@
         {#if m.modelID}<span class="model-id" title={m.providerID ? `${m.providerID}/${m.modelID}` : m.modelID}>{m.modelID}</span>{/if}
         {#if genTally(m.tokens ?? m.info?.tokens)}
           {@const toks = genTally(m.tokens ?? m.info?.tokens) ?? 0}
-          {@const dur = m.time?.completed && m.time.created ? m.time.completed - m.time.created : 0}
+          {@const { agentMs } = splitTiming(m)}
           <span class="statgroup">
             <span class="stat" title={`output ${m.tokens?.output ?? 0} + reasoning ${m.tokens?.reasoning ?? 0} tokens (turn's full context input not shown)`}>{toks} tokens</span>
-            {#if dur && dur > 0}
-              <span class="stat" title="time">{(dur/1000).toFixed(1)}s</span>
-              <span class="stat" title="tokens/s">{(toks/(dur/1000)).toFixed(2)} t/s</span>
+            {#if agentMs > 0}
+              <span class="stat" title="agent time (tool execution excluded)">{(agentMs/1000).toFixed(1)}s</span>
+              <span class="stat" title="tokens/s over agent time only">{(toks/(agentMs/1000)).toFixed(2)} t/s</span>
             {/if}
           </span>
         {/if}
