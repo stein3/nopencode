@@ -223,9 +223,14 @@
     // wheel/touch/key handlers alone miss scrollbar drags, middle-click
     // autoscroll and every other non-wheel input: `stuck` stayed true and the
     // next ResizeObserver tick yanked the reader back to the bottom
-    // mid-gesture (flicker while dragging, snap-back on release). The >2px
-    // deadband ignores the tiny upward clamps fired when content shrinks.
-    if (goingUp && upBy > 2) {
+    // mid-gesture (flicker while dragging, snap-back on release).
+    // !nearBottom is load-bearing: a browser SHRINK CLAMP (live message gets
+    // shorter mid-stream — part.updated snapshot behind local deltas, fence
+    // cap flip, {@html} image swap) also fires an upward scroll event, but it
+    // always lands AT the new bottom. Unstick on those killed auto-follow for
+    // the rest of the turn (re-arm needs a downward scroll the user never
+    // sends). A genuine scroll-up leaves the bottom corner; a clamp doesn't.
+    if (goingUp && upBy > 2 && !nearBottom(scroller)) {
       stuck = false
     }
     // Re-arm the pin when the user scrolls down to the bottom corner, BUT
