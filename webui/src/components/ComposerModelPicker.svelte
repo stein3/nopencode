@@ -273,7 +273,9 @@
     // Use capture-phase listener so this fires BEFORE the sidebar's bubble-phase handler
     const handler = (e: KeyboardEvent) => onKeydown(e)
     window.addEventListener('keydown', handler, { capture: true })
-    return () => window.removeEventListener('keydown', handler)
+    // capture flag MUST match on remove — omitting it silently never removes the
+    // listener, leaving a zombie that swallows all keystrokes after unmount
+    return () => window.removeEventListener('keydown', handler, { capture: true })
   })
 </script>
 

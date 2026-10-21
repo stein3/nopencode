@@ -5,6 +5,9 @@
 //   1. Empty session: select from dropdown → prompt POST carries the picked model
 //   2. Non-empty session: composer-toolbar model picker changes model for next prompt
 //   3. Prompt bodies reflect the picks
+//   4. After chord-open + filter + select, typing and '/' still reach the composer
+//      (zombie-capture-listener regression: removeEventListener must match the
+//      {capture:true} flag or the listener is never removed)
 //
 // Run: node e2e/embedded/model-picker.test.mjs
 
@@ -279,6 +282,34 @@ try {
     const reopenRows = await page.locator(`${PANE} .menu .m`).count();
     check('M', 'filter cleared on reopen', reopenRows >= 3, `${reopenRows} rows`);
     await page.keyboard.press('Escape');
+
+    // ---- Phase 4: keyboard usable again after chord-open + filter + select ---
+    // Regression: the picker's capture-phase keydown listener was removed WITHOUT
+    // the capture flag (removeEventListener matches on it), so it was never
+    // removed — every unmounted picker (pending-tab realize) left a zombie whose
+    // stale `open` swallowed all typing and '/' after a pick.
+    console.log('\nPHASE 4 — typing works after filter + select');
+    await page.click(`${PANE} #composer-input:visible`);
+    await page.keyboard.press('Control+x');
+    await page.keyboard.press('m');
+    await page.locator(`${PANE} .menu`).waitFor({ state: 'visible', timeout: 5000 });
+    await page.keyboard.type('alpha');
+    await sleep(300);
+    await page.keyboard.press('Enter');
+    await sleep(500);
+
+    // 1. typing must land in the composer right after the pick
+    await page.fill(`${PANE} #composer-input:visible`, '');
+    await page.keyboard.type('post-pick');
+    const typed = await page.inputValue(`${PANE} #composer-input:visible`);
+    check('M', 'typing works immediately after filter+select', typed === 'post-pick', JSON.stringify(typed));
+
+    // 2. '/' with focus outside the composer must refocus it
+    await page.fill(`${PANE} #composer-input:visible`, '');
+    await page.click(`${PANE} .transcript`);
+    await page.keyboard.press('/');
+    const focused = await page.evaluate(() => document.activeElement?.id);
+    check('M', 'slash refocuses composer after picker use', focused === 'composer-input', focused);
 
     await screenshot(page, 'model-picker-final');
 
