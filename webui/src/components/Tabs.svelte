@@ -15,6 +15,11 @@
     'Alt+W': 'close tab',
   }
 
+  function wsName(p: string): string {
+    const parts = p.split('/').filter(Boolean)
+    return parts[parts.length - 1] || p
+  }
+
   // keep the newest opened tab and the active tab visible in the horizontal
   // scroller (issue #3): opening appends offscreen-right; Alt+←→ / Ctrl+N
   // cycling can park the active tab outside the visible strip. scrollIntoView
@@ -55,6 +60,11 @@
       title={t.title}
     >
       <span class="dot" class:busy={t.busy} class:dirty={t.dirty && !t.busy} class:ask={askSet.has(t.id)}></span>
+      <!-- pi workspace chip: basename of the session's cwd (absent on engines
+           that don't send one); full path in the tooltip -->
+      {#if t.cwd}
+        <span class="ws" title={t.cwd}>{wsName(t.cwd)}</span>
+      {/if}
       <span class="label">{t.title || t.id.slice(0, 12)}</span>
       <button class="x" title="Close (Alt+W)" on:click|stopPropagation={() => onClose(t.id)}
         >×</button
@@ -112,6 +122,26 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+  /* workspace chip — reads as metadata, not as part of the title */
+  .ws {
+    font-size: 10.5px;
+    line-height: 1;
+    padding: 2px 5px;
+    border-radius: 4px;
+    background: var(--bg-hover);
+    color: var(--fg-dim);
+    white-space: nowrap;
+    flex-shrink: 0;
+    max-width: 90px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .tab:not(.active) .ws {
+    opacity: 0.6;
+  }
+  .tab.active .ws {
+    color: var(--accent);
   }
   .x {
     background: transparent;

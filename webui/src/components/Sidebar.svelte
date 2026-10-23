@@ -555,6 +555,61 @@ import { sidePanel } from '../lib/sidePanel'
   // All filter state passed explicitly so Svelte tracks reactivity
   $: filteredRows = applyOrgFilters(displayRows, filterStarred, filterTags, filterUntagged, $sessionMeta)
 
+  // ---- workspace (pi) grouping --------------------------------------------
+  // The sidebar groups sessions under collapsible project headers keyed by
+  // cwd. Subagent rows inherit their root's group, so a nested tree is never
+  // split across headers. When no row carries a cwd (a plain opencode engine)
+  // this is one anonymous group and the template renders the old flat list —
+  // no visual change. Collapse state is in-memory (never persisted).
+  let collapsedWs = new Set<string>()
+
+  interface WsGroup {
+    key: string // cwd path, '' = no workspace known
+    name: string
+    rows: Disp[]
+  }
+
+  function wsLabel(p: string): string {
+    if (!p) return 'other'
+    const parts = p.split('/').filter(Boolean)
+    return parts[parts.length - 1] || p
+  }
+
+  $: wsGroups = (() => {
+    if (!filteredRows.length) return []
+    const out: WsGroup[] = []
+    const byKey = new Map<string, WsGroup>()
+    let rootCwd = ''
+    let any = false
+    for (const d of filteredRows) {
+      if (d.depth === 0) rootCwd = d.s.cwd || ''
+      if (rootCwd) any = true
+      let g = byKey.get(rootCwd)
+      if (!g) {
+        g = { key: rootCwd, name: wsLabel(rootCwd), rows: [] }
+        byKey.set(rootCwd, g)
+        out.push(g)
+      }
+      g.rows.push(d)
+    }
+    return any ? out : [{ key: '', name: '', rows: filteredRows }]
+  })()
+
+  // false = nothing has a workspace → no headers, exactly the old flat list
+  $: grouped = wsGroups.length > 1 || wsGroups[0]?.key !== ''
+
+  // rows Alt+↑↓ may walk: collapsed groups drop out of the order entirely
+  $: navRows = grouped
+    ? wsGroups.filter((g) => !collapsedWs.has(g.key)).flatMap((g) => g.rows)
+    : filteredRows
+
+  function toggleWs(key: string) {
+    const next = new Set(collapsedWs)
+    if (next.has(key)) next.delete(key)
+    else next.add(key)
+    collapsedWs = next
+  }
+
   // group filtered rows by tag (tagged sessions appear as section headers)
   // untagged sessions stay inline; starred sessions without a tag stay inline
   interface TagGroup {
@@ -591,7 +646,7 @@ import { sidePanel } from '../lib/sidePanel'
   let navTimer: ReturnType<typeof setTimeout> | undefined
 
   export function navSession(dir: 1 | -1) {
-    const visible = new Set(filteredRows.map((d) => d.s.id))
+    const visible = new Set(navRows.map((d) => d.s.id))
     if (!visible.size) return
 
     // break focus on the composer so Enter/Escape fall through to the
@@ -602,7 +657,7 @@ import { sidePanel } from '../lib/sidePanel'
     }
 
     // first press: snapshot the current display order
-    if (!navOrder) navOrder = filteredRows.map((d) => d.s.id)
+    if (!navOrder) navOrder = navRows.map((d) => d.s.id)
 
     // if the previously focused session disappeared (deleted / filtered out),
     // re-anchor at the same positional index (clamped to nearest visible)
@@ -822,7 +877,29 @@ import { sidePanel } from '../lib/sidePanel'
           <input type="checkbox" bind:checked={$hideSubagents} /> hide subagents
         </label>
       </div>
-      {#each filteredRows as d (d.s.id)}
+      {#each wsGroups as g (g.key || '__all')}
+        {#if grouped && g.key}
+          <button
+            class="wshead"
+            class:collapsed={collapsedWs.has(g.key)}
+            title={g.key}
+            on:click={() => toggleWs(g.key)}
+          >
+            <svg
+              class="wschev"
+              width="11"
+              height="11"
+              viewBox="0 0 8 8"
+              style:transform={collapsedWs.has(g.key) ? 'none' : 'rotate(90deg)'}
+            >
+              <path d="M2 1 L6.5 4 L2 7 Z" fill="currentColor" />
+            </svg>
+            <span class="wsname">{g.name}</span>
+            <span class="wscount">{g.rows.length}</span>
+          </button>
+        {/if}
+        {#if !grouped || !collapsedWs.has(g.key)}
+      {#each g.rows as d (d.s.id)}
         <button
           class="item"
           class:sub-row={isSub(d.s)}
@@ -945,6 +1022,10 @@ import { sidePanel } from '../lib/sidePanel'
             {/if}<span class="stime" title={new Date(d.s.updated).toLocaleString()}>{relTime(d.s.updated)}</span>
           </span>
         </button>
+      {:else}
+        <div class="hint">loading…</div>
+      {/each}
+        {/if}
       {:else}
         <div class="hint">loading…</div>
       {/each}
@@ -1145,6 +1226,40 @@ import { sidePanel } from '../lib/sidePanel'
     opacity: 0.7;
     text-transform: none;
     letter-spacing: 0;
+  }
+  /* workspace group header: chevron, dir name,
+     session count right-aligned */
+  .wshead {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    text-align: left;
+    background: transparent;
+    border: none;
+    color: var(--fg-dim);
+    font-size: 11.5px;
+    padding: 8px 12px 3px;
+    cursor: pointer;
+  }
+  .wshead:hover {
+    color: var(--fg);
+  }
+  .wschev {
+    flex: none;
+    opacity: 0.75;
+  }
+  .wsname {
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .wscount {
+    margin-left: auto;
+    flex: none;
+    font-size: 10.5px;
+    opacity: 0.7;
   }
   .item {
     display: flex;

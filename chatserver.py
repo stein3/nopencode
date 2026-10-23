@@ -3,7 +3,10 @@
 
 Single-origin backend for the webui:
   /, /webui/       -> webui/dist statics (SPA fallback to index.html)
-  /oc/*            -> reverse proxy to the opencode engine (REST + SSE, streamed)
+  /oc/*            -> reverse proxy to the opencode engine (REST + SSE,
+                      streamed). GET /oc/workspaces + GET /oc/fs/dirs are
+                      served locally instead (the engine has no such routes;
+                      see workspace_root/chips/complete_directories)
   /api/history/*   -> read-only sqlite access to opencode.db (sessions, transcript;
                       transcript accepts ?limit=N for a newest-N window)
   /api/history/session/{id}/errors
@@ -105,6 +108,100 @@ def num(v):
         return num(j.get("created") if isinstance(j, dict) else j)
     except Exception:
         return 0
+
+
+# ---- workspaces (pi-web parity) -------------------------------------------
+# Sidebar groups come from session.directory (load_sessions -> `cwd`); the
+# picker's chips + type-ahead come from workspace_chips()/complete_directories()
+# off the engine's own /path root. The client folds the engine's `directory`
+# field into `cwd` on read as well (webui lib/api.ts withCwd) so both read
+# paths hand the UI one field.
+#
+# The engine CANNOT pin a new session's directory — three routes verified dead
+# against a live engine (opencode 1.18.x), do not re-litigate:
+#   - POST /session is additionalProperties:false: no cwd/path/directory field
+#   - `projectID` in that body is silently ignored (session lands in the
+#     server's own project/directory)
+#   - POST /experimental/control-plane/move-session rejects a destination
+#     outside the session's project ("Destination directory belongs to another
+#     project")
+# So proxy() drops the picker's `cwd` from the create body — a raw one 400s —
+# and the created session's own `directory` comes back to correct the tab chip.
+
+_ws_root = None
+
+
+def workspace_root():
+    """Engine working directory (cached) — chips and completion base."""
+    global _ws_root
+    if _ws_root is None:
+        root = ""
+        try:
+            conn = http.client.HTTPConnection(OC_ENGINE, timeout=5)
+            conn.request("GET", "/path")
+            r = conn.getresponse()
+            root = json.loads(r.read() or b"{}").get("directory") or ""
+            conn.close()
+        except Exception:
+            pass
+        _ws_root = root or os.getcwd()
+    return _ws_root
+
+
+def workspace_chips():
+    """Every workspace a session has run in (most recent first), then the
+    child dirs of the engine root that have never been used — pi-web's chips."""
+    seen = {}  # path -> last activity ms (0 = never used)
+    with _connect() as c:
+        for p, t in c.execute(
+            "SELECT directory, MAX(time_updated) FROM session"
+            " WHERE directory IS NOT NULL AND directory != '' GROUP BY directory"
+        ):
+            seen[p] = num(t)
+    try:
+        root = workspace_root()
+        for name in os.listdir(root):
+            full = os.path.join(root, name)
+            if not name.startswith(".") and os.path.isdir(full):
+                seen.setdefault(full, 0)
+    except OSError:
+        pass  # root unreadable — the session workspaces above still list
+    return [
+        {"name": os.path.basename(p) or p, "path": p}
+        for p in sorted(seen, key=lambda p: (-seen[p], p))[:24]
+    ]
+
+
+def complete_directories(prefix):
+    """Directory suggestions for the picker's type-ahead (drill-in semantics):
+    everything up to the last '/' names the dir to list, the rest matches
+    child names; '~' expands, relative prefixes resolve against the root."""
+    text = str(prefix or "")
+    if text == "~":
+        text = "~/"
+    if text.startswith("~/"):
+        text = os.path.expanduser("~") + text[1:]
+    slash = text.rfind("/")
+    dir_part = text[: slash + 1] if slash != -1 else ""
+    partial = text[slash + 1 :].lower()
+    d = os.path.abspath(os.path.join(workspace_root(), dir_part or "."))
+    try:
+        names = sorted(os.listdir(d))
+    except OSError:
+        return []
+    out = []
+    for n in names:
+        if not n.lower().startswith(partial):
+            continue
+        if not partial.startswith(".") and n.startswith("."):
+            continue
+        full = os.path.join(d, n)
+        if not os.path.isdir(full):
+            continue
+        out.append({"name": n, "path": full})
+        if len(out) >= 50:  # cap the list at 50 suggestions per level
+            break
+    return out
 
 
 def _connect():
@@ -368,7 +465,8 @@ def load_sessions():
             if r["tk"] is not None
         }
         rows = c.execute(
-            """SELECT s.id, s.title, s.cost, s.model, s.parent_id, s.agent, s.time_created tc,
+            """SELECT s.id, s.title, s.cost, s.model, s.parent_id, s.agent,
+                      s.directory, s.time_created tc,
                       s.time_updated tu, COUNT(m.id) n
                FROM session s LEFT JOIN message m ON m.session_id = s.id
                GROUP BY s.id ORDER BY s.rowid DESC"""
@@ -394,6 +492,9 @@ def load_sessions():
                 "model_provider": model_provider,
                 "parent": r["parent_id"] or "",
                 "agent": r["agent"] or "",
+                # workspace the session runs in (sidebar group headers / tab
+                # chip); empty string = unknown, webui renders flat
+                "cwd": r["directory"] or "",
                 "created": created,
                 "updated": num(r["tu"]) or created,
                 "message_count": r["n"],
@@ -982,6 +1083,13 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if path == "/healthz":
                 return self.send_json({"ok": True})
+            if self.command == "GET" and path == "/oc/workspaces":
+                return self.send_json(
+                    {"root": workspace_root(), "chips": workspace_chips()}
+                )
+            if self.command == "GET" and path == "/oc/fs/dirs":
+                prefix = (parse_qs(u.query).get("prefix") or [""])[0]
+                return self.send_json({"items": complete_directories(prefix)})
             if path == "/api/history/sessions":
                 return self.send_json(load_sessions())
             if path == "/api/history/errors":
@@ -1103,6 +1211,18 @@ class Handler(BaseHTTPRequestHandler):
         headers["Accept-Encoding"] = "identity"
         length = int(self.headers.get("Content-Length") or 0)
         body = self.rfile.read(length) if length else None
+        # pi's `cwd` (sent once the /oc/workspaces probe passed) is not a
+        # field the engine accepts — drop it, or POST /session 400s on
+        # additionalProperties:false. The response's own `directory` tells
+        # the webui where the session really landed.
+        if body and self.command == "POST" and u.path == "/oc/session":
+            try:
+                parsed = json.loads(body)
+            except ValueError:
+                parsed = None
+            if isinstance(parsed, dict) and "cwd" in parsed:
+                parsed.pop("cwd")
+                body = json.dumps(parsed).encode()
         try:
             conn.request(self.command, target, body=body, headers=headers)
             resp = conn.getresponse()

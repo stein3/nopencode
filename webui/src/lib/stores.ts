@@ -13,6 +13,10 @@ export interface RevertPoint {
 export interface Tab {
   id: string // session id — or a local `pending-*` id until first send
   title: string
+  // pi only: workspace directory — picked for pending tabs by the new-session
+  // dialog, learned from the engine/history for opened ones. Drives the tab
+  // bar chip and the sidebar's workspace groups. Absent on opencode engines.
+  cwd?: string
   messages: OcMessage[] // loaded window, chronological — NOT necessarily the whole session
   live: boolean // engine-backed vs pure history snapshot
   busy?: boolean

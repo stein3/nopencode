@@ -29,6 +29,11 @@ export function isSessionBusy(e: unknown): boolean {
   return (e as any)?.status === 409 && (b?.name ?? b?.error?.name) === 'SessionBusyError'
 }
 
+// The workspace a session runs in: pi calls it `cwd`, the opencode engine
+// calls it `directory`. Normalize every session read to `cwd` so the sidebar
+// groups, tab chip, and picker only ever know one field.
+const withCwd = <T extends OcSession>(s: T): T => ({ ...s, cwd: s.cwd ?? s.directory })
+
 async function reqText(url: string, init?: RequestInit): Promise<string> {
   const r = await fetch(url, { headers: { 'content-type': 'application/json' }, ...init })
   if (!r.ok) throw new Error(`${init?.method ?? 'GET'} ${url} -> ${r.status}`)
@@ -43,6 +48,11 @@ export interface OcRevert {
 export interface OcSession {
   id: string
   title?: string
+  // workspace the session runs in — normalized into `cwd` on read (pi emits
+  // `cwd` directly, the engine emits `directory`). Optional: every consumer
+  // must treat it as absent on engines that report neither.
+  cwd?: string
+  directory?: string
   time?: { created?: number; updated?: number }
   version?: string
   revert?: OcRevert | null
@@ -86,21 +96,31 @@ export interface OcFilePart {
 }
 
 export const oc = {
-  sessions: () => req<OcSession[]>('/oc/session'),
-  session: (id: string) => req<OcSession>(`/oc/session/${id}`),
+  sessions: () => req<OcSession[]>('/oc/session').then((d) => d.map(withCwd)),
+  session: (id: string) => req<OcSession>(`/oc/session/${id}`).then(withCwd),
   messages: (id: string, limit?: number) =>
     // engine returns the NEWEST `limit` messages in ascending order
     req<OcMessage[]>(`/oc/session/${id}/message${limit ? `?limit=${limit}` : ''}`),
-  createSession: (title?: string, model?: { providerID: string; modelID: string; variant?: string }) =>
+  // `cwd` pins the session's workspace directory where the backend can honor
+  // it (pi-web does; chatserver.py strips it for the opencode engine, which
+  // has no such field — callers only ever pass it after the /oc/workspaces
+  // probe succeeded, and the created session's own directory corrects the tab
+  // chip either way).
+  createSession: (
+    title?: string,
+    model?: { providerID: string; modelID: string; variant?: string },
+    cwd?: string,
+  ) =>
     req<OcSession>('/oc/session', {
       method: 'POST',
       body: JSON.stringify({
         ...(title ? { title } : {}),
+        ...(cwd ? { cwd } : {}),
         // engine ModelRef uses `id` — a session created without one inherits
         // the config default, ignoring the picker
         ...(model ? { model: { providerID: model.providerID, id: model.modelID, ...(model.variant ? { variant: model.variant } : {}) } } : {}),
       }),
-    }),
+    }).then(withCwd),
   // prompt_async returns immediately (204) — the turn streams in over SSE.
   // `agent` (top-level body field, engine OpenAPI-confirmed) runs this one
   // turn under the named agent; omitted = session default.
@@ -160,6 +180,16 @@ export const oc = {
       body: JSON.stringify({ command, arguments: args }),
     }),
   path: () => req<{ directory?: string }>('/oc/path').catch(() => ({ directory: undefined })),
+  // workspace chips + directory type-ahead for the new-session picker. Served
+  // by chatserver.py on the opencode side and by pi-web on the pi side; the
+  // engine itself has no such route and answers the path with SPA HTML (HTTP
+  // 200), so this doubles as the capability probe — gate on the response
+  // SHAPE (App.svelte wsProbe), never on the status code.
+  workspaces: () => req<{ root: string; chips: { name: string; path: string }[] }>('/oc/workspaces'),
+  dirs: (prefix: string) =>
+    req<{ items: { name: string; path: string }[] }>(`/oc/fs/dirs?prefix=${encodeURIComponent(prefix)}`).then(
+      (d) => d.items ?? [],
+    ),
   // merged agent registry (built-ins + config + plugin agents), engine order:
   // configured/default first, then alphabetical. Includes hidden/system
   // entries and subagents — consumers filter `mode !== 'subagent' && !hidden`.
@@ -223,6 +253,9 @@ export const oc = {
 export interface HistSession {
   id: string
   title: string
+  // workspace the session runs in (opencode: session.directory, pi: session
+  // file header) — see OcSession.cwd
+  cwd?: string
   created: number
   updated: number
   message_count: number

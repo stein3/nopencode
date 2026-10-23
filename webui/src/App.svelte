@@ -11,6 +11,7 @@
   import CommandPalette from './components/CommandPalette.svelte'
   import CommandDialog from './components/CommandDialog.svelte'
   import RenameDialog from './components/RenameDialog.svelte'
+  import NewSessionDialog from './components/NewSessionDialog.svelte'
   import WhichKey from './components/WhichKey.svelte'
   import Settings from './components/Settings.svelte'
   import ImageLightbox from './components/ImageLightbox.svelte'
@@ -106,7 +107,7 @@
     } else if (allowLive) {
       try {
         const s = await oc.session(id)
-        openTab({ id, title: s?.title || id.slice(0, 14), messages: [], live: true })
+        openTab({ id, title: s?.title || id.slice(0, 14), messages: [], live: true, ...(s?.cwd ? { cwd: s.cwd } : {}) })
         await openLive(id, s?.title, activate, silent)
         ok = true
       } catch {
@@ -121,6 +122,7 @@
           id,
           title: s?.title || id.slice(0, 14),
           live: false,
+          ...(s?.cwd ? { cwd: s.cwd } : {}),
           messages: msgs.map((m) => ({
             id: m.id,
             role: m.role,
@@ -173,6 +175,8 @@
       // clobber a fresh pick (the "model didn't stick" bug). `s === null` is a
       // failed fetch, not "the session has no model" — leave the cache alone.
       if (s) setSessionSynced(id, refFromEngine(s.model))
+      // workspace (pi): the engine's cwd is authoritative for opened tabs
+      if (s?.cwd) tabs.patch(id, { cwd: s.cwd })
     } catch {
       // not an engine session (pure history) — fall back to history view;
       // allowLive=false prevents openHistory ↔ openLive recursion
@@ -190,15 +194,44 @@
 
   // New tabs are purely local until the first message; the session is
   // created on demand so abandoned ctrl+t's never litter the engine.
-  function newChat() {
+  //
+  // workspace step: newChat opens the directory picker first and the pending
+  // tab carries the chosen cwd into realizeSession. Probing /oc/workspaces
+  // once tells us whether a workspace backend is there at all — chatserver.py
+  // and pi-web both serve it; a bare engine does NOT (it answers unknown
+  // /oc/* with the SPA HTML, HTTP 200 rather than 404), and the chords test's
+  // stub answers every /oc/* with {}. Neither survives a SHAPE check — which
+  // is why this probes {chips, root} and never the status code: a truthiness
+  // probe once let ctrl+t open a dead picker and failed chords.test.mjs.
+  let wsPicker = false
+  let wsCapable: boolean | null = null
+  const wsProbe = oc
+    .workspaces()
+    .then((d) => (wsCapable = Array.isArray(d?.chips) && typeof d?.root === 'string'))
+    .catch(() => (wsCapable = false))
+
+  function startPendingTab(cwd?: string) {
     openTab({
       id: 'pending-' + Math.random().toString(36).slice(2, 10),
       title: 'New Session',
       messages: [],
       live: true,
       pending: true,
+      ...(cwd ? { cwd } : {}),
     })
     focusActiveComposer()
+  }
+
+  function newChat() {
+    if (wsCapable) return void (wsPicker = true)
+    if (wsCapable === false) return startPendingTab()
+    // probe still in flight — finish it, then decide (never both)
+    wsProbe.then(() => (wsCapable ? (wsPicker = true) : startPendingTab()))
+  }
+
+  function onWorkspacePicked(cwd?: string) {
+    wsPicker = false
+    if (cwd) startPendingTab(cwd)
   }
 
   async function realizeSession(tabId: string): Promise<string> {
@@ -208,8 +241,11 @@
     // born with the picker's model — otherwise the session inherits the engine
     // config default and the first turn ignores the dropdown selection
     const m = $selectedModel
-    const s = await oc.createSession(undefined, m ?? undefined)
-    tabs.rekey(tabId, { ...t, id: s.id, pending: false })
+    const s = await oc.createSession(undefined, m ?? undefined, t.cwd)
+    // prefer the created session's own workspace: pi honors the picker's cwd,
+    // the opencode engine can't pin one, so its `directory` is the truth and
+    // the chip/grouping must show where the session really landed
+    tabs.rekey(tabId, { ...t, id: s.id, pending: false, ...(s.cwd ? { cwd: s.cwd } : {}) })
     // an agent picked on the pending tab follows the session to its real id
     rekeySessionAgent(tabId, s.id)
     rekeySessionModel(tabId, s.id)
@@ -519,6 +555,7 @@
     <CommandPalette onDone={() => focusActiveComposer()} />
     <CommandDialog />
     <RenameDialog />
+    <NewSessionDialog open={wsPicker} onDone={onWorkspacePicked} />
     <WhichKey />
     <Settings />
     <ImageLightbox />

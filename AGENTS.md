@@ -46,6 +46,7 @@
 
 ### Engine API traps
 
+- **Workspaces (shared dist, capability-gated)**: collapsible per-`cwd` sidebar groups, a basename chip in the tab bar, and a new-chat directory picker — all gated on a *shape*-checked `GET /oc/workspaces`. chatserver.py serves that route plus `/oc/fs/dirs` locally and folds the engine's `session.directory` into `cwd`; pi-web does the same on the pi side. Everything `cwd`-related is optional. The engine's inability to pin a session's directory, the bare-engine HTML-200 probe trap, and the read paths are documented in the code (`# ---- workspaces` in `chatserver.py`, `wsProbe` in `webui/src/App.svelte`, `withCwd` in `webui/src/lib/api.ts`). Verify: `e2e/embedded/chords.test.mjs`, `python3 e2e/wschat-check.py`, pi-web's `.testbin/ws-check.mjs`.
 - `POST /session/{id}/message` while busy **does not error** — engine queues the turn.
 - `POST /session/{id}/prompt_async` returns 204 immediately; UI state comes from SSE.
 - **Eager image decode**: corrupt image at prompt time → `session.error` + entire message dropped, nothing persists.

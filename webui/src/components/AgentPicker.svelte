@@ -63,6 +63,11 @@
   $: if (sid !== defFor) loadSessionDef(sid)
   async function loadSessionDef(id: string) {
     defFor = id
+    // pending tab: no session on the engine yet (same guard as Footer/InfoPanel)
+    if (!id || id.startsWith('pending-')) {
+      defSession = ''
+      return
+    }
     const s = await oc.session(id).catch(() => null)
     if (defFor !== id) return // sid rekeyed mid-flight (pending-tab realize)
     defSession = s?.agent || ''
