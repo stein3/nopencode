@@ -400,6 +400,9 @@ function openStream() {
       } else if (sType === 'busy') {
         // an attempt started producing — clear the retry banner
         clearEngineRetry(sid)
+        // engine went busy without us asking (manual /compact, queued turn,
+        // another client) — without this the stop button never appears
+        tabs.patch(sid, { busy: true })
       }
       // DO NOT fall through to the catch-all scheduleRefetch below
       return
