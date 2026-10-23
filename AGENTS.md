@@ -8,8 +8,8 @@
 | `webui/` | Svelte 4 + Vite frontend (`npm run build` → `webui/dist`, git-ignored) |
 | `webui/src/lib/` | Core libs: `api.ts` (engine client), `sse.ts` (SSE/event stream), `stores.ts` (Svelte stores), `markdown.ts`, `retries.ts` |
 | `webui/src/components/` | Svelte components: `App.svelte`, `Transcript.svelte`, `Sidebar.svelte`, `Composer.svelte`, `DiffPane.svelte` |
-| `Dockerfile` | Engine image (opencode CLI + ttyd + inject.py) |
-| `Dockerfile.web` | Web image (python:3.12-slim + chatserver.py + webui/dist) |
+| `Dockerfile` | Engine image (opencode CLI + ttyd + inject.py + python 3.13 via COPY --from python:3.13-slim-bookworm; apt python3 3.11 kept for its runtime libs) |
+| `Dockerfile.web` | Web image (python:3.13-slim + chatserver.py + webui/dist) |
 | `compose.yaml` | Service orchestration. `x-limits` anchor for shared caps |
 | `inject.py` | HTML patcher for ttyd's index.html |
 | `start.sh` | Engine container entrypoint |

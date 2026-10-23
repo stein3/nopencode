@@ -11,6 +11,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     imagemagick \
     && rm -rf /var/lib/apt/lists/*
 
+# Python 3.13 via the official image's /usr/local tree (bookworm-matched for
+# glibc). PATH prefers /usr/local/bin, so python3/pip3 resolve to 3.13; the
+# apt python3 (3.11) stays only as the source of 3.13's runtime .so deps
+# (libssl3, libffi8, libbz2, liblzma, libsqlite3, readline, gdbm, ...).
+COPY --from=python:3.13-slim-bookworm /usr/local /usr/local
+
 RUN curl -sLO https://github.com/tsl0922/ttyd/releases/download/1.7.7/ttyd.x86_64 \
     && chmod +x ttyd.x86_64 \
     && mv ttyd.x86_64 /usr/local/bin/ttyd

@@ -101,7 +101,7 @@ services:
       - PORT=7683
       - OC_ENGINE=http://opencode-engine:4096
       # chatserver.py defaults OC_DB to ~/.local/share/opencode/opencode.db.
-      # This image runs as root (python:3.12-slim), so ~ would resolve to /root;
+      # This image runs as root (python:3.13-slim), so ~ would resolve to /root;
       # pin it to the mounted share (the old monolithic image ran as USER node).
       - OC_DB=/home/node/.local/share/opencode/opencode.db
     depends_on:
