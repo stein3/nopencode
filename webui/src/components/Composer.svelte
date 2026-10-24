@@ -335,7 +335,14 @@
         sel = (sel - 1 + filtered.length) % filtered.length
         return
       }
-      if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) {
+      // Enter completes only while the box is still naming a command. Once it
+      // holds an exact name (including the "cmd " a menu pick stages) or
+      // arguments ("/model-sync all"), Enter submits — otherwise the
+      // highlighted row overwrote the typed args and nothing ever ran.
+      const named = /^\/([a-z0-9_-]+)$/.exec(text.trim())
+      const hasArgs = /^\/[a-z0-9_-]+\s+\S/.test(text)
+      const namesCommand = hasArgs || (!!named && filtered.some((c) => c.name === named[1]))
+      if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey && !namesCommand)) {
         e.preventDefault()
         pickFromMenu(filtered[sel])
         return
