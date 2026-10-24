@@ -110,5 +110,5 @@ export function roleLabel(m: any): string {
   if (taskNoticeOf(m)) return 'subagent'
   if (m.role === 'user') return 'you'
   if (m.error && !isAborted(m.error)) return 'Error'
-  return titleName(m.agent || 'nopencode')
+  return titleName(m.agent || 'Agent')
 }

@@ -89,7 +89,7 @@ export function applyMessages(sessionId: string, msgs: any[], complete = true) {
   }
   // Preserve authoritative role/agent from existing messages when the fetched
   // version has a less-specific value. This fixes queued user messages that
-  // render as "nopencode": setMeta sets role:'user', but the refetch returns
+  // render as generic agent: setMeta sets role:'user', but the refetch returns
   // role:undefined → normalizeMessages defaults to 'assistant', overwriting.
   const existingById = new Map(cur.messages.map((m) => [m.id, m]))
   const merged = fetched.map((m) => {

@@ -996,7 +996,7 @@
     {/if}
     {#if !tab.messages.length}
       <div class="empty">
-        <div class="logo">nopencode</div>
+        <div class="logo">Agent</div>
         {#if tab.loading}
           Loading…
         {:else if tab.live}

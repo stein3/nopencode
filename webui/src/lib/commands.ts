@@ -1,5 +1,5 @@
 // Command registry: merges the engine's commands (custom markdown commands +
-// skills, which opencode registers as slash commands) with web built-ins that
+// skills, which engine registers as slash commands) with web built-ins that
 // mirror the TUI's built-in commands. Both the Ctrl+P palette and the
 // composer's inline "/" menu render from here.
 import { oc } from './api'
@@ -350,7 +350,7 @@ registry.builtins = [
     category: 'System',
     run: async () => {
       openDialog({
-        title: 'nopencode web help',
+        title: 'web help',
         pre: [
           'ctrl + p   command palette        /        slash commands in composer',
           'ctrl + t   new chat               ctrl + w close tab',

@@ -27,8 +27,10 @@ COPY inject.py /app/inject.py
 COPY start.sh /app/start.sh
 RUN chmod +x /app/start.sh && chown -R node:node /app
 
-# The opencode subdirs are the compose named-volume mount points; they must exist
-# here so a fresh volume inherits node ownership instead of a root-owned mount point.
+# The opencode subdirs are the compose mount points (named volumes for state/share;
+# config is a host bind mount whose source already carries node ownership). They must
+# exist here so a fresh named volume inherits node ownership instead of a root-owned
+# mount point.
 RUN mkdir -p /home/node/.config/opencode /home/node/.local/state /home/node/.local/share/opencode \
     && chown -R node:node /home/node/.config /home/node/.local/state /home/node/.local/share
 
