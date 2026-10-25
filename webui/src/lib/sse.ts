@@ -177,6 +177,13 @@ export function refetchNow(sessionId: string) {
   const prev = timers.get(sessionId)
   if (prev) clearTimeout(prev)
   timers.delete(sessionId)
+  // Mark the tab dirty first. applyMessages() skips the swap when the payload
+  // has an identical id-set — an optimization against a self-amplifying fetch
+  // loop — but a tab whose SSE frames were lost mid-turn already holds every
+  // message id while its PART state is stale (a tool part frozen at `running`,
+  // so its diff/metadata never renders). Id equality proves nothing about part
+  // state; only `dirty` forces the authoritative copy in.
+  tabs.patch(sessionId, { dirty: true })
   oc.messages(sessionId, RECENT_PAGE)
     .then((msgs) => applyMessages(sessionId, msgs, msgs.length < RECENT_PAGE))
     .catch(() => {})
@@ -503,6 +510,12 @@ function scheduleRecreate() {
 // during a blackout otherwise pins busy=true forever, which blocks every
 // scheduleRefetch), messages are refetched only for non-busy tabs — applyMessages
 // is add-only while busy, so a mid-stream catch-up can't truncate live text.
+function anyBusyLive(): boolean {
+  let all: any[] = []
+  tabs.subscribe((t) => (all = t))()
+  return all.some((t) => t.live && t.busy)
+}
+
 async function catchUp() {
   if (Date.now() - catchUpAt < 3000) return
   catchUpAt = Date.now()
@@ -544,6 +557,14 @@ export function startEvents() {
     // engine sends server.heartbeat every 10s — 30s of silence on an OPEN
     // stream means we're connected to nothing
     if (es.readyState === EventSource.OPEN && Date.now() - lastFrame > 30000) openStream()
+    // …but PER-SESSION loss is invisible to that test: heartbeats keep
+    // `lastFrame` fresh while one session's frames never arrive. A missed
+    // `session.idle` then pins `busy` forever — scheduleRefetch is busy-gated
+    // and catchUp only ran on stream RE-OPEN — so the turn's terminal part
+    // state (completed + metadata) never lands and the user has to reload.
+    // While any live tab is busy, reconcile against the authoritative status
+    // map (catchUp is throttled to one pass per 3s; this fires per 10s).
+    else if (anyBusyLive()) void catchUp()
   }, 10000)
   // Coming back to a foregrounded PWA: sockets killed while frozen never fire
   // onerror, so check by hand. A healthy stream (fresh frames) is left alone;
