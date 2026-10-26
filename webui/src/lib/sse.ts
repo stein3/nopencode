@@ -1,4 +1,4 @@
-import { tabs, sessionTodos, patchMetrics, metricsFromMessages, tokenTally, markSessionUnread, patchEngineRetry, clearEngineRetry, syncEngineRetryFromStatus, markSessionListDirty, sessionListDirty } from './stores'
+import { tabs, sessionTodos, patchMetrics, metricsFromMessages, tokenTally, markSessionUnread, patchEngineRetry, clearEngineRetry, syncEngineRetryFromStatus, markSessionListDirty, sessionListDirty, setSessionQueue, dropSessionQueue } from './stores'
 import { oc, hist } from './api'
 import { refreshPermissions } from './permissions'
 import { refreshQuestions } from './questions'
@@ -349,6 +349,16 @@ function openStream() {
 
     if (!sid) return
     if (!tabs.isopen(sid)) return
+    // pi's pending queues arrive as complete lists (never diffs) — project them
+    // verbatim. Returning here matters: the fallthrough below would schedule a
+    // transcript refetch for a state change no transcript contains yet.
+    if (type === 'session.queue' && p.queue) {
+      setSessionQueue(sid, {
+        steering: Array.isArray(p.queue.steering) ? p.queue.steering.map(String) : [],
+        followUp: Array.isArray(p.queue.followUp) ? p.queue.followUp.map(String) : [],
+      })
+      return
+    }
     if (type === 'session.idle') {
       tabs.patch(sid, { busy: false, compacting: false })
       // reconcile against the engine's finished state NOW: scheduleRefetch is
@@ -453,6 +463,7 @@ function openStream() {
     } else     if (type === 'session.deleted' && p.sessionID) {
       // close the tab if the deleted session was open
       if (tabs.isopen(p.sessionID)) tabs.close(p.sessionID)
+      dropSessionQueue(p.sessionID)
       // bump dirty so sidebar reloads
       sessionListDirty.update((n) => n + 1)
       return

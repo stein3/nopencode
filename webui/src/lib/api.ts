@@ -29,6 +29,13 @@ export function isSessionBusy(e: unknown): boolean {
   return (e as any)?.status === 409 && (b?.name ?? b?.error?.name) === 'SessionBusyError'
 }
 
+// The backend did not answer before its own deadline. That is an UNKNOWN
+// outcome, not a failure: a prompt issued inside pi's settle window is deferred
+// and acked later, so the text must never be bounced back for a blind retry.
+export function isSendUnknown(e: unknown): boolean {
+  return (e as any)?.status === 504
+}
+
 // The workspace a session runs in: pi calls it `cwd`, the opencode engine
 // calls it `directory`. Normalize every session read to `cwd` so the sidebar
 // groups, tab chip, and picker only ever know one field.
@@ -95,6 +102,14 @@ export interface OcFilePart {
   filename: string
 }
 
+// pi's two pending-message queues, projected verbatim. The shape IS the
+// capability contract: a backend that answers with these two arrays supports
+// arming messages during a turn; one that 404s leaves the old behaviour alone.
+export interface OcQueue {
+  steering: string[]
+  followUp: string[]
+}
+
 export const oc = {
   sessions: () => req<OcSession[]>('/oc/session').then((d) => d.map(withCwd)),
   session: (id: string) => req<OcSession>(`/oc/session/${id}`).then(withCwd),
@@ -128,12 +143,16 @@ export const oc = {
   // text part; `url` is a full data URL (data:<mime>;base64,<b64>). The engine
   // inlines text/code files as synthetic Read-tool text and passes images
   // through as image content — nothing else needed client-side.
+  // `delivery` states intent during an in-flight turn: 'steer' lands at the next
+  // turn boundary, 'follow' after the run settles. The backend — which alone
+  // knows whether a run is live — resolves it to a transport; ignored when idle.
   prompt: (
     sessionId: string,
     text: string,
     model?: { providerID: string; modelID: string; variant?: string },
     agent?: string,
     files?: OcFilePart[],
+    delivery?: 'steer' | 'follow',
   ) =>
     req<unknown>(`/oc/session/${sessionId}/prompt_async`, {
       method: 'POST',
@@ -142,10 +161,24 @@ export const oc = {
         ...(model ? { model: { providerID: model.providerID, modelID: model.modelID } } : {}),
         ...(model?.variant ? { variant: model.variant } : {}),
         ...(agent ? { agent } : {}),
+        ...(delivery ? { delivery } : {}),
       }),
     }),
   abort: (sessionId: string) =>
     req<unknown>(`/oc/session/${sessionId}/abort`, { method: 'POST', body: '{}' }),
+  // null = no queue API on this backend (404 or a foreign shape).
+  queue: async (sessionId: string): Promise<OcQueue | null> => {
+    try {
+      const d = await req<any>(`/oc/session/${sessionId}/queue`)
+      return d && Array.isArray(d.steering) && Array.isArray(d.followUp)
+        ? { steering: d.steering.map(String), followUp: d.followUp.map(String) }
+        : null
+    } catch {
+      return null
+    }
+  },
+  clearQueue: (sessionId: string) =>
+    req<{ ok?: boolean }>(`/oc/session/${sessionId}/queue/clear`, { method: 'POST', body: '{}' }),
   status: () => req<Record<string, { type?: string; state?: string; attempt?: number; message?: string; action?: { reason?: string; provider?: string; title?: string; message?: string; label?: string; link?: string }; next?: number }>>('/oc/session/status'),
   permissions: () => req<any[]>('/oc/permission'),
   replyPermission: (requestID: string, reply: 'once' | 'always' | 'reject') =>

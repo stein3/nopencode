@@ -1,5 +1,5 @@
 import { writable } from 'svelte/store'
-import { hist, type OcMessage } from './api'
+import { hist, type OcMessage, type OcQueue } from './api'
 import { genTally } from './gentokens'
 import { msgModel } from './util'
 
@@ -439,6 +439,31 @@ export const paletteOpen = writable(false)
 // true while a ctrl+x leader chord is armed (drives the WhichKey hint strip)
 export const chordPending = writable(false)
 export const sessionTodos = writable<Record<string, any[]>>({})
+
+// ---- pending engine queues (steer / follow-up armed during a turn) ----------
+// pi holds these; the webui only projects what it is told. `undefined` means
+// "never probed", `null` means "this backend has no queue API" (so the strip
+// and the steer keybinding stay off). Never written from the composer: a
+// client-side copy would be a second queue to reconcile.
+export const sessionQueues = writable<Record<string, OcQueue | null>>({})
+
+export function setSessionQueue(sid: string, q: OcQueue | null | undefined) {
+  sessionQueues.update((m) => {
+    const prev = m[sid]
+    if (q === undefined || q === null) return prev === q ? m : { ...m, [sid]: q ?? null }
+    const same =
+      !!prev &&
+      prev.steering.length === q.steering.length &&
+      prev.followUp.length === q.followUp.length &&
+      prev.steering.every((t, i) => t === q.steering[i]) &&
+      prev.followUp.every((t, i) => t === q.followUp[i])
+    return same ? m : { ...m, [sid]: q }
+  })
+}
+
+export function dropSessionQueue(sid: string) {
+  sessionQueues.update((m) => (sid in m ? (({ [sid]: _drop, ...rest }) => rest)(m) : m))
+}
 
 // ---- display preferences (persisted) ----
 export function makePref(key: string, initial = true) {

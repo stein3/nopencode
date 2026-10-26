@@ -1,8 +1,18 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte'
-  import { oc } from '../lib/api'
-  import type { OcFilePart } from '../lib/api'
-  import { tabs, selectedModel, effectiveSessionModel, setSessionSynced, sessionAgent, sessionVariant, cmdVersion } from '../lib/stores'
+  import { oc, isSendUnknown } from '../lib/api'
+  import type { OcFilePart, OcQueue } from '../lib/api'
+  import {
+    tabs,
+    selectedModel,
+    effectiveSessionModel,
+    setSessionSynced,
+    sessionAgent,
+    sessionVariant,
+    cmdVersion,
+    sessionQueues,
+    setSessionQueue,
+  } from '../lib/stores'
   import type { Tab } from '../lib/stores'
   import { registry, type Cmd } from '../lib/commands'
   import { RECENT_PAGE, normalizeMessages } from '../lib/sse'
@@ -30,7 +40,11 @@
   let ta: HTMLTextAreaElement
   let sending = false
   let sendError = ''
+  let sendWarn = ''
   let sel = 0
+  let probedSid: string | null = null
+  let queue: OcQueue | null | undefined
+  let pendingVisible = false
 
   // ---- attachments -------------------------------------------------------
   // Staged files for the NEXT message. Images keep a thumbnail data URL;
@@ -149,6 +163,51 @@
   // so the menu stays open after the user picks a command and types args)
   $: slashQuery = /^\/([a-z0-9_-]*\S*)/.exec(text)
   $: menuOpen = !!slashQuery
+  // ---- pending engine queues (steer / follow-up) ---------------------------
+  // pi holds these; the composer only projects what it is told. `undefined` =
+  // never probed, `null` = this backend has no queue API, so the strip and the
+  // steer keybinding stay out of the way entirely. Nothing here re-sends.
+  $: queue = $sessionQueues[tab.id]
+  $: pendingVisible = !!queue && queue.steering.length + queue.followUp.length > 0
+  $: if (tab.id && tab.id !== probedSid) probeQueue(tab.id)
+
+  async function probeQueue(sid: string) {
+    probedSid = sid
+    setSessionQueue(sid, await oc.queue(sid))
+  }
+
+  // Only a queue-capable backend can steer, and only while a turn is actually
+  // running. Pi resolves intent to a transport itself — a cached busy flag from
+  // another client is never authoritative, which is why this stays server-side.
+  function deliveryFor(sid: string, busy: boolean, wanted?: 'steer' | 'follow'): 'steer' | 'follow' | undefined {
+    if (!$sessionQueues[sid] || !busy) return undefined
+    return wanted === 'follow' ? 'follow' : 'steer'
+  }
+
+  // Cancel-all, because pi has no targeted dequeue. The drop is not local-only
+  // theatre: pi clears its own queues and broadcasts the empty state back.
+  async function clearPending() {
+    const sid = tab.id
+    try {
+      await oc.clearQueue(sid)
+      setSessionQueue(sid, { steering: [], followUp: [] })
+    } catch (e: any) {
+      sendWarn = `could not clear the queue: ${e?.message ?? e}`
+    }
+  }
+
+  // A send that never acked left this tab optimistically busy. Ask the engine
+  // what it is actually running rather than guessing either way.
+  async function reconcileBusy(sid: string) {
+    try {
+      const st = await oc.status()
+      const v = st[sid] as any
+      if ((v?.type ?? v?.state) !== 'busy') tabs.patch(sid, { busy: false })
+    } catch {
+      /* status unavailable — leave busy to the SSE stream */
+    }
+  }
+
   $: filtered = menuOpen ? filterCmds(slashQuery![1], $cmdVersion) : []
   $: if (menuOpen && sel >= filtered.length) sel = Math.max(0, filtered.length - 1)
 
@@ -209,11 +268,15 @@
   // (engine prompt_async → 204); the turn itself streams in over SSE, so
   // nothing here waits on it. The flight is still detached and its errors
   // handled by failedSend() in case the dispatch connection dies mid-send.
-  async function submit(body: string) {
+  async function submit(body: string, wanted?: 'steer' | 'follow') {
     const files = atts
     if ((!body && !files.length) || sending) return
+    // capture BEFORE the optimistic busy patch below: delivery asks "was this
+    // session already running?", not "did I just decide to look busy?"
+    const wasBusy = !!tab.busy
     sending = true
     sendError = ''
+    sendWarn = ''
     attErrors = []
     let sid = tab.id
     // clear the box right away so the next (possibly queued) message can be
@@ -255,7 +318,14 @@
         flight =
           m
             ? oc.runCommand(sid, m[1], m[2] ? [m[2]] : [])
-            : oc.prompt(sid, body, sendModel ? { ...sendModel, variant: sendVariant } : undefined, sessionAgent(sid), files.map(toFilePart))
+            : oc.prompt(
+                sid,
+                body,
+                sendModel ? { ...sendModel, variant: sendVariant } : undefined,
+                sessionAgent(sid),
+                files.map(toFilePart),
+                deliveryFor(sid, wasBusy, wanted),
+              )
         // attachments ship inside the POST body, so once the dispatch starts
         // they're delivered — clear the tray like the text box (handed back by
         // failedSend if the flight dies before landing). Slash commands can't
@@ -277,6 +347,15 @@
     try {
       await flight
     } catch (e: any) {
+      // A timeout is an UNKNOWN outcome, not a failure: pi defers prompts issued
+      // inside its settle window and acks them later, so handing the text back
+      // invites a duplicate execution of a message that is already queued.
+      if (isSendUnknown(e)) {
+        sendWarn =
+          'engine did not acknowledge this send — it may still run. Do not resend; press Clear on the queue if it never shows up.'
+        await reconcileBusy(sid)
+        return
+      }
       tabs.patch(sid, { busy: false })
       await failedSend(sid, body, e, trayCleared ? files : undefined)
     }
@@ -348,11 +427,16 @@
         return
       }
     }
+    // While a turn runs, plain ↵ STEERS it — the message lands at the next turn
+    // boundary instead of waiting for the run to settle. ⌥/alt+↵ arms a follow-up
+    // (the ➤ button's behaviour). Shift+↵ is untouched: it still inserts a
+    // newline. On a backend with no queue API both are just "send" as before.
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       const body = text.trim()
       // attachments alone (no text) are a valid send
-      if (body || atts.length) submit(body)
+      if (!body && !atts.length) return
+      submit(body, e.altKey ? 'follow' : 'steer')
     }
   }
 
@@ -377,6 +461,9 @@
 </script>
 
 <div class="composer" class:dropping={dropActive}>
+  {#if sendWarn}
+    <div class="warn">{sendWarn}</div>
+  {/if}
   {#if sendError}
     <div class="error">send failed: {sendError}</div>
   {/if}
@@ -404,7 +491,26 @@
       {/each}
     </div>
   {/if}
-  <div class="box" class:hastray={atts.length}>
+  {#if queue && (queue.steering.length || queue.followUp.length)}
+    <div class="pending" role="status" aria-label="Messages armed with the engine">
+      <div class="prow">
+        {#each queue.steering as t, i (i)}
+          <div class="pitem steer" title={t}>
+            <span class="ptag">⚡ steer</span>
+            <span class="ptext">{t}</span>
+          </div>
+        {/each}
+        {#each queue.followUp as t, i (i)}
+          <div class="pitem follow" title={t}>
+            <span class="ptag">➤ follow-up</span>
+            <span class="ptext">{t}</span>
+          </div>
+        {/each}
+      </div>
+      <button class="pclear" title="Drop everything still armed" on:click={clearPending}>Clear</button>
+    </div>
+  {/if}
+  <div class="box" class:hastray={atts.length || pendingVisible}>
     {#if tab.busy}
       <button class="stop" title="Abort current turn" on:click={abort}>■</button>
     {/if}
@@ -414,7 +520,7 @@
         bind:value={text}
         rows="1"
         id="composer-input"
-        placeholder="message / for commands"
+        placeholder={queue && tab.busy ? 'steer the current turn · alt+↵ = follow-up' : 'message / for commands'}
         on:focus={onTaFocus}
         on:keydown={key}
         on:paste={paste}
@@ -461,7 +567,11 @@
       </svg>
     </button>
     {#if tab.busy}
-      <button class="go queued" disabled={!text.trim() && !atts.length} title="Queue message (runs after the current turn)" on:click={() => submit(text.trim())}>➤</button>
+      <button
+        class="go queued"
+        disabled={!text.trim() && !atts.length}
+        title="Follow-up — arms after this turn settles (alt+↵)"
+        on:click={() => submit(text.trim(), 'follow')}>➤</button>
     {:else}
       <button class="go" disabled={!text.trim() && !atts.length} title="Send" on:click={() => submit(text.trim())}>➤</button>
     {/if}
@@ -482,6 +592,73 @@
     color: var(--err);
     font-size: 12px;
     margin-bottom: 6px;
+  }
+  .warn {
+    color: var(--accent);
+    font-size: 12px;
+    margin-bottom: 6px;
+  }
+  /* pending engine queues: armed steer / follow-up, held by pi, shown here */
+  .pending {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 6px 8px;
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-bottom: none;
+    border-radius: 8px 8px 0 0;
+  }
+  .prow {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    flex: 1;
+    min-width: 0;
+    max-height: 96px;
+    overflow-y: auto;
+  }
+  .pitem {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    max-width: 100%;
+    padding: 2px 7px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    font-size: 11.5px;
+    min-width: 0;
+  }
+  .pitem.steer {
+    border-color: var(--accent);
+  }
+  .ptag {
+    color: var(--fg-dim);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    white-space: nowrap;
+  }
+  .ptext {
+    min-width: 0;
+    max-width: 340px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .pclear {
+    flex: none;
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--fg-dim);
+    font-size: 11px;
+    padding: 2px 8px;
+    cursor: pointer;
+  }
+  .pclear:hover {
+    color: var(--err);
+    border-color: var(--err);
   }
   /* attachment tray — flush on top of the input box, reading as one panel */
   .tray {
