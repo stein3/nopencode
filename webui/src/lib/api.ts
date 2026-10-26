@@ -267,6 +267,10 @@ export interface HistSession {
   // context estimate (newest assistant message with a non-zero tally);
   // absent when no message ever reported usage
   tokens?: number
+  // generated tokens (output+reasoning) summed over this session's assistant
+  // messages — chatserver sums message.data JSON, pi-web sums pi's per-message
+  // usage. SELF-ONLY: the sidebar adds descendant sessions itself (gentokens.ts)
+  tokens_generated?: number
   // set on subagent sessions (@explore, @general, …) — engine session parentID
   parent?: string
   agent?: string

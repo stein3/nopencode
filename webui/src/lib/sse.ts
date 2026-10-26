@@ -461,7 +461,17 @@ function openStream() {
       // carries authoritative revert state: set by a revert, cleared when the
       // next prompt prunes the reverted messages server-side
       tabs.patch(sid, { revert: p.info.revert ?? null })
-      patchMetrics(sid, { cost: p.info.cost, updated: p.info.time?.updated })
+      patchMetrics(sid, {
+        cost: p.info.cost,
+        updated: p.info.time?.updated,
+        // Some engines (pi-web) maintain the generated-tokens total server-side by
+        // summing the session's whole transcript, so the row can stay current without
+        // waiting for a full message refetch. Same rule as metricsFromMessages: accept
+        // a positive number only, never let a zero/partial read clobber a good value.
+        ...(typeof p.info.tokens_generated === 'number' && p.info.tokens_generated > 0
+          ? { generated: p.info.tokens_generated }
+          : {}),
+      })
       // follow renames / auto-titles (e.g. "New Session" → real title)
       if (p.info.title && tabs.snapshot(sid)?.title !== p.info.title) {
         tabs.patch(sid, { title: p.info.title })

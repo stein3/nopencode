@@ -62,6 +62,8 @@ jobs:
             file: errtile-render.test.mjs
           - name: fork
             file: fork.test.mjs
+          - name: gentokens
+            file: gentokens.test.mjs
           - name: grep-count
             file: grep-count.test.mjs
           - name: hidelight

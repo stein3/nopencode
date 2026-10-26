@@ -92,6 +92,20 @@ TOKEN_SUM_SQL = (
     "+COALESCE(json_extract(data,'$.tokens.cache.write'),0)"
 )
 
+# Generated tokens = what the model produced: output + reasoning, summed over
+# EVERY assistant message of the session. Deliberately excludes input and
+# cache.read/write: measured on the real engine DB, those are 95.6-99.5% of a
+# session's raw token volume (top session: 177.7M cache.read vs 3.7M input and
+# 0.18M output), so a raw sum scales with turn count, not with work done.
+# Summed from `message` rather than read off session.tokens_output/
+# tokens_reasoning: those columns ARE the exact same cumulative sum (verified
+# digit-for-digit over the top sessions), but the message-level sum is the
+# definition and doesn't depend on the engine keeping the rollup in sync.
+GEN_SUM_SQL = (
+    "COALESCE(json_extract(data,'$.tokens.output'),0)"
+    "+COALESCE(json_extract(data,'$.tokens.reasoning'),0)"
+)
+
 
 def num(v):
     """Best-effort epoch-ms coercion for time-ish columns."""
@@ -471,6 +485,18 @@ def load_sessions():
                FROM session s LEFT JOIN message m ON m.session_id = s.id
                GROUP BY s.id ORDER BY s.rowid DESC"""
         )
+        # Generated tokens per session: one pass over `message` (GROUP BY uses the
+        # message_session index; ~11k messages = a few ms).
+        gen = {
+            r["sid"]: int(r["g"])
+            for r in c.execute(
+                f"""SELECT m.session_id sid, SUM({GEN_SUM_SQL}) g
+                    FROM message m
+                    WHERE json_extract(m.data,'$.role')='assistant'
+                    GROUP BY m.session_id"""
+            )
+            if (r["g"] or 0) > 0
+        }
         for r in rows:
             model = r["model"] or ""
             model_provider = ""
@@ -501,6 +527,10 @@ def load_sessions():
             }
             if r["id"] in tok:
                 entry["tokens"] = tok[r["id"]]
+            if r["id"] in gen:
+                # SELF-ONLY: subagent sessions are separate rows; the webui sums
+                # the descendant subtree (webui/src/lib/gentokens.ts).
+                entry["tokens_generated"] = gen[r["id"]]
             out.append(entry)
     # Merge session meta (star / tag) from the sidecar webui.db.
     # session_meta_read_all() swallows all errors — safe to call unconditionally.

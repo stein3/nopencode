@@ -3,6 +3,7 @@
   import { writable } from 'svelte/store'
   import { oc, hist, type HistSession, type SearchHit } from '../lib/api'
   import { searchQuery, sessionMetrics, permissions, pendingQuestions, tabs, sessionUnread, markSessionUnread, hideSubagents, subExpanded, settingsOpen, sessionListDirty, sessionKidMap, sessionMeta, toggleStar, setTag, allTags, applyServerMeta, dropSessionMeta, sidebarOpen, syncEngineRetryFromStatus, type SessionMeta } from '../lib/stores'
+  import { genRollup, genTotal } from '../lib/gentokens'
 import { sidePanel } from '../lib/sidePanel'
   import { relTime } from '../lib/util'
 
@@ -283,6 +284,7 @@ import { sidePanel } from '../lib/sidePanel'
 
   interface Row extends HistSession {
     tokens?: number
+    tokens_generated?: number
   }
 
   function fmtK(n?: number): string {
@@ -292,27 +294,28 @@ import { sidePanel } from '../lib/sidePanel'
     return String(n)
   }
 
-  // ---- rolled-up token totals for parent sessions --------------------------
-  // Sums descendant session tokens from sessionMetrics so collapsed/hidden
-  // subagents' token usage is visible on the parent row.
-  $: rolledUpTokens = (() => {
-    const m: Record<string, number> = {}
-    for (const [pid, kids] of kidsMap) {
-      let sum = 0
-      for (const kid of kids) {
-        const t = $sessionMetrics[kid.id]?.tokens ?? kid.tokens ?? 0
-        sum += t
-      }
-      if (sum > 0) m[pid] = sum
-    }
-    return m
-  })()
+  // ---- rolled-up GENERATED totals for parent sessions -----------------------
+  // The row stat is generated tokens (output+reasoning; see lib/gentokens.ts
+  // for why prompt context and cache reads are excluded). Engine session
+  // totals are self-only — a subagent's tokens are NOT folded into its parent —
+  // so the whole descendant subtree is summed here, from the session list the
+  // sidebar already has (no extra requests). Recursive: the old one-hop rollup
+  // lost grandchildren (subagents that spawn subagents).
+  $: rolledGen = genRollup(rows, $sessionMetrics)
 
-  function effTokens(s: Row): number | undefined {
-    const own = $sessionMetrics[s.id]?.tokens ?? s.tokens
-    const roll = rolledUpTokens[s.id]
-    if (roll) return (own ?? 0) + roll
-    return own
+  function effGen(s: Row): number | undefined {
+    return genTotal(s, $sessionMetrics, rolledGen)
+  }
+
+  function genTip(s: Row): string {
+    const kids = descIds(kidsMap.get(s.id) ?? [], kidsMap).length
+    return (
+      'generated tokens — model output + reasoning, summed over this session' +
+      (kids
+        ? ` and ${kids} subagent session${kids === 1 ? '' : 's'}`
+        : '') +
+      ' (prompt context and cache reads excluded)'
+    )
   }
 
   // live metrics for open tabs overlay the snapshot; re-sorted so activity floats up
@@ -974,11 +977,10 @@ import { sidePanel } from '../lib/sidePanel'
           <span class="sub"
             ><span
                 class="smeta"
-              >{#if isSub(d.s)}<span class="subagent">{subLabel(d.s)}</span> · {/if}{d.s.message_count} msgs{fmtK(
-                  effTokens(d.s)
-                )
-                ? ` · ${fmtK(effTokens(d.s))} tk`
-                : ''}{#if d.s.model} · <span
+              >{#if isSub(d.s)}<span class="subagent">{subLabel(d.s)}</span> · {/if}{d.s.message_count} msgs{#if
+                  effGen(d.s)
+                }
+                · <span class="gen" title={genTip(d.s)}>{fmtK(effGen(d.s))} gen</span>{/if}{#if d.s.model} · <span
                     class="mmeta"
                     title={modelTip(d.s.model, d.s.model_provider, $modelProvs)}
                     >{d.s.model}</span

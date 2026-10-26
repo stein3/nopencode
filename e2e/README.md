@@ -38,6 +38,14 @@ for t in embedded/*.test.mjs; do node "$t"; done
 > + headless Chromium contention. The `for` loop above runs every file, one at a
 > time.
 
+> **Three checks need no browser** (useful in a sandbox without
+> `~/.cache/ms-playwright`): `embedded/gentokens.test.mjs` imports
+> `webui/src/lib/gentokens.ts` directly through Node's type stripping,
+> `embedded/session-grouping.test.mjs` does the same for
+> `webui/src/lib/sessionGroups.ts` (the sidebar's workspace-grouping order
+> rules), and `python3 e2e/chatserver-tokens-check.py` imports `chatserver.py`
+> against a throwaway sqlite fixture — no server, no engine, no chromium.
+
 ## Environment Variables
 
 | Variable | Default | Description |

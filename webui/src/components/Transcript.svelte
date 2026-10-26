@@ -7,6 +7,7 @@
   import { isImagePath, imageDataUrl } from '../lib/images'
   import { extLabel, isImageMime } from '../lib/attachments'
   import { isAborted, roleLabel, taskNoticeOf, copyText } from '../lib/util'
+  import { genTally } from '../lib/gentokens'
   import { retryState, cancelRetry, nextPayloadKind } from '../lib/retries'
   import ModelSelect from './ModelSelect.svelte'
   import QuestionPicker from './QuestionPicker.svelte'
@@ -827,14 +828,9 @@
     return ''
   }
 
-  // per-message generation only: output + reasoning. (input is the whole
-  // prompt context, which grows every turn — counting it made tokens/t/s
-  // read as a session running total)
-  function genTally(t?: Record<string, any> | null): number | undefined {
-    if (!t) return undefined
-    const n = (t.output ?? 0) + (t.reasoning ?? 0)
-    return n > 0 ? n : undefined
-  }
+  // per-message generation only: output + reasoning (see lib/gentokens.ts for
+  // why input is excluded — it is the whole prompt context, which grows every
+  // turn and made tokens/t/s read as a session running total)
   // id of the last reasoning part in a message — the thinking count is
   // per-message, so stamp it on only one summary instead of every block
   function lastReasoningId(m: any): string | undefined {

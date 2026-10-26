@@ -1,4 +1,5 @@
-// Verify token tracking fix: sidebar tk badges, InfoPanel tokens/used for a
+// Verify token tracking: sidebar GENERATED-token badges (output+reasoning,
+// incl. subagent descendants), InfoPanel tokens/used (context view) for a
 // session whose newest assistant message carries token usage.
 //
 // Runs against an EMBEDDED fake engine (same pattern as question-picker.test.mjs):
@@ -96,9 +97,20 @@ const ZERO_MESSAGES = [
   },
 ];
 
-// Sessions list with pre-computed token counts (mimics chatserver load_sessions).
-// The sidebar tk badge comes from the `tokens` field here.
-// fmtK(7500) = "7.5K", fmtK(19000) = "19K"
+// id of the live-overlay probe session — declared here because SESSIONS below
+// references it (a `const` further down is in the temporal dead zone: the
+// module would throw before the server ever listens).
+const GENLIVE_ID = 'ses_genlive';
+
+// Sessions list with pre-computed token counts (mimics chatserver load_sessions:
+// `tokens` = newest-message CONTEXT estimate, `tokens_generated` = sum of
+// output+reasoning over all assistant messages). The sidebar badge reads
+// `tokens_generated`; InfoPanel's "tokens" still reads the context estimate.
+//   probe:  800 out + 200 reasoning = 1000  -> "1K gen"  (context 7500 -> 8K)
+//   extra: 2000 out +    0 reasoning = 2000 -> "2K gen"  (context 19000 -> 19K)
+//   parent: own 5000 + child 2500 (subagent, separate row) = 7500 -> "8K gen"
+//   child:  SELF-ONLY 2500 -> "3K gen" (fmtK = Math.round(n/1000), so 2500
+//           renders 3K — and 3K on the child proves no parent rollup leaks in)
 const SESSIONS = [
   {
     id: SESSION_ID,
@@ -108,7 +120,8 @@ const SESSIONS = [
     message_count: TOKEN_MESSAGES.length,
     cost: 0,
     model: 'x-preview-f-free',
-    tokens: 7500, // 1500+800+200+5000+0
+    tokens: 7500, // 1500+800+200+5000+0 — context view, sidebar must NOT use it
+    tokens_generated: 1000, // 800+200
   },
   {
     id: EXTRA_SESSION_ID,
@@ -119,6 +132,7 @@ const SESSIONS = [
     cost: 0,
     model: 'x-preview-f-free',
     tokens: 19000, // 5000+2000+0+12000+0
+    tokens_generated: 2000, // 2000+0
   },
   {
     id: ZERO_SESSION_ID,
@@ -128,16 +142,66 @@ const SESSIONS = [
     message_count: ZERO_MESSAGES.length,
     cost: 0,
     model: 'x-preview-f-free',
-    // No `tokens` field — chatserver's correlated subquery only includes sessions
-    // with a non-zero tally. An all-zero tokens object is truthy but sums to 0,
-    // so the subquery's `> 0` predicate excludes it.
+    // No `tokens` / `tokens_generated` field — the server only emits them for a
+    // non-zero tally. An all-zero tokens object is truthy but sums to 0, so the
+    // projection's `> 0` predicate excludes it.
   },
+  // ---- subagent rollup: engine session totals are SELF-ONLY, so the parent
+  // row must add the child's own total (webui/src/lib/gentokens.ts) ----------
+  {
+    id: 'ses_genparent',
+    title: 'Gen rollup parent',
+    created: Date.now() - 400_000,
+    updated: Date.now() - 390_000,
+    message_count: 4,
+    cost: 0,
+    model: 'x-preview-f-free',
+    tokens_generated: 5000,
+  },
+  {
+    id: 'ses_genchild',
+    title: 'Gen rollup child',
+    parent: 'ses_genparent',
+    agent: 'explore',
+    created: Date.now() - 395_000,
+    updated: Date.now() - 391_000,
+    message_count: 2,
+    cost: 0,
+    model: 'x-preview-f-free',
+    tokens_generated: 2500,
+  },
+  // live overlay probe: deliberately STALE snapshot — opening the tab must
+  // replace it with the sum of the session's own messages (900)
+  {
+    id: GENLIVE_ID,
+    title: 'Gen live overlay',
+    created: Date.now() - 500_000,
+    updated: Date.now() - 498_000,
+    message_count: 2,
+    cost: 0,
+    model: 'x-preview-f-free',
+    tokens_generated: 10,
+  },
+];
+
+// Message set for the live-overlay probe: a STALE snapshot below, corrected by
+// the message fetch the webui makes when the tab opens (output+reasoning =
+// 700+200 = 900; the user row's 5 must not count).
+const GENLIVE_MESSAGES = [
+  { id: 'gl_u1', role: 'user', time: { created: Date.now() - 500_000 },
+    tokens: { input: 100, output: 5, reasoning: 0, cache: { read: 0, write: 0 } },
+    parts: [{ id: 'gl_pu', type: 'text', text: 'go' }] },
+  { id: 'gl_a1', role: 'assistant', agent: 'build', modelID: 'x-preview-f-free',
+    providerID: 'opencode', time: { created: Date.now() - 499_000 },
+    tokens: { input: 12000, output: 700, reasoning: 200, cache: { read: 30000, write: 0 } },
+    parts: [{ id: 'gl_pa', type: 'text', text: 'done' }] },
 ];
 
 function messagesForSession(sid) {
   if (sid === SESSION_ID) return TOKEN_MESSAGES;
   if (sid === EXTRA_SESSION_ID) return EXTRA_MESSAGES;
   if (sid === ZERO_SESSION_ID) return ZERO_MESSAGES;
+  if (sid === GENLIVE_ID) return GENLIVE_MESSAGES;
   return [];
 }
 
@@ -287,29 +351,55 @@ try {
   page.on('pageerror', (e) => pageErrors.push(String(e)));
 
   try {
+    // the rollup fixture needs the SUBAGENT row visible: the sidebar hides
+    // @agent sessions by default (pref `opencode.hideSubagents`, stored '1'/'0')
+    await page.addInitScript(() => localStorage.setItem('opencode.hideSubagents', '0'));
     await page.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 30000 });
 
-    // ---- 1) sidebar rows render with tk badges --------------------------------
-    console.log('\nCASE 1 — sidebar tk badges');
+    // ---- 1) sidebar rows render with GENERATED badges -----------------------
+    console.log('\nCASE 1 — sidebar generated-token badges');
     await page.waitForSelector('.sidebar .item', { timeout: 15000 });
     await page.waitForTimeout(1200);
+    // Shown subagents are NESTED under their parent and start collapsed
+    // (flattenTree + the in-memory subExpanded set), so the rollup child row
+    // only enters the DOM once its parent's chevron is clicked.
+    const chev = page.locator('.item[title="Gen rollup parent"] .chev');
+    if (await chev.count()) {
+      await chev.first().click();
+      await page.waitForTimeout(600);
+    }
     const rowInfo = await page.evaluate(() => {
-      const rows = [...document.querySelectorAll('.sidebar .item .sub')];
-      const withTk = rows.filter((r) => /tk/.test(r.textContent || ''));
-      return {
-        total: rows.length,
-        withTk: withTk.length,
-        sample: withTk.slice(0, 3).map((r) => r.textContent.trim()),
-      };
+      const out = {};
+      for (const it of [...document.querySelectorAll('.sidebar .item')]) {
+        out[it.getAttribute('title') ?? ''] =
+          it.querySelector('.smeta')?.textContent?.trim() ?? '';
+      }
+      return out;
     });
     console.log('sidebar rows:', JSON.stringify(rowInfo));
-    check('', 'sidebar has rows', rowInfo.total > 0, `${rowInfo.total} rows`);
-    check('', 'at least one row shows tk badge', rowInfo.withTk >= 1, `${rowInfo.withTk} rows with tk`);
+    const metas = Object.values(rowInfo);
+    check('', 'sidebar has rows', metas.length > 0, `${metas.length} rows`);
+    check('', 'at least one row shows a gen badge', metas.some((m) => /gen\b/.test(m)),
+      JSON.stringify(metas.slice(0, 3)));
 
-    // The two token-bearing sessions should show tk; the zero-tally one should not
-    check('', 'at least 2 rows with tk (probe + extra)', rowInfo.withTk >= 2,
-      `got ${rowInfo.withTk}; sample: ${JSON.stringify(rowInfo.sample)}`);
+    // the sidebar must show generated (output+reasoning), NOT the context view
+    const probe = rowInfo['Tokens probe session'] ?? '';
+    check('', 'probe row badge is generated (1K gen)', /1K gen/.test(probe), probe);
+    check('', 'probe row does NOT show the 8K context view', !/8K/.test(probe), probe);
+    const extra = rowInfo['Extra session with tokens'] ?? '';
+    check('', 'extra row badge is generated (2K gen)', /2K gen/.test(extra), extra);
+    check('', 'extra row does NOT show the 19K context view', !/19K/.test(extra), extra);
 
+    // engine session totals are self-only: the parent row must include the
+    // subagent's own total (5000 + 2500 = 7500 -> 8K)
+    const parent = rowInfo['Gen rollup parent'] ?? '';
+    check('', 'parent row = own + subagent (8K gen)', /8K gen/.test(parent), parent);
+    // strict on purpose: a missing child row must FAIL, not pass on the empty
+    // string — otherwise this check is vacuous whenever subagents get hidden.
+    // 3K (self-only 2500), never the parent's 8K: engine totals are self-only.
+    const child = rowInfo['Gen rollup child'] ?? '';
+    check('', 'child row shows its own number only (3K gen, no parent rollup)',
+      /3K gen/.test(child) && !/8K/.test(child), child || 'child row not rendered');
     // ---- 2) open the Tokens probe session + verify InfoPanel -------------------
     console.log('\nCASE 2 — InfoPanel token display');
     await page.getByText('Tokens probe session', { exact: false }).first().click();
@@ -349,19 +439,47 @@ try {
     console.log('footer:', JSON.stringify(footer.slice(0, 160)));
     check('', 'footer rendered', footer.length > 0, footer.slice(0, 120));
 
-    // ---- 4) zero-tally session shows no tk ------------------------------------
-    console.log('\nCASE 4 — zero-tally session has no tk badge');
+    // ---- 4) zero-tally session shows no gen badge ---------------------------
+    console.log('\nCASE 4 — zero-tally session has no gen badge');
     const zeroRow = page.locator('.sidebar .item', { hasText: 'Zero-tally session' });
     if (await zeroRow.count()) {
       const zeroSub = zeroRow.locator('.sub');
       const zeroText = (await zeroSub.textContent()) ?? '';
-      check('', 'zero-tally session has no tk badge', !/tk/.test(zeroText),
+      check('', 'zero-tally session has no gen badge', !/gen\b/.test(zeroText),
         zeroText.trim());
     } else {
       check('', 'zero-tally session row exists', false, 'row not found');
     }
 
     await page.screenshot({ path: path.join(SHOTS_DIR, 'tokens-fix.png') });
+
+    // ---- 5) live value beats the stale snapshot -----------------------------
+    // The history row is a snapshot; opening the tab makes the webui sum the
+    // session's own messages (output+reasoning = 900) and that must win, so an
+    // open session's badge stays current without a list refresh.
+    console.log('\nCASE 5 — live overlay replaces the stale snapshot');
+    await page.getByText('Gen live overlay', { exact: false }).first().click();
+    let liveMeta = '';
+    try {
+      await page.waitForFunction(() => {
+        for (const it of [...document.querySelectorAll('.sidebar .item')]) {
+          if ((it.getAttribute('title') ?? '').startsWith('Gen live overlay')) {
+            const m = it.querySelector('.smeta')?.textContent ?? '';
+            if (/900 gen/.test(m)) return true;
+          }
+        }
+        return false;
+      }, { timeout: 20000 });
+    } catch { /* fall through to the assertion below */ }
+    liveMeta = await page.evaluate(() => {
+      for (const it of [...document.querySelectorAll('.sidebar .item')]) {
+        if ((it.getAttribute('title') ?? '').startsWith('Gen live overlay'))
+          return it.querySelector('.smeta')?.textContent?.trim() ?? '';
+      }
+      return '(row not found)';
+    });
+    check('', 'open session shows the message-derived total (900 gen), not the stale 10',
+      /900 gen/.test(liveMeta), liveMeta);
   } finally {
     await browser.close();
   }
