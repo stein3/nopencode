@@ -2,8 +2,9 @@
   import { onMount, tick } from 'svelte'
   import { writable } from 'svelte/store'
   import { oc, hist, type HistSession, type SearchHit } from '../lib/api'
-  import { searchQuery, sessionMetrics, permissions, pendingQuestions, tabs, sessionUnread, markSessionUnread, hideSubagents, subExpanded, settingsOpen, sessionListDirty, sessionKidMap, sessionMeta, toggleStar, setTag, allTags, applyServerMeta, dropSessionMeta, sidebarOpen, syncEngineRetryFromStatus, type SessionMeta } from '../lib/stores'
   import { genRollup, genTotal } from '../lib/gentokens'
+  import { searchQuery, sessionMetrics, permissions, pendingQuestions, tabs, sessionUnread, markSessionUnread, hideSubagents, groupByWorkspace, subExpanded, settingsOpen, sessionListDirty, sessionKidMap, sessionMeta, toggleStar, setTag, allTags, applyServerMeta, dropSessionMeta, sidebarOpen, syncEngineRetryFromStatus, type SessionMeta } from '../lib/stores'
+  import { groupRowsByWorkspace, hasWorkspace } from '../lib/sessionGroups'
 import { sidePanel } from '../lib/sidePanel'
   import { relTime } from '../lib/util'
 
@@ -561,45 +562,20 @@ import { sidePanel } from '../lib/sidePanel'
   // ---- workspace (pi) grouping --------------------------------------------
   // The sidebar groups sessions under collapsible project headers keyed by
   // cwd. Subagent rows inherit their root's group, so a nested tree is never
-  // split across headers. When no row carries a cwd (a plain opencode engine)
-  // this is one anonymous group and the template renders the old flat list —
-  // no visual change. Collapse state is in-memory (never persisted).
+  // split across headers. The "group by workspace" checkbox below the list
+  // header opts out, and a plain opencode engine (no cwd anywhere) never gets
+  // headers — both cases collapse to one anonymous group, and the template
+  // renders the old flat, updated-desc list. Ordering rules live in
+  // lib/sessionGroups (unit-checked: e2e/embedded/session-grouping.test.mjs).
+  // Collapse state is in-memory (never persisted).
   let collapsedWs = new Set<string>()
 
-  interface WsGroup {
-    key: string // cwd path, '' = no workspace known
-    name: string
-    rows: Disp[]
-  }
+  // nothing to group by → don't even offer the checkbox
+  $: anyWs = hasWorkspace(filteredRows)
+  $: wsGroups = groupRowsByWorkspace(filteredRows, $groupByWorkspace)
 
-  function wsLabel(p: string): string {
-    if (!p) return 'other'
-    const parts = p.split('/').filter(Boolean)
-    return parts[parts.length - 1] || p
-  }
-
-  $: wsGroups = (() => {
-    if (!filteredRows.length) return []
-    const out: WsGroup[] = []
-    const byKey = new Map<string, WsGroup>()
-    let rootCwd = ''
-    let any = false
-    for (const d of filteredRows) {
-      if (d.depth === 0) rootCwd = d.s.cwd || ''
-      if (rootCwd) any = true
-      let g = byKey.get(rootCwd)
-      if (!g) {
-        g = { key: rootCwd, name: wsLabel(rootCwd), rows: [] }
-        byKey.set(rootCwd, g)
-        out.push(g)
-      }
-      g.rows.push(d)
-    }
-    return any ? out : [{ key: '', name: '', rows: filteredRows }]
-  })()
-
-  // false = nothing has a workspace → no headers, exactly the old flat list
-  $: grouped = wsGroups.length > 1 || wsGroups[0]?.key !== ''
+  // false = no workspace headers → exactly the old flat list
+  $: grouped = wsGroups[0]?.key !== ''
 
   // rows Alt+↑↓ may walk: collapsed groups drop out of the order entirely
   $: navRows = grouped
@@ -879,6 +855,11 @@ import { sidePanel } from '../lib/sidePanel'
         <label class="hidesub" title="Show or hide subagent sessions (@explore, @general, …)">
           <input type="checkbox" bind:checked={$hideSubagents} /> hide subagents
         </label>
+        {#if anyWs}
+          <label class="wsgrp" title="Group chats under a header per workspace (project directory)">
+            <input type="checkbox" bind:checked={$groupByWorkspace} /> group by workspace
+          </label>
+        {/if}
       </div>
       {#each wsGroups as g (g.key || '__all')}
         {#if grouped && g.key}
@@ -1206,7 +1187,8 @@ import { sidePanel } from '../lib/sidePanel'
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  .hidesub {
+  .hidesub,
+  .wsgrp {
     display: inline-flex;
     align-items: center;
     gap: 4px;
@@ -1217,11 +1199,13 @@ import { sidePanel } from '../lib/sidePanel'
     cursor: pointer;
     user-select: none;
   }
-  .hidesub input {
+  .hidesub input,
+  .wsgrp input {
     accent-color: var(--accent);
     margin: 0;
   }
-  .hidesub:hover {
+  .hidesub:hover,
+  .wsgrp:hover {
     color: var(--fg);
   }
   .hidcount {

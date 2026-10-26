@@ -467,6 +467,7 @@ export function makePref(key: string, initial = true) {
 export const showThinking = makePref('showThinking', false) // /thinking expands all blocks
 export const showTimestamps = makePref('showTimestamps', true)
 export const hideSubagents = makePref('hideSubagents', true) // sidebar: hide @agent sessions by default
+export const groupByWorkspace = makePref('groupByWorkspace', true) // sidebar: workspace headers over the session list
 
 // ---- numeric preference helper (same localStorage pattern as makePref) ----
 function makePrefNum(key: string, initial: number) {

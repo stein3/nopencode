@@ -124,6 +124,10 @@ jobs:
             file: uploads.test.mjs
           - name: session-filters
             file: session-filters.test.mjs
+          - name: session-grouping
+            file: session-grouping.test.mjs
+          - name: ws-group
+            file: ws-group.test.mjs
 
     steps:
       - uses: actions/checkout@v7
