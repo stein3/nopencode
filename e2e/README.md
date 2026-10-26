@@ -59,7 +59,8 @@ for t in embedded/*.test.mjs; do node "$t"; done
 ## CI
 
 GitHub Actions workflow at `.github/workflows/e2e.yml` runs as a **matrix with
-one job per test file** (36 files). Each entry has a `name` and `file`:
+one job per test file** (the matrix is the canonical list). Each entry has a
+`name` and `file`:
 
 ```yaml
 strategy:
@@ -89,7 +90,7 @@ e2e/
 │   ├── hidelight.test.mjs
 │   ├── chords.test.mjs
 │   ├── fork.test.mjs
-│   ├── ... (~36 test files total; see .github/workflows/e2e.yml for the
+│   ├── ... (many test files; see .github/workflows/e2e.yml for the
 │            canonical list of what CI runs)
 │   └── nest.test.mjs.disabled   # skipped (not in matrix)
 ├── helpers/
