@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { outFirstLine, outLastLine, outLineCount, previewLine } from './outpreview.ts'
+import { outFirstLine, outLastLine, outLineCount, previewLine, toolOutputOf, outputPlaceholder } from './outpreview.ts'
 
 test('first line skips leading blank lines', () => {
   assert.equal(outFirstLine('\n\nhello\nworld'), 'hello')
@@ -29,4 +29,26 @@ test('every other tool keeps the header-first convention', () => {
 
 test('line count is what the collapsed row advertises', () => {
   assert.equal(outLineCount('a\nb\nc\n'), 3)
+})
+
+// --- the output box is tool-agnostic: it keys off state.output, never the name
+
+test('output comes from state.output, else metadata.output, else empty', () => {
+  assert.equal(toolOutputOf({ output: 'x' }), 'x')
+  // a blank-but-present output stays blank (that is a real "printed nothing")
+  assert.equal(toolOutputOf({ output: '' }), '')
+  assert.equal(toolOutputOf({ metadata: { output: 'y' } }), 'y')
+  // non-string / absent shapes must not render '[object Object]'
+  assert.equal(toolOutputOf({ output: { a: 1 } }), '')
+  assert.equal(toolOutputOf({}), '')
+  assert.equal(toolOutputOf(undefined), '')
+})
+
+test('pending output is not the same thing as no output', () => {
+  assert.equal(outputPlaceholder('running'), '…')
+  assert.equal(outputPlaceholder('pending'), '…')
+  assert.equal(outputPlaceholder('completed'), '(no output)')
+  assert.equal(outputPlaceholder(undefined), '(no output)')
+  // an errored tool already shows its message as a detail row
+  assert.equal(outputPlaceholder('error', true), '')
 })

@@ -7,7 +7,7 @@
   import { isImagePath, imageDataUrl } from '../lib/images'
   import { extLabel, isImageMime } from '../lib/attachments'
   import { isAborted, roleLabel, taskNoticeOf, copyText } from '../lib/util'
-  import { outFirstLine, outLineCount, previewLine } from '../lib/outpreview'
+  import { outFirstLine, outLineCount, previewLine, toolOutputOf, outputPlaceholder } from '../lib/outpreview'
   import { genTally } from '../lib/gentokens'
   import { retryState, cancelRetry, nextPayloadKind } from '../lib/retries'
   import ModelSelect from './ModelSelect.svelte'
@@ -426,12 +426,21 @@
     lightbox.set({ src, caption })
   }
 
-  function toolOutputText(p: any): string {
-    const st = p.state ?? {}
-    const o = st.output ?? st.metadata?.output
-    return typeof o === 'string' ? o : ''
+  // ---- which tool output boxes are expanded --------------------------------
+  // A closed <details> keeps its content in the DOM, so the output BODY is
+  // rendered conditionally instead: `read`/`fetch_content` results run to 50 KB
+  // and a long transcript holds dozens of them. Keyed on the part id (callID /
+  // tool name as fallback) — that is what stays stable while a part is
+  // re-upserted frame after frame.
+  let openOut = new Set<string>()
+  function outKeyOf(p: any): string {
+    return String(p.id ?? p.callID ?? p.tool ?? '')
   }
-
+  function toggleOut(e: Event, key: string) {
+    if ((e.currentTarget as HTMLDetailsElement | null)?.open) openOut.add(key)
+    else openOut.delete(key)
+    openOut = openOut // a Set is mutated in place: reassign so Svelte re-renders
+  }
   function isGrepTool(p: any): boolean {
     return /grep|find|search/.test(String(p.tool ?? '').toLowerCase())
   }
@@ -1077,6 +1086,9 @@
             {@const pq = findPending(p, $pendingQuestions)}
             {@const imgPath = imageOf(p)}
             {@const scadPath = scadOf(p)}
+            {@const out = toolOutputOf(p.state)}
+            {@const okey = outKeyOf(p)}
+            {@const ph = outputPlaceholder(p.state?.status, !!toolError(p))}
             <div class="toolcard" class:toolerr={isToolErr(p)}>
               <details class="tool" open={pq ? true : undefined}>
                 <summary>
@@ -1137,23 +1149,26 @@
                   <ScadView.default path={scadPath} />
                 {/await}
               {/if}
-              {#if isShellTool(p) || isGrepTool(p)}
-                {@const out = toolOutputText(p)}
-                {#if out}
-                  <details class="outbox">
-                    <summary>
-                      <span class="outline">{clip(previewLine(isShellTool(p), out), 150)}</span>
-                      {#if outLineCount(out) > 1}<span class="ocount">{outLineCount(out)} lines</span>{/if}
-                    </summary>
+              {#if out}
+                <details class="outbox" on:toggle={(e) => toggleOut(e, okey)}>
+                  <summary>
+                    <span class="outline">{clip(previewLine(isShellTool(p), out), 150)}</span>
+                    {#if outLineCount(out) > 1}<span class="ocount">{outLineCount(out)} lines</span>{/if}
+                  </summary>
+                  <!-- mounted only while open: `read`/`fetch_content` results run to
+                       50 KB, and a closed <details> still keeps its content in the DOM -->
+                  {#if openOut.has(okey)}
                     <pre class="out">{out}</pre>
                     {#if isGrepTool(p)}
                       {@const n = grepMatchCount(out)}
                       {#if n !== null}<div class="matchcount">({n} {n === 1 ? 'match' : 'matches'})</div>{/if}
                     {/if}
-                  </details>
-                {:else}
-                  <pre class="out">{p.state?.status === 'running' ? '…' : '(no output)'}</pre>
-                {/if}
+                  {/if}
+                </details>
+              {:else if ph}
+                <div class="outbox outbox-empty">
+                  <pre class="out">{ph}</pre>
+                </div>
               {/if}
             </div>
           {:else if p.type === 'file'}
@@ -1912,6 +1927,12 @@
     overflow-x: auto;
     white-space: pre-wrap;
     word-break: break-word;
+    color: var(--fg-dim);
+  }
+  /* a tool that produced nothing still gets the box, so every row reads alike */
+  .outbox-empty {
+    font-family: var(--mono);
+    font-size: 11.5px;
     color: var(--fg-dim);
   }
   /* grep-tool match tally, pinned under the output text */

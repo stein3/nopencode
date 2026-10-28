@@ -30,3 +30,27 @@ export function outLineCount(s: string): number {
 export function previewLine(shell: boolean, s: string): string {
   return shell ? outLastLine(s) : outFirstLine(s)
 }
+
+/**
+ * The output text a tool part carries — whatever tool produced it.
+ *
+ * Keyed off the STATE, never the tool name: an engine can surface any tool
+ * (built-in or plugin) and its result belongs in the transcript. `metadata.output`
+ * is the fallback for engines that park it there. A non-string result (a
+ * structured artefact) yields '', so it can never render as `[object Object]`.
+ */
+export function toolOutputOf(state: any): string {
+  const o = state?.output ?? state?.metadata?.output
+  return typeof o === 'string' ? o : ''
+}
+
+/**
+ * A tool that has not produced output yet is not a tool that produced none.
+ *
+ * `hasErrorRow` = the webui already renders that tool's error as its own detail
+ * line, so '(no output)' would just be noise under it.
+ */
+export function outputPlaceholder(status?: string, hasErrorRow = false): string {
+  if (status === 'running' || status === 'pending') return '…'
+  return hasErrorRow ? '' : '(no output)'
+}
