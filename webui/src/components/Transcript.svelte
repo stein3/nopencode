@@ -7,6 +7,7 @@
   import { isImagePath, imageDataUrl } from '../lib/images'
   import { extLabel, isImageMime } from '../lib/attachments'
   import { isAborted, roleLabel, taskNoticeOf, copyText } from '../lib/util'
+  import { outFirstLine, outLineCount, previewLine } from '../lib/outpreview'
   import { genTally } from '../lib/gentokens'
   import { retryState, cancelRetry, nextPayloadKind } from '../lib/retries'
   import ModelSelect from './ModelSelect.svelte'
@@ -443,14 +444,6 @@
     if (m) return Number(m[1])
     const hits = out.match(/^\s+Line \d+:/gm)
     return hits ? hits.length : null
-  }
-
-  function outFirstLine(s: string): string {
-    return (s.split('\n').find((l) => l.trim()) ?? '').trim()
-  }
-
-  function outLineCount(s: string): number {
-    return s.replace(/\n+$/, '').split('\n').length
   }
 
   function toolError(p: any): string {
@@ -1149,7 +1142,7 @@
                 {#if out}
                   <details class="outbox">
                     <summary>
-                      <span class="outline">{clip(outFirstLine(out), 150)}</span>
+                      <span class="outline">{clip(previewLine(isShellTool(p), out), 150)}</span>
                       {#if outLineCount(out) > 1}<span class="ocount">{outLineCount(out)} lines</span>{/if}
                     </summary>
                     <pre class="out">{out}</pre>

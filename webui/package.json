@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build && node scripts/compress.mjs",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "node --test \"src/lib/**/*.test.ts\""
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^3.1.2",
