@@ -1,30 +1,14 @@
 <script lang="ts">
-  import { tabs, type Tab } from '../lib/stores'
+  import type { Tab } from '../lib/stores'
   import AgentPicker from './AgentPicker.svelte'
   import ComposerModelPicker from './ComposerModelPicker.svelte'
 
   export let tab: Tab
-
-  // Live thinking: busy + no assistant text yet (moved from Transcript)
-  $: lastMsg = $tabs.find((t) => t.id === tab.id)?.messages?.at(-1)
-  $: lastHasVisible =
-    !!lastMsg?.parts?.some(
-      (p) =>
-        (p.type === 'text' && (p.text ?? '').trim()) ||
-        p.type === 'tool' ||
-        p.type === 'file',
-    )
-  // liveThinking is the "Thinking…" label; it must not claim thinking while
-  // a compaction summary is what's actually running (transcript shows that)
-  $: liveThinking = tab.busy && !tab.compacting && (!lastMsg || lastMsg.role !== 'assistant' || !lastHasVisible)
 </script>
 
 <div class="toolbar">
   <AgentPicker sid={tab.id} />
   <ComposerModelPicker sid={tab.id} />
-  {#if liveThinking}
-    <div class="live-thinking">💭 Thinking<span class="dots"><i>.</i><i>.</i><i>.</i></span></div>
-  {/if}
 </div>
 
 <style>
@@ -40,20 +24,6 @@
     padding: 0 4px;
     box-sizing: border-box;
   }
-  .live-thinking {
-    font-size: 12px;
-    color: var(--fg-dim);
-    white-space: nowrap;
-    flex-shrink: 0;
-  }
-  .dots i {
-    font-style: normal;
-    animation: blink 1.4s infinite both;
-  }
-  .dots i:nth-child(2) { animation-delay: 0.2s; }
-  .dots i:nth-child(3) { animation-delay: 0.4s; }
-  @keyframes blink {
-    0%, 80%, 100% { opacity: 0; }
-    40% { opacity: 1; }
-  }
+  /* turn status ("Thinking…") is NOT here: it lives in the Footer's
+     .status_indicator slot, so the composer strip stays pickers-only */
 </style>

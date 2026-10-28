@@ -1,4 +1,4 @@
-import { tabs, sessionTodos, patchMetrics, metricsFromMessages, tokenTally, markSessionUnread, patchEngineRetry, clearEngineRetry, syncEngineRetryFromStatus, markSessionListDirty, sessionListDirty, setSessionQueue, dropSessionQueue } from './stores'
+import { tabs, sessionTodos, patchMetrics, metricsFromMessages, tokenTally, markSessionUnread, patchEngineRetry, clearEngineRetry, syncEngineRetryFromStatus, patchEngineMetrics, syncEngineMetricsFromStatus, patchCompactionState, syncCompactionFromStatus, markSessionListDirty, sessionListDirty, setSessionQueue, dropSessionQueue } from './stores'
 import { oc, hist } from './api'
 import { refreshPermissions } from './permissions'
 import { refreshQuestions } from './questions'
@@ -420,6 +420,12 @@ function openStream() {
         // engine went busy without us asking (manual /compact, queued turn,
         // another client) — without this the stop button never appears
         tabs.patch(sid, { busy: true })
+      } else if (sType === 'engine') {
+        // Engine telemetry (phase / prefill progress / tok_s) for the thinking
+        // and compaction boxes. It is NOT a busy transition, and it must not
+        // reach the catch-all scheduleRefetch below — a frame per second would
+        // otherwise refetch the transcript every second.
+        patchEngineMetrics(sid, { ...status, at: status.at ?? Date.now() })
       }
       // DO NOT fall through to the catch-all scheduleRefetch below
       return
@@ -428,12 +434,21 @@ function openStream() {
       // near-limit, from any client). No message.part events stream for it —
       // the transcript would otherwise sit frozen with no busy feedback.
       // .ended / session.compacted / session.idle clear it.
+      // engine is generating a compaction summary (session.next.compaction.* SSE) —
+      // the transcript would otherwise sit frozen with no busy feedback. The state
+      // store carries what the strip cannot: that a summary is running at all, so
+      // the box can show engine progress inside it.
       tabs.patch(sid, { busy: true, compacting: true })
+      patchCompactionState(sid, { state: 'running', at: Date.now() })
       return
     } else if (type === 'session.next.compaction.ended') {
       // summary text finished generating — the turn may continue (auto
-      // compaction) or idle (manual); stop claiming "compacting" either way
+      // compaction) or idle (manual); stop claiming "compacting" either way.
+      // The TERMINAL outcome (ok / failed + pi's reason) is not on this event:
+      // pi keeps no record of a failed summary anywhere else, so pull it from the
+      // authoritative poll rather than guessing here.
       tabs.patch(sid, { compacting: false })
+      void hydrateStatus()
       return
     } else if (type === 'session.compacted') {
       // compaction committed (history pruned) — clear the indicator and fall
@@ -512,6 +527,8 @@ function openStream() {
       try {
         const st = await oc.status()
         syncEngineRetryFromStatus(st)
+        syncEngineMetricsFromStatus(st)
+        syncCompactionFromStatus(st)
       } catch { /* engine down */ }
     }, 1500)
   }
@@ -537,6 +554,24 @@ function anyBusyLive(): boolean {
   return all.some((t) => t.live && t.busy)
 }
 
+/**
+ * One-shot pull of the authoritative /session/status. A compaction's TERMINAL
+ * outcome — ok, or failed with pi's reason — exists nowhere else (pi writes no
+ * transcript entry for a failed summary and its session_compact_failed hook
+ * never leaves the extension runner), so when compaction.ended lands this is
+ * how the box learns what actually happened.
+ */
+async function hydrateStatus() {
+  try {
+    const st = await oc.status()
+    syncEngineRetryFromStatus(st)
+    syncEngineMetricsFromStatus(st)
+    syncCompactionFromStatus(st)
+  } catch {
+    /* engine down — the next catchUp will try again */
+  }
+}
+
 async function catchUp() {
   if (Date.now() - catchUpAt < 3000) return
   catchUpAt = Date.now()
@@ -550,6 +585,8 @@ async function catchUp() {
     return
   }
   syncEngineRetryFromStatus(st)
+  syncEngineMetricsFromStatus(st)
+  syncCompactionFromStatus(st)
   let all: any[] = []
   tabs.subscribe((t) => (all = t))()
   for (const t of all) {

@@ -3,7 +3,7 @@
   import { writable } from 'svelte/store'
   import { oc, hist, type HistSession, type SearchHit } from '../lib/api'
   import { genRollup, genTotal } from '../lib/gentokens'
-  import { searchQuery, sessionMetrics, permissions, pendingQuestions, tabs, sessionUnread, markSessionUnread, hideSubagents, groupByWorkspace, subExpanded, settingsOpen, sessionListDirty, sessionKidMap, sessionMeta, toggleStar, setTag, allTags, applyServerMeta, dropSessionMeta, sidebarOpen, syncEngineRetryFromStatus, type SessionMeta } from '../lib/stores'
+  import { searchQuery, sessionMetrics, permissions, pendingQuestions, tabs, sessionUnread, markSessionUnread, hideSubagents, groupByWorkspace, subExpanded, settingsOpen, sessionListDirty, sessionKidMap, sessionMeta, toggleStar, setTag, allTags, applyServerMeta, dropSessionMeta, sidebarOpen, syncEngineRetryFromStatus, syncEngineMetricsFromStatus, syncCompactionFromStatus, type SessionMeta } from '../lib/stores'
   import { groupRowsByWorkspace, hasWorkspace } from '../lib/sessionGroups'
 import { sidePanel } from '../lib/sidePanel'
   import { relTime } from '../lib/util'
@@ -104,6 +104,8 @@ import { sidePanel } from '../lib/sidePanel'
       // store-gated (only patch when data actually changed to avoid tab-object
       // swap churn → request-storm invariant)
       syncEngineRetryFromStatus(st as any)
+      syncEngineMetricsFromStatus(st as any)
+      syncCompactionFromStatus(st as any)
     } catch {
       /* engine down */
     }

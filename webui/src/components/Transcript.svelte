@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, afterUpdate } from 'svelte'
-  import { tabs, showThinking, showTimestamps, toast, type Tab, pendingQuestions, type PendingQuestion, lightbox, engineRetries, clearEngineRetry } from '../lib/stores'
+  import { tabs, showThinking, showTimestamps, toast, type Tab, pendingQuestions, type PendingQuestion, lightbox, engineRetries, clearEngineRetry, engineMetrics, compactionStates, clearCompactionState, type EngineMetrics } from '../lib/stores'
   import { oc, hist, isSessionBusy, type OcMessage } from '../lib/api'
   import { refetchNow } from '../lib/sse'
   import { md } from '../lib/markdown'
@@ -113,7 +113,7 @@
     (m) =>
       !!m.error ||
       m.parts?.some(
-        (p) => p.type === 'text' || p.type === 'tool' || p.type === 'reasoning' || p.type === 'file',
+        (p) => p.type === 'text' || p.type === 'tool' || p.type === 'reasoning' || p.type === 'file' || p.type === 'compaction',
       ),
   )
   $: lastMsg = msgs.at(-1)
@@ -372,7 +372,22 @@
   })
 
   function partsOf(m: any): any[] {
-    return m?.parts ?? []
+    const ps = m?.parts ?? []
+    // A compaction row's TYPED part carries the summary and the numbers. The
+    // bridge also sends a plain text part for a client with no branch for that
+    // type — rendering both would duplicate the summary, so once we know how to
+    // draw the box, the interim part is ignored (and comes out of the bridge).
+    if (ps.some((p: any) => p?.type === 'compaction')) return ps.filter((p: any) => p?.type !== 'text')
+    return ps
+  }
+
+  // ---- compaction box: engine progress ------------------------------------
+  const numOr = (n: any) => (typeof n === 'number' && Number.isFinite(n) ? n.toLocaleString() : '–')
+  function cmpBar(m: EngineMetrics): string {
+    const read = m.prompt_read
+    const total = m.prompt_total
+    if (typeof read !== 'number' || typeof total !== 'number' || total <= 0) return '0%'
+    return Math.min(100, Math.round((read / total) * 100)) + '%'
   }
 
   // reasoning parts stream in before the answer; show the latest as "Thinking"
@@ -512,6 +527,17 @@
   // the webui's own auto-retry loop; shows the engine's server-side stall
   // banner with countdown + stop/undo-resend actions
   $: engineRetry = $engineRetries[tab.id]
+  // engine telemetry for THIS session (SSE session.status type:'engine' AND the
+  // /session/status poll — the poll is what survives a dropped stream)
+  $: engineM = $engineMetrics[tab.id] as EngineMetrics | undefined
+  // the compaction's state + pi's failure reason, neither of which the bridge
+  // can put anywhere else for a summary that never produced a transcript entry
+  $: cmpState = $compactionStates[tab.id]
+  // a finished-but-bad summary. `running` must be excluded explicitly: the running
+  // branch above no longer claims every running compaction (it needs telemetry to
+  // draw a bar), and without this a summary with no engine to ask rendered as
+  // "Compaction failed" (held by e2e/embedded/compact-indicator.test.mjs CASE A).
+  $: cmpFailure = !!cmpState && cmpState.state !== 'ok' && cmpState.state !== 'running'
   // live countdown to the next attempt (re-derived each second)
   $: engineRetryCountdown = engineRetry?.next ? Math.max(0, Math.ceil((engineRetry.next - Date.now()) / 1000)) : 0
   // ticker: only while a banner is visible
@@ -1171,6 +1197,22 @@
                 </div>
               {/if}
             </div>
+          {:else if p.type === 'compaction'}
+            <!-- context was summarised: the durable record. Collapsed by default
+                 (a summary is thousands of chars and rarely what you scroll for),
+                 accent-bordered so it reads as a system event, not an assistant
+                 reply, and the numbers come from structured state — the bridge
+                 ships pi's summary text raw on purpose. -->
+            <details class="cmpbox">
+              <summary>
+                <span class="cmpglyph">⟳</span>
+                <span class="cmphead">
+                  Context compacted{p.state?.tokensBefore ? ` — ${p.state.tokensBefore.toLocaleString()} tokens summarised` : ''}{p.state?.tokensAfter ? ` → ${p.state.tokensAfter.toLocaleString()}` : ''}
+                </span>
+                <span class="cmpcount">{(p.text ?? '').length.toLocaleString()} chars</span>
+              </summary>
+              <div class="cmpbody">{@html html({ ...p, type: 'text' }, false, throttleTick, true)}</div>
+            </details>
           {:else if p.type === 'file'}
             <!-- stored composer attachment: images open the lightbox,
                  everything else is a compact filename chip. Degraded shapes
@@ -1238,8 +1280,38 @@
         <button class="erbtn erundo" disabled={aborting} title="Undo & resend" on:click={undoResendEngineRetry}>↩ undo</button>
       </div>
     {/if}
-    {#if tab.compacting}
-      <div class="compacting" role="status">Compacting session<span class="cdots"><i>.</i><i>.</i><i>.</i></span></div>
+    {#if (tab.compacting || cmpState?.state === 'running') && engineM}
+      <!-- the summary's TELEMETRY, not its label: "Compacting session…" is the
+           Footer's .status_indicator. pi emits NOTHING between compaction_start
+           and compaction_end, so everything here comes from the engine probe:
+           phase, prefill progress, rate. No probe (cloud / parked / wedged) →
+           no box at all; the footer's dots carry it, never a stuck bar. -->
+      <div class="cmpbox running" role="status">
+        <span class="cmpglyph spin">⟳</span>
+        <span class="cmphead">compaction summary{engineM.phase ? ` · ${engineM.phase}` : ''}</span>
+        {#if engineM.ambiguous}
+          <span class="cmpnum dim">engine busy · cannot say which session</span>
+        {:else}
+          <span class="cbar"><i style:width={cmpBar(engineM)}></i></span>
+          <span class="cmpnum">
+            {numOr(engineM.prompt_read)}/{numOr(engineM.prompt_total)}
+            {#if engineM.generated}<span class="csep">·</span>{engineM.generated.toLocaleString()} tok{/if}
+            {#if engineM.tok_s}<span class="csep">·</span>{engineM.tok_s} tok/s{/if}
+            {#if engineM.source === 'derived'}<span class="capprox" title="no engine telemetry — estimated from the stream">≈</span>{/if}
+          </span>
+        {/if}
+      </div>
+    {:else if cmpFailure}
+      <!-- a failed summary leaves NO transcript entry, and pi's own failure hook
+           never reaches the bridge: this is the only place its reason survives. -->
+      <div class="cmpbox {cmpState.state}" role="status">
+        <span class="cmpglyph">{cmpState.state === 'cancelled' ? '⏸' : '✗'}</span>
+        <span class="cmphead">
+          {cmpState.state === 'cancelled' ? 'Compaction cancelled' : cmpState.state === 'rejected' ? 'Compaction refused' : 'Compaction failed'}
+        </span>
+        {#if cmpState.reason}<span class="cmpreason">{cmpState.reason}</span>{/if}
+        <button class="cmpdismiss" title="Dismiss" on:click={() => clearCompactionState(tab.id)}>×</button>
+      </div>
     {/if}
     {/if}
   </div>
@@ -1477,24 +1549,82 @@
   .retryline.engineretry {
     color: #e0a030;
   }
-  /* inline compaction indicator (session.next.compaction.* SSE) — same
-     muted treatment as the composer's live-thinking dots */
-  .compacting {
+  /* compaction: the running telemetry box and the durable row box.
+     Both are accent-bordered so a system event never reads like a reply.
+     The label + "no engine to ask" dots are NOT here any more — the Footer's
+     .status_indicator owns them. */
+  .cmpbox {
     max-width: 860px;
-    margin: 0 auto;
-    padding: 4px 18px;
-    color: var(--fg-dim);
+    margin: 6px auto;
+    padding: 6px 14px;
     font-size: 12px;
+    color: var(--fg-dim);
+    border: 1px solid color-mix(in srgb, var(--accent) 35%, #555);
+    border-left: 3px solid var(--accent);
+    border-radius: 6px;
+    background: color-mix(in srgb, var(--accent) 6%, transparent);
+    display: flex;
+    align-items: center;
+    gap: 10px;
   }
-  .compacting .cdots i {
-    font-style: normal;
-    animation: cdotblink 1.4s infinite both;
+  .cmpbox > summary {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    cursor: pointer;
+    list-style: none;
   }
-  .compacting .cdots i:nth-child(2) { animation-delay: 0.2s; }
-  .compacting .cdots i:nth-child(3) { animation-delay: 0.4s; }
-  @keyframes cdotblink {
-    0%, 80%, 100% { opacity: 0; }
-    40% { opacity: 1; }
+  .cmpbox > summary::-webkit-details-marker { display: none; }
+  .cmpbox[open] { display: block; }
+  .cmpbox .cmphead { color: var(--fg); }
+  .cmpbox .cmpcount { margin-left: auto; opacity: 0.6; }
+  .cmpbox .cmpbody {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px dashed color-mix(in srgb, var(--accent) 30%, transparent);
+    color: var(--fg);
+  }
+  .cmpglyph { color: var(--accent); }
+  .cmpglyph.spin { animation: cmpspin 2.4s linear infinite; display: inline-block; }
+  @keyframes cmpspin { to { transform: rotate(360deg); } }
+  .cmpbox.running .cbar {
+    flex: 1;
+    min-width: 60px;
+    height: 4px;
+    border-radius: 2px;
+    background: color-mix(in srgb, var(--accent) 18%, transparent);
+    overflow: hidden;
+  }
+  .cmpbox.running .cbar i {
+    display: block;
+    height: 100%;
+    background: var(--accent);
+    transition: width 0.6s ease-out;
+  }
+  .cmpbox .cmpnum { font-variant-numeric: tabular-nums; }
+  .cmpbox .cmpnum.dim { opacity: 0.65; }
+  .cmpbox .csep { opacity: 0.5; margin: 0 4px; }
+  .cmpbox .capprox { opacity: 0.7; margin-left: 4px; }
+  .cmpbox.failed,
+  .cmpbox.cancelled,
+  .cmpbox.rejected {
+    border-color: color-mix(in srgb, #e0524f 40%, #555);
+    border-left-color: #e0524f;
+    background: color-mix(in srgb, #e0524f 7%, transparent);
+  }
+  .cmpbox.failed .cmpglyph,
+  .cmpbox.cancelled .cmpglyph,
+  .cmpbox.rejected .cmpglyph { color: #e0524f; }
+  .cmpbox .cmpreason { color: var(--fg); opacity: 0.85; }
+  .cmpbox .cmpdismiss {
+    margin-left: auto;
+    background: none;
+    border: 0;
+    color: inherit;
+    cursor: pointer;
+    font-size: 14px;
+    line-height: 1;
   }
   .erinfo {
     flex: 1;

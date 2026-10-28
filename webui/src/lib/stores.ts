@@ -582,6 +582,116 @@ export function syncEngineRetryFromStatus(
   })
 }
 
+// ---- engine telemetry (SSE session.status type:'engine' + /session/status `engine`)
+// The bridge probes the model engine (phase, prefill progress, rate) and
+// publishes the SAME shape on both surfaces. The poll is the one that survives a
+// dropped stream — catchUp() and Sidebar's 10s tick re-derive live state from
+// it — so this store is fed from both, exactly like engineRetries above.
+// `source:'derived'` means there was no engine to ask and the bridge estimated
+// from the agent's own deltas: render it as approximate. `prompt_total` may be
+// null (no prefill bar) rather than a made-up total, and `ambiguous` means the
+// engine could not say which session generated what — show no numbers at all.
+export interface EngineMetrics {
+  source: 'engine' | 'derived'
+  at: number
+  ambiguous?: boolean
+  phase?: string | null
+  prompt_read?: number | null
+  prompt_total?: number | null
+  generated?: number | null
+  max_tokens?: number | null
+  tok_s?: number | null
+  prefill_ms?: number | null
+  reused?: number | null // last COMPLETED request only — the engine reports it after the fact
+  hit_rate?: number | null
+}
+export const engineMetrics = writable<Record<string, EngineMetrics>>({})
+
+export function patchEngineMetrics(sid: string, m: EngineMetrics) {
+  engineMetrics.update((all) => ({ ...all, [sid]: m }))
+}
+export function clearEngineMetrics(sid: string) {
+  engineMetrics.update((all) => {
+    if (!all[sid]) return all
+    const next = { ...all }
+    delete next[sid]
+    return next
+  })
+}
+
+// Hydrate from the authoritative /session/status poll (same call sites as
+// syncEngineRetryFromStatus): SSE reconnect, tab open, the 10s busy poll.
+export function syncEngineMetricsFromStatus(map: Record<string, any>) {
+  let openSids: string[] = []
+  tabs.subscribe((all) => { openSids = all.map((t) => t.id) })()
+  engineMetrics.update((all) => {
+    let changed = false
+    const next = { ...all }
+    for (const sid of openSids) {
+      const e = map[sid]?.engine
+      if (e && typeof e === 'object') {
+        const existing = next[sid]
+        if (existing && existing.at === e.at && existing.phase === e.phase && existing.generated === e.generated)
+          continue
+        next[sid] = e as EngineMetrics
+        changed = true
+      } else if (next[sid]) {
+        delete next[sid]
+        changed = true
+      }
+    }
+    return changed ? next : all
+  })
+}
+
+// ---- last compaction outcome (bridge entry.compaction -> /session/status) ----
+// pi appends NO transcript entry for a failed or cancelled compaction, and its
+// session_compact_failed hook never leaves the extension runner, so this poll
+// entry is the only place a summary failure survives into a component. `ok` also
+// arrives here — the transcript row is the durable view of that, so the box only
+// renders running/terminal states.
+export interface CompactionState {
+  state: 'running' | 'ok' | 'failed' | 'cancelled' | 'rejected'
+  reason?: string | null
+  at?: number
+  tokensBefore?: number | null
+}
+export const compactionStates = writable<Record<string, CompactionState>>({})
+
+export function patchCompactionState(sid: string, s: CompactionState) {
+  compactionStates.update((all) => ({ ...all, [sid]: s }))
+}
+export function clearCompactionState(sid: string) {
+  compactionStates.update((all) => {
+    if (!all[sid]) return all
+    const next = { ...all }
+    delete next[sid]
+    return next
+  })
+}
+
+export function syncCompactionFromStatus(map: Record<string, any>) {
+  let openSids: string[] = []
+  tabs.subscribe((all) => { openSids = all.map((t) => t.id) })()
+  compactionStates.update((all) => {
+    let changed = false
+    const next = { ...all }
+    for (const sid of openSids) {
+      const c = map[sid]?.compaction
+      if (c && typeof c === 'object') {
+        const existing = next[sid]
+        if (existing && existing.state === c.state && existing.reason === c.reason && existing.at === c.at) continue
+        next[sid] = c as CompactionState
+        changed = true
+      } else if (next[sid]) {
+        delete next[sid]
+        changed = true
+      }
+    }
+    return changed ? next : all
+  })
+}
+
 // ---- theme store (string-valued, not boolean) ----
 const THEME_KEY = 'opencode.theme'
 export const theme = writable<string>(
