@@ -101,7 +101,7 @@ const server = http.createServer(async (req, res) => {
 
   try {
     // ---- SSE -----------------------------------------------------------------
-    if (p === '/oc/event') {
+    if (p === '/engine/event') {
       res.writeHead(200, {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
@@ -122,20 +122,20 @@ const server = http.createServer(async (req, res) => {
     if (p.startsWith('/api/history/session/')) return json(res, []);
 
     // ---- engine stubs --------------------------------------------------------
-    if (p === '/oc/session/status') return json(res, {});
-    if (p.startsWith('/oc/session/') && p.endsWith('/message'))
+    if (p === '/engine/session/active') return json(res, {});
+    if (p.startsWith('/engine/session/') && p.endsWith('/message'))
       return json(res, MESSAGES);
-    if (p.startsWith('/oc/session/'))
+    if (p.startsWith('/engine/session/'))
       return json(res, { id: SID, title: 'Grep match count in opencode output', revert: null });
-    if (p === '/oc/session' && req.method === 'POST')
+    if (p === '/engine/session' && req.method === 'POST')
       return json(res, { id: SID, title: 'Grep match count in opencode output', revert: null });
-    if (p === '/oc/config/providers')
+    if (p === '/engine/provider')
       return json(res, {
         providers: [{ id: 'opencode', models: { 'x-preview-f-free': { id: 'x-preview-f-free' } } }],
       });
-    if (p === '/oc/path') return json(res, { directory: '/workspace' });
-    if (p === '/oc/mcp') return json(res, {});
-    if (p.startsWith('/oc/')) return json(res, []);
+    if (p === '/engine/location') return json(res, { directory: '/workspace' });
+    if (p === '/engine/mcp') return json(res, {});
+    if (p.startsWith('/engine/')) return json(res, []);
 
     // ---- statics (webui/dist) -----------------------------------------------
     const rel = p === '/' ? '/index.html' : p;

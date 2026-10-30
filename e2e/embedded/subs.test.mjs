@@ -103,7 +103,7 @@ const server = http.createServer(async (req, res) => {
 
   try {
     // ---- SSE ----------------------------------------------------------------
-    if (p === '/oc/event') {
+    if (p === '/engine/event') {
       res.writeHead(200, {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
@@ -120,22 +120,22 @@ const server = http.createServer(async (req, res) => {
     if (p.startsWith('/api/history/session/')) return json(res, []);
 
     // ---- engine stubs --------------------------------------------------------
-    if (p === '/oc/session/status') return json(res, { [SUB_ID]: { type: 'busy' } });
-    if (p === '/oc/permission') return json(res, []);
+    if (p === '/engine/session/active') return json(res, { [SUB_ID]: { type: 'busy' } });
+    if (p === '/engine/permission/request') return json(res, []);
 
     const mMsg = p.match(/^\/oc\/session\/([^/]+)\/message$/);
     if (mMsg && req.method === 'GET') return json(res, MESSAGES[mMsg[1]] ?? []);
 
     if (p.match(/^\/oc\/session\/[^/]+$/) && req.method === 'GET')
       return json(res, { id: PARENT_ID, title: 'Root session', revert: null });
-    if (p === '/oc/session' && req.method === 'POST')
+    if (p === '/engine/session' && req.method === 'POST')
       return json(res, { id: PARENT_ID, title: 'Root session', revert: null });
 
-    if (p === '/oc/config/providers')
+    if (p === '/engine/provider')
       return json(res, { providers: [{ id: 'opencode', models: {} }] });
-    if (p === '/oc/path') return json(res, { directory: '/workspace' });
-    if (p === '/oc/mcp') return json(res, {});
-    if (p.startsWith('/oc/')) return json(res, []);
+    if (p === '/engine/location') return json(res, { directory: '/workspace' });
+    if (p === '/engine/mcp') return json(res, {});
+    if (p.startsWith('/engine/')) return json(res, []);
 
     // ---- statics (webui/dist) ------------------------------------------------
     const rel = p === '/' ? '/index.html' : p;

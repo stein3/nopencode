@@ -171,7 +171,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     // ---- SSE -----------------------------------------------------------------
-    if (p === '/oc/event') {
+    if (p === '/engine/event') {
       res.writeHead(200, {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
@@ -183,10 +183,10 @@ const server = http.createServer(async (req, res) => {
     }
 
     // ---- engine stubs (order matters: /status before /session/{id}) ----------
-    if (p === '/oc/session/status') return json(res, {});
+    if (p === '/engine/session/active') return json(res, {});
 
-    // /oc/session/{id}/message — return messages per session
-    if (p.startsWith('/oc/session/') && p.endsWith('/message')) {
+    // /engine/session/{id}/message — return messages per session
+    if (p.startsWith('/engine/session/') && p.endsWith('/message')) {
       const sid = p.split('/')[3];
       if (sid === PROBE_SID) return json(res, PROBE_MSGS);
       if (sid === PARITY_SID) return json(res, PARITY_MSGS);
@@ -194,7 +194,7 @@ const server = http.createServer(async (req, res) => {
       return json(res, []);
     }
 
-    // GET /oc/session/{id} — single session
+    // GET /engine/session/{id} — single session
     if (p.match(/^\/oc\/session\/[^/]+$/) && req.method === 'GET') {
       const sid = p.split('/')[3];
       const s = SESSIONS.find((x) => x.id === sid);
@@ -202,14 +202,14 @@ const server = http.createServer(async (req, res) => {
       return json(res, { error: 'not found' }, 404);
     }
 
-    // POST /oc/session — create session
-    if (p === '/oc/session' && req.method === 'POST') {
+    // POST /engine/session — create session
+    if (p === '/engine/session' && req.method === 'POST') {
       const body = JSON.parse((await readBody(req)) || '{}');
       const id = 'ses_mbcreated_' + Date.now();
       return json(res, { id, title: body.title || 'new session', revert: null });
     }
 
-    if (p === '/oc/config/providers')
+    if (p === '/engine/provider')
       return json(res, {
         providers: [
           {
@@ -223,9 +223,9 @@ const server = http.createServer(async (req, res) => {
         ],
       });
 
-    if (p === '/oc/path') return json(res, { directory: '/workspace' });
-    if (p === '/oc/mcp') return json(res, {});
-    if (p.startsWith('/oc/')) return json(res, []);
+    if (p === '/engine/location') return json(res, { directory: '/workspace' });
+    if (p === '/engine/mcp') return json(res, {});
+    if (p.startsWith('/engine/')) return json(res, []);
 
     // ---- statics (webui/dist) -----------------------------------------------
     const rel = p === '/' ? '/index.html' : p;

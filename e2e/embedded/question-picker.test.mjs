@@ -40,7 +40,7 @@ const CALL_ID = 'call_qfixture1';
 // ============================== fake engine =================================
 
 const state = {
-  questions: [], // current GET /oc/question fixture
+  questions: [], // current GET /engine/form fixture
   replies: [], // captured {id, body, status}
   rejects: [],
   failReply: false, // when true, reply endpoint answers 404
@@ -183,7 +183,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     // ---- SSE -----------------------------------------------------------------
-    if (p === '/oc/event') {
+    if (p === '/engine/event') {
       res.writeHead(200, {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
@@ -196,7 +196,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     // ---- question endpoints --------------------------------------------------
-    if (p === '/oc/question') return json(res, state.questions);
+    if (p === '/engine/form') return json(res, state.questions);
     const mReply = p.match(/^\/oc\/question\/([^/]+)\/reply$/);
     if (mReply && req.method === 'POST') {
       const body = JSON.parse((await readBody(req)) || '{}');
@@ -235,18 +235,18 @@ const server = http.createServer(async (req, res) => {
     if (p.startsWith('/api/history/session/')) return json(res, []);
 
     // ---- engine stubs (order matters: /status before /session/{id}) ----------
-    if (p === '/oc/session/status') return json(res, {});
-    if (p.startsWith('/oc/session/') && p.endsWith('/message')) return json(res, MESSAGES);
-    if (p.startsWith('/oc/session/')) return json(res, { id: SID, title: 'question-probe', revert: null });
-    if (p === '/oc/session' && req.method === 'POST')
+    if (p === '/engine/session/active') return json(res, {});
+    if (p.startsWith('/engine/session/') && p.endsWith('/message')) return json(res, MESSAGES);
+    if (p.startsWith('/engine/session/')) return json(res, { id: SID, title: 'question-probe', revert: null });
+    if (p === '/engine/session' && req.method === 'POST')
       return json(res, { id: SID, title: 'question-probe', revert: null });
-    if (p === '/oc/config/providers')
+    if (p === '/engine/provider')
       return json(res, {
         providers: [{ id: 'opencode', models: { 'x-preview-f-free': { id: 'x-preview-f-free' } } }],
       });
-    if (p === '/oc/path') return json(res, { directory: '/workspace' });
-    if (p === '/oc/mcp') return json(res, {});
-    if (p.startsWith('/oc/')) return json(res, []);
+    if (p === '/engine/location') return json(res, { directory: '/workspace' });
+    if (p === '/engine/mcp') return json(res, {});
+    if (p.startsWith('/engine/')) return json(res, []);
 
     // ---- statics (webui/dist) -----------------------------------------------
     const rel = p === '/' ? '/index.html' : p;
@@ -292,7 +292,7 @@ try {
   await new Promise((r) => server.listen(PORT, '127.0.0.1', r));
   await snap(); // warm + sanity
 
-  // seed the pending request BEFORE page load: startEvents() pulls /oc/question
+  // seed the pending request BEFORE page load: startEvents() pulls /engine/form
   // at startup, so the ask-dot and picker are live from the first paint
   await ctl({ questions: [REQ_MAIN] });
 
@@ -349,11 +349,11 @@ try {
     await screenshot(page, 'question-picker');
 
     // background churn for S1 → setMeta swap + debounced refetch (350ms)
-    const before = (await snap()).counts[`/oc/session/${SID}/message`] ?? 0;
+    const before = (await snap()).counts[`/engine/session/${SID}/message`] ?? 0;
     await ctl({
       emit: { type: 'message.updated', properties: { info: { id: MSG_ID, sessionID: SID } } },
     });
-    await poll(async () => ((await snap()).counts[`/oc/session/${SID}/message`] ?? 0) > before, 4000);
+    await poll(async () => ((await snap()).counts[`/engine/session/${SID}/message`] ?? 0) > before, 4000);
     await sleep(700); // cover the debounce + re-render
     const pickedAfterRefetch = await qa0opts.evaluateAll((els) =>
       els.map((e) => e.classList.contains('picked')),
@@ -362,7 +362,7 @@ try {
       'C',
       'A+B STILL picked after message.updated refetch (~700ms)',
       JSON.stringify(pickedAfterRefetch) === '[true,true,false]',
-      `refetch happened: ${(await snap()).counts[`/oc/session/${SID}/message`] ?? 0} > ${before}`,
+      `refetch happened: ${(await snap()).counts[`/engine/session/${SID}/message`] ?? 0} > ${before}`,
     );
 
     // ---- D. submit gating, reply payload, dot clears -------------------------

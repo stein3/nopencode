@@ -23,7 +23,7 @@ browser ──► opencode-tui :7681     ttyd → tmux → opencode TUI
                                    └─ attach http://opencode-engine:4096
 browser ──► opencode-web :7683     chatserver.py (serves webui/dist,
                                    │            read-only SQLite history + search)
-                                   └─ /oc/* reverse proxy ──┐
+                                   └─ /engine/* reverse proxy ──┐
 browser ─► opencode-engine :7682   opencode serve ◄─────────┘   (REST + SSE)
 ```
 
@@ -32,7 +32,7 @@ browser ─► opencode-engine :7682   opencode serve ◄───────�
 **`chatserver.py`** — single-origin backend for the web UI, pure Python standard library (no dependencies):
 
 - `/` — serves the built `webui/dist` SPA (ETag revalidation, immutable hashed assets, transparent `.br`/`.gz` precompressed serving)
-- `/oc/*` — streaming reverse proxy for the engine's REST + SSE traffic
+- `/engine/*` — streaming reverse proxy for the engine's REST + SSE traffic (proxied to v2 engine's `/api/*` routes)
 - `/api/history/*` — read-only SQL against opencode's own SQLite database (`opencode.db` is opened `mode=ro` + `query_only`; WAL-safe alongside a live engine/TUI): session list, transcript windows, full-text search
 - `/api/history/session/{id}/errors` — persists turn-failure tiles in a tiny sidecar database (`webui.db`), the only record of errors the engine does not store
 - `/healthz` — liveness

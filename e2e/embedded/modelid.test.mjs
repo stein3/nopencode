@@ -98,20 +98,20 @@ const server = http.createServer(async (req, res) => {
     }
 
     // ---- engine stubs -------------------------------------------------------
-    if (p === '/oc/session/status') return json(res, {});
+    if (p === '/engine/session/active') return json(res, {});
 
-    // GET /oc/session/{id}/message
+    // GET /engine/session/{id}/message
     const mMsg = p.match(/^\/oc\/session\/([^/]+)\/message$/);
     if (mMsg && req.method === 'GET') {
       if (mMsg[1] === SID) return json(res, MESSAGES);
       return json(res, []);
     }
 
-    if (p.startsWith('/oc/session/'))
+    if (p.startsWith('/engine/session/'))
       return json(res, { id: SID, title: 'model-id-probe', revert: null });
-    if (p === '/oc/session' && req.method === 'POST')
+    if (p === '/engine/session' && req.method === 'POST')
       return json(res, { id: SID, title: 'model-id-probe', revert: null });
-    if (p === '/oc/config/providers')
+    if (p === '/engine/provider')
       return json(res, {
         providers: [
           {
@@ -120,9 +120,9 @@ const server = http.createServer(async (req, res) => {
           },
         ],
       });
-    if (p === '/oc/path') return json(res, { directory: '/workspace' });
-    if (p === '/oc/mcp') return json(res, {});
-    if (p.startsWith('/oc/')) return json(res, []);
+    if (p === '/engine/location') return json(res, { directory: '/workspace' });
+    if (p === '/engine/mcp') return json(res, {});
+    if (p.startsWith('/engine/')) return json(res, []);
 
     // ---- statics (webui/dist) -----------------------------------------------
     const rel = p === '/' ? '/index.html' : p;

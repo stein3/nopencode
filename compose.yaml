@@ -9,10 +9,31 @@ x-limits: &limits
       max-file: "3"
 
 services:
+  opencodev2:
+    image: ghcr.io/anomalyco/opencode:2.0.0
+    container_name: opencodev2
+    restart: unless-stopped
+    ports:
+      - "4096:4096"
+    volumes:
+      # Persistent configuration, settings, and agent cache
+      - ./config/opencode:/root/.config/opencode
+      - opencode-share:/root/.local/share/opencode
+      # The workspace containing the local repositories/projects you want the AI to work on
+      - ${HOST_WORKSPACE}:/workspace
+    environment:
+      # Pass your LLM API keys directly to the container environment
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      # - OPENCODE_HOSTNAME=0.0.0.0
+    entrypoint: ["opencode"]
+    command: ["serve", "--hostname", "0.0.0.0", "--port", "4096"]
+    working_dir: /workspace
+
   opencode-tui:
     <<: *limits
     image: nopencode:latest
-    container_name: opencode-tui
+    container_name: opencode-tui-v2
     build:
       context: .
       dockerfile: Dockerfile
@@ -28,11 +49,11 @@ services:
       - "-c"
       # Attach to the shared engine so web + TUI see the same live sessions/events.
       # Falls back to a standalone TUI if the engine isn't up yet (split-brain but usable).
-      - "tmux new-session -A -s main 'tmux set-option -s escape-time 0; tmux set -g allow-passthrough on; opencode attach http://opencode-engine:4096 || opencode; exec bash'"
+      - "tmux new-session -A -s main 'tmux set-option -s escape-time 0; tmux set -g allow-passthrough on; opencode --server http://opencode-engine:4096 || opencode; exec bash'"
     depends_on:
       - opencode-engine
     ports:
-      - "7681:7681"
+      - "7691:7681"
     volumes:
       - opencode-data:/home/node/.config/opencode
       - opencode-share:/home/node/.local/share/opencode
@@ -52,7 +73,7 @@ services:
     <<: *limits
     mem_limit: 3g
     image: nopencode:latest
-    container_name: opencode-engine
+    container_name: opencode-engine-v2
     build:
       context: .
       dockerfile: Dockerfile
@@ -64,7 +85,7 @@ services:
       - "--port"
       - "4096"
     ports:
-      - "7682:4096"
+      - "7692:4096"
     volumes:
       - opencode-data:/home/node/.config/opencode
       - opencode-share:/home/node/.local/share/opencode
@@ -86,7 +107,7 @@ services:
     mem_limit: 256m
     cpus: 0.5
     image: opencode-web:latest
-    container_name: opencode-web
+    container_name: opencode-web-v2
     build:
       context: .
       dockerfile: Dockerfile.web
@@ -94,7 +115,7 @@ services:
     entrypoint: ["python3"]
     command: ["/app/chatserver.py"]
     ports:
-      - "7683:7683"
+      - "7693:7683"
     volumes:
       - opencode-share:/home/node/.local/share/opencode
     environment:

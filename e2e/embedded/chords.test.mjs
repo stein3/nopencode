@@ -5,7 +5,7 @@
 // Fully self-contained: serves webui/dist from an EPHEMERAL 127.0.0.1 port via
 // a tiny static http server (same conventions as verify-stall-retry.mjs). No
 // engine/chatserver needed — palette + chords are client-side; /oc fetches
-// fail harmlessly (app catches) and /oc/event + /oc/session/status are
+// fail harmlessly (app catches) and /engine/event + /engine/session/active are
 // route-aborted to silence SSE reconnect noise.
 //
 // Checks:
@@ -61,8 +61,8 @@ const server = http.createServer((req, res) => {
     // consumers like AgentPicker's (list ?? []).filter (their .catch only
     // covers rejections, not 200s with the wrong shape).
     if (p === '/api/history/sessions') return json(res, []);
-    if (p === '/oc/agent' || p === '/oc/command' || p === '/oc/skill') return json(res, []);
-    if (p.startsWith('/api/') || p.startsWith('/oc/')) return json(res, {});
+    if (p === '/engine/agent' || p === '/engine/command' || p === '/engine/skill') return json(res, []);
+    if (p.startsWith('/api/') || p.startsWith('/engine/')) return json(res, {});
     // statics
     const rel = p === '/' ? '/index.html' : p;
     const full = fs.realpathSync(path.join(DIST, rel));
@@ -102,8 +102,8 @@ try {
   page.on('pageerror', (e) => pageErrors.push(e.message));
 
   // silence SSE noise: abort the event stream + busy poll (client catches)
-  await page.route('**/oc/event', (route) => route.abort());
-  await page.route('**/oc/session/status', (route) => route.abort());
+  await page.route('**/engine/event', (route) => route.abort());
+  await page.route('**/engine/session/active', (route) => route.abort());
 
   try {
     await page.goto(`${BASE}/`, { waitUntil: 'domcontentloaded', timeout: 20000 });

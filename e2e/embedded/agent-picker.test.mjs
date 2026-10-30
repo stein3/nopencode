@@ -124,7 +124,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     // ---- SSE -----------------------------------------------------------------
-    if (p === '/oc/event') {
+    if (p === '/engine/event') {
       res.writeHead(200, {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
@@ -137,10 +137,10 @@ const server = http.createServer(async (req, res) => {
     }
 
     // ---- agent roster --------------------------------------------------------
-    if (p === '/oc/agent') return json(res, AGENT_ROSTER);
+    if (p === '/engine/agent') return json(res, AGENT_ROSTER);
 
     // ---- config / providers --------------------------------------------------
-    if (p === '/oc/config/providers')
+    if (p === '/engine/provider')
       return json(res, {
         providers: [
           {
@@ -153,9 +153,9 @@ const server = http.createServer(async (req, res) => {
         ],
       });
 
-    if (p === '/oc/path') return json(res, { directory: '/workspace' });
-    if (p === '/oc/mcp') return json(res, {});
-    if (p === '/oc/question') return json(res, []);
+    if (p === '/engine/location') return json(res, { directory: '/workspace' });
+    if (p === '/engine/mcp') return json(res, {});
+    if (p === '/engine/form') return json(res, []);
 
     // ---- history (chatserver stubs) ------------------------------------------
     if (p === '/api/history/sessions') {
@@ -188,10 +188,10 @@ const server = http.createServer(async (req, res) => {
     if (p.startsWith('/api/history/session/')) return json(res, []);
 
     // ---- engine stubs --------------------------------------------------------
-    if (p === '/oc/session/status') return json(res, {});
+    if (p === '/engine/session/active') return json(res, {});
 
-    // POST /oc/session — create session
-    if (p === '/oc/session' && req.method === 'POST') {
+    // POST /engine/session — create session
+    if (p === '/engine/session' && req.method === 'POST') {
       state.sessionCount++;
       const id = `ses_ap${state.sessionCount}`;
       const body = JSON.parse((await readBody(req)) || '{}');
@@ -201,7 +201,7 @@ const server = http.createServer(async (req, res) => {
       return json(res, { id, title, revert: null });
     }
 
-    // PATCH /oc/session/* — session update (noop)
+    // PATCH /engine/session/* — session update (noop)
     const mPatch = p.match(/^\/oc\/session\/([^/]+)$/);
     if (mPatch && req.method === 'PATCH') {
       const sid = mPatch[1];
@@ -210,14 +210,14 @@ const server = http.createServer(async (req, res) => {
       return json(res, { ok: true });
     }
 
-    // DELETE /oc/session/* — cleanup
+    // DELETE /engine/session/* — cleanup
     const mDel = p.match(/^\/oc\/session\/([^/]+)$/);
     if (mDel && req.method === 'DELETE') {
       delete state.sessions[mDel[1]];
       return json(res, { ok: true });
     }
 
-    // GET /oc/session/* — session info
+    // GET /engine/session/* — session info
     const mGet = p.match(/^\/oc\/session\/([^/]+)$/);
     if (mGet && req.method === 'GET') {
       const sid = mGet[1];
@@ -226,24 +226,24 @@ const server = http.createServer(async (req, res) => {
       return json(res, { id: s.id, title: s.title, revert: null });
     }
 
-    // GET /oc/session/*/message — messages for session
+    // GET /engine/session/*/message — messages for session
     const mMsg = p.match(/^\/oc\/session\/([^/]+)\/message$/);
     if (mMsg && req.method === 'GET') {
       return json(res, state.messages[mMsg[1]] ?? []);
     }
 
-    // POST /oc/session/*/prompt_async — intercept + 204
+    // POST /engine/session/*/prompt_async — intercept + 204
     const mPrompt = p.match(/^\/oc\/session\/([^/]+)\/prompt_async$/);
     if (mPrompt && req.method === 'POST') {
       return res.writeHead(204, { 'Content-Length': 0 }).end();
     }
 
-    // POST /oc/session/*/message — noop
+    // POST /engine/session/*/message — noop
     if (p.match(/^\/oc\/session\/[^/]+\/message$/) && req.method === 'POST') {
       return json(res, { ok: true });
     }
 
-    if (p.startsWith('/oc/')) return json(res, []);
+    if (p.startsWith('/engine/')) return json(res, []);
 
     // ---- statics (webui/dist) -----------------------------------------------
     const rel = p === '/' ? '/index.html' : p;
@@ -306,7 +306,7 @@ try {
 
   // --- intercept prompt_async payloads ---------------------------------------
   const bodies = [];
-  await page.route('**/oc/session/*/prompt_async', (route) => {
+  await page.route('**/engine/session/*/prompt_async', (route) => {
     if (route.request().method() === 'POST') {
       try { bodies.push(JSON.parse(route.request().postData() ?? '{}')); } catch {}
       return route.fulfill({ status: 204, body: '' });
@@ -314,9 +314,9 @@ try {
     return route.fallback();
   });
 
-  // --- intercept POST /oc/session to track created session IDs ----------------
+  // --- intercept POST /engine/session to track created session IDs ----------------
   let createdSid = '';
-  await page.route('**/oc/session', async (route) => {
+  await page.route('**/engine/session', async (route) => {
     const r = route.request();
     if (r.method() === 'POST' && !r.url().endsWith('/session/')) {
       const resp = await route.fetch();

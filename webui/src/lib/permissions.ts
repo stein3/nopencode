@@ -60,7 +60,7 @@ export function refreshPermissions() {
 
 export async function answerPermission(req: PermRequest, reply: 'once' | 'always' | 'reject') {
   try {
-    await oc.replyPermission(req.id, reply)
+    await oc.replyPermission(req.id, reply, req.sessionID)
   } finally {
     refreshPermissions()
   }

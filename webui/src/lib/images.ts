@@ -28,7 +28,7 @@ function load(path: string): Promise<string> {
   const ext = path.slice(path.lastIndexOf('.') + 1).toLowerCase()
   const mime = MIME[ext]
   if (!mime) return Promise.reject(new Error(`not an image: ${path}`))
-  return fetch(`/oc/file/content?path=${encodeURIComponent(path)}`)
+  return fetch(`/engine/fs/read/${path}`)
     .then((r) => {
       if (!r.ok) throw new Error(`${r.status}`)
       return r.json()

@@ -69,7 +69,7 @@ const server = http.createServer(async (req, res) => {
     if (p === '/__ctl') return json(res, { ok: true })
 
     // ---- SSE -----------------------------------------------------------------
-    if (p === '/oc/event') {
+    if (p === '/engine/event') {
       res.writeHead(200, {
         'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive',
       })
@@ -93,7 +93,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     // ---- engine ---------------------------------------------------------------
-    if (p === '/oc/session/status') return json(res, {})
+    if (p === '/engine/session/active') return json(res, {})
     const mMsg = p.match(/^\/oc\/session\/([^/]+)\/message$/)
     if (mMsg && req.method === 'GET') return json(res, MESSAGES[mMsg[1]] ?? [])
     const mSess = p.match(/^\/oc\/session\/([^/]+)$/)
@@ -101,14 +101,14 @@ const server = http.createServer(async (req, res) => {
       const s = SESSIONS.find((x) => x.id === mSess[1])
       return json(res, s ? { id: s.id, title: s.title, revert: null } : { error: 'not found' }, s ? 200 : 404)
     }
-    if (p === '/oc/session' && req.method === 'POST') return json(res, { id: 'ses_new', title: 'new', revert: null })
-    if (p === '/oc/session' && req.method === 'DELETE') return json(res, { ok: true })
-    if (p === '/oc/config/providers') return json(res, {
+    if (p === '/engine/session' && req.method === 'POST') return json(res, { id: 'ses_new', title: 'new', revert: null })
+    if (p === '/engine/session' && req.method === 'DELETE') return json(res, { ok: true })
+    if (p === '/engine/provider') return json(res, {
       providers: [{ id: 'opencode', models: { 'x-preview-f-free': { id: 'x-preview-f-free' } } }],
     })
-    if (p === '/oc/path') return json(res, { directory: '/workspace' })
-    if (p === '/oc/mcp') return json(res, {})
-    if (p.startsWith('/oc/')) return json(res, [])
+    if (p === '/engine/location') return json(res, { directory: '/workspace' })
+    if (p === '/engine/mcp') return json(res, {})
+    if (p.startsWith('/engine/')) return json(res, [])
 
     // ---- statics (webui/dist) -------------------------------------------------
     const rel = p === '/' ? '/index.html' : p

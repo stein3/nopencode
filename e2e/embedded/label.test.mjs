@@ -83,7 +83,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     // ---- SSE ----------------------------------------------------------------
-    if (p === '/oc/event') {
+    if (p === '/engine/event') {
       res.writeHead(200, {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
@@ -96,21 +96,21 @@ const server = http.createServer(async (req, res) => {
     }
 
     // ---- engine stubs -------------------------------------------------------
-    if (p === '/oc/session/status') return json(res, {});
-    if (p.startsWith('/oc/session/') && p.endsWith('/message'))
+    if (p === '/engine/session/active') return json(res, {});
+    if (p.startsWith('/engine/session/') && p.endsWith('/message'))
       return json(res, MESSAGES);
-    if (p.startsWith('/oc/session/'))
+    if (p.startsWith('/engine/session/'))
       return json(res, { id: SID, title: 'label-test', revert: null });
-    if (p === '/oc/session' && req.method === 'POST')
+    if (p === '/engine/session' && req.method === 'POST')
       return json(res, { id: SID, title: 'label-test', revert: null });
-    if (p === '/oc/config/providers')
+    if (p === '/engine/provider')
       return json(res, {
         providers: [{ id: 'opencode', models: MODELS }],
       });
-    if (p === '/oc/path') return json(res, { directory: '/workspace' });
-    if (p === '/oc/mcp') return json(res, {});
-    if (p === '/oc/permission' || p === '/oc/question') return json(res, []);
-    if (p.startsWith('/oc/')) return json(res, []);
+    if (p === '/engine/location') return json(res, { directory: '/workspace' });
+    if (p === '/engine/mcp') return json(res, {});
+    if (p === '/engine/permission/request' || p === '/engine/form') return json(res, []);
+    if (p.startsWith('/engine/')) return json(res, []);
 
     // ---- history (chatserver stubs) -----------------------------------------
     if (p === '/api/history/sessions')

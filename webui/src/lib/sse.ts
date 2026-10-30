@@ -229,7 +229,7 @@ export function normalizeMessages(msgs: any[]): any[] {
 export function startEvents() {
   refreshPermissions()
   refreshQuestions()
-  const es = new EventSource('/oc/event')
+  const es = new EventSource('/engine/event')
   es.onmessage = (ev) => {
     let data: any
     try {

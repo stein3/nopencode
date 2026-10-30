@@ -26,7 +26,7 @@ const ocEngine = process.env.OC_ENGINE || 'http://127.0.0.1:4096'
 // the manifest or register the SW (Chrome degrades to a plain tab shortcut
 // instead of an installable PWA). Building under /webui/ keeps every PWA asset
 // inside the existing strip-prefix route. Override with WEBUI_BASE=/ for local
-// root serving (e.g. chatserver on :8123). Runtime fetch('/oc/*') and
+// root serving (e.g. chatserver on :8123). Runtime fetch('/engine/*') and
 // fetch('/api/*') are hardcoded-absolute in api.ts and unaffected by base.
 const base = process.env.WEBUI_BASE || '/webui/'
 export default defineConfig({
@@ -70,10 +70,10 @@ export default defineConfig({
     host: true, // listen on 0.0.0.0 so desktops can reach http://<ip>:5173
     port: 5173,
     proxy: {
-      '/oc': {
+      '/engine': {
         target: ocEngine,
         changeOrigin: true,
-        rewrite: (p) => p.replace(/^\/oc/, ''),
+        rewrite: (p) => '/api' + p.replace(/^\/engine/, ''),
       },
       '/api': 'http://127.0.0.1:8080',
     },

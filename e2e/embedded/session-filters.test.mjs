@@ -133,7 +133,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     // ---- SSE ----------------------------------------------------------------
-    if (p === '/oc/event') {
+    if (p === '/engine/event') {
       res.writeHead(200, {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
@@ -186,9 +186,9 @@ const server = http.createServer(async (req, res) => {
     if (p === '/api/search') return json(res, []);
 
     // ---- engine stubs -------------------------------------------------------
-    if (p === '/oc/session/status') return json(res, STATUS);
-    if (p === '/oc/permission') return json(res, PERMISSIONS);
-    if (p === '/oc/question') return json(res, []);
+    if (p === '/engine/session/active') return json(res, STATUS);
+    if (p === '/engine/permission/request') return json(res, PERMISSIONS);
+    if (p === '/engine/form') return json(res, []);
     const mMsg = p.match(/^\/oc\/session\/([^/]+)\/message$/);
     if (mMsg) return json(res, []);
     const mTodo = p.match(/^\/oc\/session\/([^/]+)\/todo$/);
@@ -198,19 +198,19 @@ const server = http.createServer(async (req, res) => {
       const s = SESSIONS.find((x) => x.id === mSes[1]);
       return json(res, { id: mSes[1], title: s?.title ?? 'session', revert: null });
     }
-    if (p === '/oc/session' && req.method === 'POST') {
+    if (p === '/engine/session' && req.method === 'POST') {
       return json(res, { id: 'ses_new', title: 'new session', revert: null }, 201);
     }
-    if (p === '/oc/session' && req.method === 'GET') return json(res, SESSIONS);
-    if (p === '/oc/config/providers')
+    if (p === '/engine/session' && req.method === 'GET') return json(res, SESSIONS);
+    if (p === '/engine/provider')
       return json(res, {
         providers: [{ id: 'opencode', models: { 'x-preview-f-free': { id: 'x-preview-f-free' } } }],
       });
-    if (p === '/oc/path') return json(res, { directory: '/workspace' });
-    if (p === '/oc/mcp') return json(res, {});
-    if (p === '/oc/skill') return json(res, []);
-    if (p === '/oc/agent') return json(res, []);
-    if (p.startsWith('/oc/')) return json(res, []);
+    if (p === '/engine/location') return json(res, { directory: '/workspace' });
+    if (p === '/engine/mcp') return json(res, {});
+    if (p === '/engine/skill') return json(res, []);
+    if (p === '/engine/agent') return json(res, []);
+    if (p.startsWith('/engine/')) return json(res, []);
 
     // ---- statics (webui/dist) -----------------------------------------------
     const rel = p === '/' ? '/index.html' : p;

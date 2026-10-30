@@ -85,7 +85,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     // ---- SSE -----------------------------------------------------------------
-    if (p === '/oc/event') {
+    if (p === '/engine/event') {
       res.writeHead(200, {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
@@ -98,28 +98,28 @@ const server = http.createServer(async (req, res) => {
     }
 
     // ---- engine stubs -------------------------------------------------------
-    if (p === '/oc/session/status') return json(res, {});
-    if (p === '/oc/session' && req.method === 'GET')
+    if (p === '/engine/session/active') return json(res, {});
+    if (p === '/engine/session' && req.method === 'GET')
       return json(res, [{ id: SID, title: 'errtile-probe', revert: null }]);
-    if (p.startsWith('/oc/session/') && p.endsWith('/message'))
+    if (p.startsWith('/engine/session/') && p.endsWith('/message'))
       return json(res, MESSAGES);
-    if (p.startsWith('/oc/session/') && p.endsWith('/prompt_async') && req.method === 'POST')
+    if (p.startsWith('/engine/session/') && p.endsWith('/prompt_async') && req.method === 'POST')
       return json(res, { ok: true }, 204);
-    if (p.startsWith('/oc/session/') && req.method === 'GET')
+    if (p.startsWith('/engine/session/') && req.method === 'GET')
       return json(res, { id: SID, title: 'errtile-probe', revert: null });
-    if (p === '/oc/session' && req.method === 'POST')
+    if (p === '/engine/session' && req.method === 'POST')
       return json(res, { id: SID, title: 'errtile-probe', revert: null });
-    if (p === '/oc/config/providers')
+    if (p === '/engine/provider')
       return json(res, {
         providers: [{ id: 'opencode', models: { 'x-preview-f-free': { id: 'x-preview-f-free' } } }],
       });
-    if (p === '/oc/path') return json(res, { directory: '/workspace' });
-    if (p === '/oc/mcp') return json(res, {});
-    if (p === '/oc/question') return json(res, []);
-    if (p === '/oc/permission') return json(res, []);
-    if (p === '/oc/skill') return json(res, []);
-    if (p === '/oc/command') return json(res, []);
-    if (p.startsWith('/oc/')) return json(res, []);
+    if (p === '/engine/location') return json(res, { directory: '/workspace' });
+    if (p === '/engine/mcp') return json(res, {});
+    if (p === '/engine/form') return json(res, []);
+    if (p === '/engine/permission/request') return json(res, []);
+    if (p === '/engine/skill') return json(res, []);
+    if (p === '/engine/command') return json(res, []);
+    if (p.startsWith('/engine/')) return json(res, []);
 
     // ---- history stubs ------------------------------------------------------
     if (p === '/api/history/sessions') {

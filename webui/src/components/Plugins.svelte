@@ -32,7 +32,7 @@
 
       // External plugins from config
       try {
-        const cfg = await fetch('/oc/config').then(r => r.json())
+        const cfg = await fetch('/engine/config').then(r => r.json())
         pluginList = cfg.plugin ?? []
         for (const p of pluginList) {
           // Extract short name from spec (e.g. "oh-my-opencode-slim" or "git+https://..." → "lemonade-watcher")

@@ -113,7 +113,7 @@ const server = http.createServer(async (req, res) => {
   const method = req.method
 
   // ---- SSE ----
-  if (p === '/oc/event') {
+  if (p === '/engine/event') {
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',
@@ -143,16 +143,16 @@ const server = http.createServer(async (req, res) => {
   }
 
   // ---- session lifecycle ----
-  if (p === '/oc/session' && method === 'POST') {
+  if (p === '/engine/session' && method === 'POST') {
     const s = makeSession()
     return sendJson(res, sessionInfo(s))
   }
-  if (p === '/oc/session' && method === 'GET') {
+  if (p === '/engine/session' && method === 'GET') {
     return sendJson(res, [...sessions.values()].map(sessionInfo))
   }
-  // MUST precede the /oc/session/([^/]+) sid regex below (else "status" is
+  // MUST precede the /engine/session/([^/]+) sid regex below (else "status" is
   // treated as a session id and 404s).
-  if (p === '/oc/session/status') {
+  if (p === '/engine/session/active') {
     return sendJson(res, Object.fromEntries([...sessions].map(([k, v]) => [k, { type: v.busy ? 'busy' : 'idle', state: v.busy ? 'running' : 'idle' }])))
   }
   const m = p.match(/^\/oc\/session\/([^/]+)$/)
@@ -202,15 +202,15 @@ const server = http.createServer(async (req, res) => {
   if (p === '/api/search') return sendJson(res, [])
 
   // ---- engine capability stubs ----
-  if (p === '/oc/session/status') return sendJson(res, {})
-  if (p === '/oc/config/providers') return sendJson(res, { providers: [{ id: 'opencode', models: { 'x-preview-f-free': { id: 'x-preview-f-free' } } }] })
-  if (p === '/oc/path') return sendJson(res, { directory: '/workspace' })
-  if (p === '/oc/mcp') return sendJson(res, {})
-  if (p === '/oc/agent') return sendJson(res, [])
-  if (p === '/oc/permission') return sendJson(res, [])
-  if (p === '/oc/question') return sendJson(res, [])
-  if (p === '/oc/command') return sendJson(res, [])
-  if (p === '/oc/skill') return sendJson(res, [])
+  if (p === '/engine/session/active') return sendJson(res, {})
+  if (p === '/engine/provider') return sendJson(res, { providers: [{ id: 'opencode', models: { 'x-preview-f-free': { id: 'x-preview-f-free' } } }] })
+  if (p === '/engine/location') return sendJson(res, { directory: '/workspace' })
+  if (p === '/engine/mcp') return sendJson(res, {})
+  if (p === '/engine/agent') return sendJson(res, [])
+  if (p === '/engine/permission/request') return sendJson(res, [])
+  if (p === '/engine/form') return sendJson(res, [])
+  if (p === '/engine/command') return sendJson(res, [])
+  if (p === '/engine/skill') return sendJson(res, [])
   const todoRe = p.match(/^\/oc\/session\/[^/]+\/todo$/)
   if (todoRe) return sendJson(res, [])
 

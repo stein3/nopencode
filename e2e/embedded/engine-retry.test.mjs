@@ -34,7 +34,7 @@ const state = {
   aborts: [],      // captured abort POSTs
   reverts: [],     // captured revert POSTs: { body }
   promptAsyncs: [], // captured prompt_async POSTs
-  statusMap: {},   // /oc/session/status response
+  statusMap: {},   // /engine/session/active response
   nextRevertBusy: false, // first revert → 409, then clear
   counts: {},
 };
@@ -124,7 +124,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     // ---- SSE -----------------------------------------------------------------
-    if (p === '/oc/event') {
+    if (p === '/engine/event') {
       res.writeHead(200, {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
@@ -137,13 +137,13 @@ const server = http.createServer(async (req, res) => {
     }
 
     // ---- abort ---------------------------------------------------------------
-    if (p.startsWith('/oc/session/') && p.endsWith('/abort') && req.method === 'POST') {
+    if (p.startsWith('/engine/session/') && p.endsWith('/abort') && req.method === 'POST') {
       state.aborts.push({ sid: SID, t: Date.now() });
       return json(res, {});
     }
 
     // ---- revert (busy guard) ------------------------------------------------
-    if (p.startsWith('/oc/session/') && p.endsWith('/revert') && req.method === 'POST') {
+    if (p.startsWith('/engine/session/') && p.endsWith('/revert/stage') && req.method === 'POST') {
       const body = JSON.parse((await readBody(req)) || '{}');
       state.reverts.push({ body, t: Date.now() });
       if (state.nextRevertBusy) {
@@ -154,7 +154,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     // ---- prompt_async --------------------------------------------------------
-    if (p.startsWith('/oc/session/') && p.endsWith('/prompt_async') && req.method === 'POST') {
+    if (p.startsWith('/engine/session/') && p.endsWith('/prompt_async') && req.method === 'POST') {
       const body = JSON.parse((await readBody(req)) || '{}');
       state.promptAsyncs.push({ text: body?.parts?.[0]?.text ?? '', t: Date.now() });
       res.writeHead(204);
@@ -175,16 +175,16 @@ const server = http.createServer(async (req, res) => {
     if (p.startsWith('/api/history/session/')) return json(res, []);
 
     // ---- engine stubs (order matters: /status before /session/{id}) ----------
-    if (p === '/oc/session/status') return json(res, state.statusMap);
-    if (p.startsWith('/oc/session/') && p.endsWith('/message')) return json(res, MESSAGES);
-    if (p === '/oc/session' && req.method === 'POST')
+    if (p === '/engine/session/active') return json(res, state.statusMap);
+    if (p.startsWith('/engine/session/') && p.endsWith('/message')) return json(res, MESSAGES);
+    if (p === '/engine/session' && req.method === 'POST')
       return json(res, { id: SID, title: 'engine-retry-probe', revert: null });
-    if (p.startsWith('/oc/session/')) return json(res, { id: SID, title: 'engine-retry-probe', revert: null });
-    if (p === '/oc/config/providers')
+    if (p.startsWith('/engine/session/')) return json(res, { id: SID, title: 'engine-retry-probe', revert: null });
+    if (p === '/engine/provider')
       return json(res, { providers: [{ id: 'opencode', models: { 'x-preview-f-free': { id: 'x-preview-f-free' } } }] });
-    if (p === '/oc/path') return json(res, { directory: '/workspace' });
-    if (p === '/oc/mcp') return json(res, {});
-    if (p.startsWith('/oc/')) return json(res, []);
+    if (p === '/engine/location') return json(res, { directory: '/workspace' });
+    if (p === '/engine/mcp') return json(res, {});
+    if (p.startsWith('/engine/')) return json(res, []);
 
     // ---- statics (webui/dist) -----------------------------------------------
     const rel = p === '/' ? '/index.html' : p;
@@ -241,7 +241,7 @@ try {
       },
     });
     // trigger openLive status fetch: close and reopen, or just reload
-    // Simpler: reload the page so openLive fetches /oc/session/status fresh
+    // Simpler: reload the page so openLive fetches /engine/session/active fresh
     await page.reload({ waitUntil: 'domcontentloaded' });
     await page.locator('.sidebar button.item', { hasText: 'engine-retry-probe' }).waitFor({ timeout: 15000 });
     await pane.locator('.msg', { hasText: USER_TEXT }).first().waitFor({ timeout: 15000 });

@@ -117,15 +117,15 @@ const server = http.createServer(async (req, res) => {
     }
 
     // ---- engine stubs -------------------------------------------------------
-    if (p === '/oc/session/status') return json(res, {});
+    if (p === '/engine/session/active') return json(res, {});
 
-    // GET /oc/session/{id}/message — return messages for that session
+    // GET /engine/session/{id}/message — return messages for that session
     const mMsg = p.match(/^\/oc\/session\/([^/]+)\/message$/);
     if (mMsg && req.method === 'GET') {
       return json(res, sessionMsgs[mMsg[1]] ?? []);
     }
 
-    // POST /oc/session/{id}/fork — fork a session
+    // POST /engine/session/{id}/fork — fork a session
     const mFork = p.match(/^\/oc\/session\/([^/]+)\/fork$/);
     if (mFork && req.method === 'POST') {
       const srcSid = mFork[1];
@@ -154,14 +154,14 @@ const server = http.createServer(async (req, res) => {
       return json(res, newSession);
     }
 
-    // POST /oc/session — create a session
-    if (p === '/oc/session' && req.method === 'POST') {
+    // POST /engine/session — create a session
+    if (p === '/engine/session' && req.method === 'POST') {
       const body = JSON.parse((await readBody(req)) || '{}');
       const s = buildSession(body.title ?? 'New session');
       return json(res, s);
     }
 
-    // POST /oc/session/{id}/message — create a message (noReply seed path)
+    // POST /engine/session/{id}/message — create a message (noReply seed path)
     const mCreateMsg = p.match(/^\/oc\/session\/([^/]+)\/message$/);
     if (mCreateMsg && req.method === 'POST') {
       const sid = mCreateMsg[1];
@@ -172,7 +172,7 @@ const server = http.createServer(async (req, res) => {
       return json(res, { info: msg, parts: msg.parts });
     }
 
-    // DELETE /oc/session/{id}
+    // DELETE /engine/session/{id}
     const mDel = p.match(/^\/oc\/session\/([^/]+)$/);
     if (mDel && req.method === 'DELETE') {
       delete sessions[mDel[1]];
@@ -180,13 +180,13 @@ const server = http.createServer(async (req, res) => {
       return json(res, {});
     }
 
-    if (p === '/oc/config/providers')
+    if (p === '/engine/provider')
       return json(res, {
         providers: [{ id: 'opencode', models: {} }],
       });
-    if (p === '/oc/path') return json(res, { directory: '/workspace' });
-    if (p === '/oc/mcp') return json(res, {});
-    if (p.startsWith('/oc/')) return json(res, []);
+    if (p === '/engine/location') return json(res, { directory: '/workspace' });
+    if (p === '/engine/mcp') return json(res, {});
+    if (p.startsWith('/engine/')) return json(res, []);
 
     // ---- statics (webui/dist) -----------------------------------------------
     const rel = p === '/' ? '/index.html' : p;

@@ -4,7 +4,7 @@
 // Data path: chatserver's /api/history/sessions entry gained `model_provider`
 // (projected from the session JSON's providerID); Sidebar renders the bare id
 // in a `.mmeta` span whose title resolves the display name from
-// /oc/config/providers (same lookup as ModelPicker).
+// /engine/provider (same lookup as ModelPicker).
 //
 // Runs against an EMBEDDED fake engine: in-process HTTP server serving
 // webui/dist + stubbed /oc + /api/history endpoints. No live engine needed.
@@ -105,7 +105,7 @@ const server = http.createServer(async (req, res) => {
   const p = (req.path_url ??= req.url.split('?')[0]);
 
   try {
-    if (p === '/oc/event') {
+    if (p === '/engine/event') {
       res.writeHead(200, {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
@@ -127,7 +127,7 @@ const server = http.createServer(async (req, res) => {
     if (histMatch) return json(res, []);
 
     // ---- engine stubs --------------------------------------------------------
-    if (p === '/oc/session/status') return json(res, {});
+    if (p === '/engine/session/active') return json(res, {});
     const msgMatch = p.match(/^\/oc\/session\/([^/?]+)\/message/);
     if (msgMatch) return json(res, []);
     const sessMatch = p.match(/^\/oc\/session\/([^/?]+)$/);
@@ -136,10 +136,10 @@ const server = http.createServer(async (req, res) => {
       const s = SESSIONS.find((x) => x.id === sid);
       return json(res, { id: sid, title: s?.title ?? '', revert: null });
     }
-    if (p === '/oc/config/providers') return json(res, { providers: PROVIDERS });
-    if (p === '/oc/path') return json(res, { directory: '/workspace' });
-    if (p === '/oc/mcp') return json(res, {});
-    if (p.startsWith('/oc/')) return json(res, []);
+    if (p === '/engine/provider') return json(res, { providers: PROVIDERS });
+    if (p === '/engine/location') return json(res, { directory: '/workspace' });
+    if (p === '/engine/mcp') return json(res, {});
+    if (p.startsWith('/engine/')) return json(res, []);
 
     // ---- statics (webui/dist) -----------------------------------------------
     const rel = p === '/' ? '/index.html' : p;
@@ -235,14 +235,14 @@ try {
 
     // 8) providers fetch failure degrades gracefully: block the endpoint, reload,
     //    tooltips must still show provider/id from the session row itself.
-    await page.route(`**/oc/config/providers`, (r) => r.abort());
+    await page.route(`**/engine/provider`, (r) => r.abort());
     await page.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 30000 });
     await page.waitForSelector('.mmeta', { timeout: 15000 });
     const degraded = await page.$$eval('.mmeta', (els) =>
       els.map((e) => e.getAttribute('title')).filter((t) => t && t.includes('/')),
     );
     check('engine-down fallback still shows provider/id', degraded.length >= 3, `${degraded.length} tips`);
-    await page.unroute(`**/oc/config/providers`);
+    await page.unroute(`**/engine/provider`);
 
     fs.mkdirSync(SHOTS_DIR, { recursive: true });
     await page.goto(BASE, { waitUntil: 'domcontentloaded' });

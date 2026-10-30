@@ -46,7 +46,7 @@ const server = http.createServer(async (req, res) => {
     if (p === '/__ctl') return json(res, { ok: true })
 
     // ---- SSE -----------------------------------------------------------------
-    if (p === '/oc/event') {
+    if (p === '/engine/event') {
       res.writeHead(200, {
         'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive',
       })
@@ -69,17 +69,17 @@ const server = http.createServer(async (req, res) => {
     }
 
     // ---- engine ---------------------------------------------------------------
-    if (p === '/oc/session/status') return json(res, {})
-    if (p.startsWith('/oc/session/') && p.endsWith('/message')) return json(res, [])
-    if (p.startsWith('/oc/session/')) return json(res, { id: SID, title: 'kbd probe', revert: null })
-    if (p === '/oc/session' && req.method === 'POST') return json(res, { id: SID, title: 'kbd probe', revert: null })
-    if (p === '/oc/session' && req.method === 'DELETE') return json(res, { ok: true })
-    if (p === '/oc/config/providers') return json(res, {
+    if (p === '/engine/session/active') return json(res, {})
+    if (p.startsWith('/engine/session/') && p.endsWith('/message')) return json(res, [])
+    if (p.startsWith('/engine/session/')) return json(res, { id: SID, title: 'kbd probe', revert: null })
+    if (p === '/engine/session' && req.method === 'POST') return json(res, { id: SID, title: 'kbd probe', revert: null })
+    if (p === '/engine/session' && req.method === 'DELETE') return json(res, { ok: true })
+    if (p === '/engine/provider') return json(res, {
       providers: [{ id: 'opencode', models: { 'x-preview-f-free': { id: 'x-preview-f-free' } } }],
     })
-    if (p === '/oc/path') return json(res, { directory: '/workspace' })
-    if (p === '/oc/mcp') return json(res, {})
-    if (p.startsWith('/oc/')) return json(res, [])
+    if (p === '/engine/location') return json(res, { directory: '/workspace' })
+    if (p === '/engine/mcp') return json(res, {})
+    if (p.startsWith('/engine/')) return json(res, [])
 
     // ---- statics (webui/dist) -------------------------------------------------
     const rel = p === '/' ? '/index.html' : p

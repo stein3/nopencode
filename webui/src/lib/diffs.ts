@@ -107,7 +107,7 @@ export async function fetchDiffs(
     diffCache.set(k, res)
     return res
   }
-  const r = await fetch('/oc/vcs/diff?mode=git')
+  const r = await fetch('/engine/vcs/diff?mode=git')
   if (!r.ok) throw new Error(`diff fetch failed: ${r.status}`)
   const d = await r.json()
   if (!Array.isArray(d)) throw new Error('unexpected diff payload')
@@ -144,7 +144,7 @@ function parseBothFor(
 
 // Current file contents straight from the engine workspace.
 export async function fetchFileContent(path: string): Promise<string> {
-  const r = await fetch(`/oc/file/content?path=${encodeURIComponent(path)}`)
+  const r = await fetch(`/engine/fs/read/${path}`)
   if (!r.ok) throw new Error(`content fetch failed (${r.status})`)
   const d = await r.json()
   if (d.type !== 'text' || typeof d.content !== 'string') throw new Error('binary/unsupported file')

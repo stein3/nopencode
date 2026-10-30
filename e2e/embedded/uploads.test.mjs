@@ -7,7 +7,7 @@
 //   3. oversize guard: 11MB file -> inline "larger than" error
 //   4. transcript rendering: seeded file parts -> image opens lightbox, code file renders chip
 //
-// The fake engine returns canned responses for /oc/session/{id}/message and
+// The fake engine returns canned responses for /engine/session/{id}/message and
 // prompt_async so no real engine is needed.
 //
 // Run: node e2e/embedded/uploads.test.mjs
@@ -89,7 +89,7 @@ const server = http.createServer(async (req, res) => {
 
   try {
     // ---- SSE ----------------------------------------------------------------
-    if (p === '/oc/event') {
+    if (p === '/engine/event') {
       res.writeHead(200, {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
@@ -106,8 +106,8 @@ const server = http.createServer(async (req, res) => {
     if (p.startsWith('/api/history/session/')) return json(res, []);
 
     // ---- engine stubs --------------------------------------------------------
-    if (p === '/oc/session/status') return json(res, {});
-    if (p === '/oc/permission') return json(res, []);
+    if (p === '/engine/session/active') return json(res, {});
+    if (p === '/engine/permission/request') return json(res, []);
 
     const mMsg = p.match(/^\/oc\/session\/([^/]+)\/message$/);
     if (mMsg && req.method === 'GET') {
@@ -115,7 +115,7 @@ const server = http.createServer(async (req, res) => {
       return json(res, []);
     }
 
-    // POST /oc/session/{id}/message — accept and return success
+    // POST /engine/session/{id}/message — accept and return success
     if (mMsg && req.method === 'POST') {
       const body = JSON.parse((await readBody(req)) || '{}');
       state.promptBodies.push({ sid: mMsg[1], body });
@@ -130,7 +130,7 @@ const server = http.createServer(async (req, res) => {
       });
     }
 
-    // POST /oc/session/{id}/prompt_async — accept, return 204
+    // POST /engine/session/{id}/prompt_async — accept, return 204
     const mPrompt = p.match(/^\/oc\/session\/([^/]+)\/prompt_async$/);
     if (mPrompt && req.method === 'POST') {
       const body = JSON.parse((await readBody(req)) || '{}');
@@ -139,7 +139,7 @@ const server = http.createServer(async (req, res) => {
       return res.end();
     }
 
-    // POST /oc/session/{id}/abort — return 204
+    // POST /engine/session/{id}/abort — return 204
     const mAbort = p.match(/^\/oc\/session\/([^/]+)\/abort$/);
     if (mAbort && req.method === 'POST') {
       res.writeHead(204);
@@ -148,18 +148,18 @@ const server = http.createServer(async (req, res) => {
 
     if (p.match(/^\/oc\/session\/[^/]+$/) && req.method === 'GET')
       return json(res, { id: SID, title: 'uploads-render-fixture', revert: null });
-    if (p === '/oc/session' && req.method === 'POST')
+    if (p === '/engine/session' && req.method === 'POST')
       return json(res, { id: SID, title: 'uploads-render-fixture', revert: null });
     if (p.match(/^\/oc\/session\/[^/]+$/) && req.method === 'DELETE') {
       res.writeHead(204);
       return res.end();
     }
 
-    if (p === '/oc/config/providers')
+    if (p === '/engine/provider')
       return json(res, { providers: [{ id: 'opencode', models: {} }] });
-    if (p === '/oc/path') return json(res, { directory: '/workspace' });
-    if (p === '/oc/mcp') return json(res, {});
-    if (p.startsWith('/oc/')) return json(res, []);
+    if (p === '/engine/location') return json(res, { directory: '/workspace' });
+    if (p === '/engine/mcp') return json(res, {});
+    if (p.startsWith('/engine/')) return json(res, []);
 
     // ---- statics (webui/dist) ------------------------------------------------
     const rel = p === '/' ? '/index.html' : p;

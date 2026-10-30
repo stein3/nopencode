@@ -1,6 +1,6 @@
 // Thin wrappers around the two same-origin backends:
-//  - /oc/*   → opencode engine (live REST + SSE)
-//  - /api/*  → chatserver.py sqlite history/search
+//  - /engine/*  → opencode v2 engine (live REST + SSE, proxied by chatserver)
+//  - /api/*     → chatserver.py sqlite history/search
 
 async function req<T>(url: string, init?: RequestInit): Promise<T> {
   const r = await fetch(url, {
@@ -23,7 +23,7 @@ async function req<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 // Detect the engine's 409 SessionBusyError — body shape varies across wrapper
-// layers (chatserver proxies /oc/* verbatim so it's the engine's own JSON).
+// layers (chatserver proxies /engine/* to the engine's /api/* routes).
 export function isSessionBusy(e: unknown): boolean {
   const b = (e as any)?.body
   return (e as any)?.status === 409 && (b?.name ?? b?.error?.name) === 'SessionBusyError'
@@ -86,13 +86,13 @@ export interface OcFilePart {
 }
 
 export const oc = {
-  sessions: () => req<OcSession[]>('/oc/session'),
-  session: (id: string) => req<OcSession>(`/oc/session/${id}`),
+  sessions: () => req<OcSession[]>('/engine/session'),
+  session: (id: string) => req<OcSession>(`/engine/session/${id}`),
   messages: (id: string, limit?: number) =>
     // engine returns the NEWEST `limit` messages in ascending order
-    req<OcMessage[]>(`/oc/session/${id}/message${limit ? `?limit=${limit}` : ''}`),
+    req<OcMessage[]>(`/engine/session/${id}/message${limit ? `?limit=${limit}` : ''}`),
   createSession: (title?: string, model?: { providerID: string; modelID: string; variant?: string }) =>
-    req<OcSession>('/oc/session', {
+    req<OcSession>('/engine/session', {
       method: 'POST',
       body: JSON.stringify({
         ...(title ? { title } : {}),
@@ -101,13 +101,10 @@ export const oc = {
         ...(model ? { model: { providerID: model.providerID, id: model.modelID, ...(model.variant ? { variant: model.variant } : {}) } } : {}),
       }),
     }),
-  // prompt_async returns immediately (204) — the turn streams in over SSE.
-  // `agent` (top-level body field, engine OpenAPI-confirmed) runs this one
-  // turn under the named agent; omitted = session default.
-  // `files` are composer attachments sent as file parts ordered AFTER the
-  // text part; `url` is a full data URL (data:<mime>;base64,<b64>). The engine
-  // inlines text/code files as synthetic Read-tool text and passes images
-  // through as image content — nothing else needed client-side.
+  // v2: prompt endpoint (was prompt_async in v1). Returns immediately (204).
+  // `agent` (top-level body field) runs this one turn under the named agent;
+  // omitted = session default. `files` are composer attachments sent as file
+  // parts ordered AFTER the text part.
   prompt: (
     sessionId: string,
     text: string,
@@ -115,7 +112,7 @@ export const oc = {
     agent?: string,
     files?: OcFilePart[],
   ) =>
-    req<unknown>(`/oc/session/${sessionId}/prompt_async`, {
+    req<unknown>(`/engine/session/${sessionId}/prompt`, {
       method: 'POST',
       body: JSON.stringify({
         parts: [{ type: 'text', text }, ...(files ?? [])],
@@ -124,95 +121,101 @@ export const oc = {
         ...(agent ? { agent } : {}),
       }),
     }),
+  // v2: interrupt (was abort in v1)
   abort: (sessionId: string) =>
-    req<unknown>(`/oc/session/${sessionId}/abort`, { method: 'POST', body: '{}' }),
-  status: () => req<Record<string, { type?: string; state?: string; attempt?: number; message?: string; action?: { reason?: string; provider?: string; title?: string; message?: string; label?: string; link?: string }; next?: number }>>('/oc/session/status'),
-  permissions: () => req<any[]>('/oc/permission'),
-  replyPermission: (requestID: string, reply: 'once' | 'always' | 'reject') =>
-    req<unknown>(`/oc/permission/${requestID}/reply`, {
+    req<unknown>(`/engine/session/${sessionId}/interrupt`, { method: 'POST', body: '{}' }),
+  // v2: session/active (was session/status in v1)
+  status: () => req<Record<string, { type?: string; state?: string; attempt?: number; message?: string; action?: { reason?: string; provider?: string; title?: string; message?: string; label?: string; link?: string }; next?: number }>>('/engine/session/active'),
+  // v2: permission/request (was /permission in v1)
+  permissions: () => req<any[]>('/engine/permission/request'),
+  // v2: session-scoped permission reply with {decision} body
+  replyPermission: (requestID: string, reply: 'once' | 'always' | 'reject', sessionId?: string) =>
+    req<unknown>(`/engine/session/${sessionId}/permission/${requestID}/reply`, {
       method: 'POST',
-      body: JSON.stringify({ reply }),
+      body: JSON.stringify({ decision: reply }),
     }),
-  // pending question-tool requests (root route, all sessions)
-  questions: () => req<any[]>('/oc/question'),
-  replyQuestion: (requestID: string, answers: string[][]) =>
-    req<unknown>(`/oc/question/${requestID}/reply`, {
+  // v2: form (was question in v1). Root route returns all pending forms.
+  questions: () => req<any[]>('/engine/form'),
+  // v2: session-scoped form reply
+  replyQuestion: (requestID: string, answers: string[][], sessionId?: string) =>
+    req<unknown>(`/engine/session/${sessionId}/form/${requestID}/reply`, {
       method: 'POST',
-      // answers[i] = selected labels for questions[i] (array even for single)
       body: JSON.stringify({ answers }),
     }),
-  rejectQuestion: (requestID: string) =>
-    req<unknown>(`/oc/question/${requestID}/reject`, { method: 'POST', body: '{}' }),
+  // v2: session-scoped form cancel (DELETE)
+  rejectQuestion: (requestID: string, sessionId?: string) =>
+    req<unknown>(`/engine/session/${sessionId}/form/${requestID}`, { method: 'DELETE' }),
+  // v2: provider list (was /config/providers in v1)
   providers: () =>
-    req<{ providers: any[] }>('/oc/config/providers').then((d) => d.providers ?? []),
-  commands: () => req<{ name: string; description?: string }[]>('/oc/command'),
-  todos: (sessionId: string) => req<any[]>(`/oc/session/${sessionId}/todo`).catch(() => []),
+    req<{ providers: any[] }>('/engine/provider').then((d) => d.providers ?? d ?? []),
+  commands: () => req<{ name: string; description?: string }[]>('/engine/command'),
+  todos: (sessionId: string) => req<any[]>(`/engine/session/${sessionId}/todo`).catch(() => []),
   deleteMessage: (sessionId: string, messageID: string) =>
-    req<unknown>(`/oc/session/${sessionId}/message/${messageID}`, { method: 'DELETE' }),
+    req<unknown>(`/engine/session/${sessionId}/message/${messageID}`, { method: 'DELETE' }),
+  // v2: staged revert (was simple revert in v1)
   revertTo: (sessionId: string, messageID: string) =>
-    req<OcSession>(`/oc/session/${sessionId}/revert`, {
+    req<OcSession>(`/engine/session/${sessionId}/revert/stage`, {
       method: 'POST',
       body: JSON.stringify({ messageID }),
     }),
+  // v2: command body uses `name` not `command`
   runCommand: (sessionId: string, command: string, args: string[] = []) =>
-    req<unknown>(`/oc/session/${sessionId}/command`, {
+    req<unknown>(`/engine/session/${sessionId}/command`, {
       method: 'POST',
-      body: JSON.stringify({ command, arguments: args }),
+      body: JSON.stringify({ name: command, arguments: args }),
     }),
-  path: () => req<{ directory?: string }>('/oc/path').catch(() => ({ directory: undefined })),
-  // merged agent registry (built-ins + config + plugin agents), engine order:
-  // configured/default first, then alphabetical. Includes hidden/system
-  // entries and subagents — consumers filter `mode !== 'subagent' && !hidden`.
+  // v2: location (was /path in v1)
+  path: () => req<{ directory?: string }>('/engine/location').catch(() => ({ directory: undefined })),
   agents: () =>
     req<{ name: string; mode?: string; description?: string; color?: string | null; hidden?: boolean | null }[]>(
-      '/oc/agent',
+      '/engine/agent',
     ),
+  // v2: session-scoped agent switch (fix double /api/ from v1)
   setAgent: (sessionId: string, agent: string) =>
-    req<unknown>(`/oc/api/session/${sessionId}/agent`, {
+    req<unknown>(`/engine/session/${sessionId}/agent`, {
       method: 'POST',
       body: JSON.stringify({ agent }),
     }),
-  // switch the model the CURRENT session uses (engine schema: ModelRef.id)
+  // v2: session-scoped model switch (fix double /api/ from v1)
   setSessionModel: (sessionId: string, m: { providerID: string; modelID: string; variant?: string }) =>
-    req<unknown>(`/oc/api/session/${sessionId}/model`, {
+    req<unknown>(`/engine/session/${sessionId}/model`, {
       method: 'POST',
       body: JSON.stringify({ model: { providerID: m.providerID, id: m.modelID, ...(m.variant ? { variant: m.variant } : {}) } }),
     }),
+  // v2: compact (was summarize in v1)
   summarize: (sessionId: string, model: { providerID: string; modelID: string }) =>
-    req<unknown>(`/oc/session/${sessionId}/summarize`, { method: 'POST', body: JSON.stringify(model) }),
-  // engine forks everything BEFORE the given messageID (exclusive, TUI
-  // "Fork from message" semantics); no messageID = copy the whole session
+    req<unknown>(`/engine/session/${sessionId}/compact`, { method: 'POST', body: JSON.stringify(model) }),
+  // v2: fork uses `before` not `messageID`
   forkSession: (sessionId: string, messageID?: string) =>
-    req<OcSession>(`/oc/session/${sessionId}/fork`, {
+    req<OcSession>(`/engine/session/${sessionId}/fork`, {
       method: 'POST',
-      body: JSON.stringify(messageID ? { messageID } : {}),
+      body: JSON.stringify(messageID ? { before: messageID } : {}),
     }),
   shareSession: (sessionId: string) =>
-    req<OcSession & { share?: { url?: string } }>(`/oc/session/${sessionId}/share`, {
+    req<OcSession & { share?: { url?: string } }>(`/engine/session/${sessionId}/share`, {
       method: 'POST',
       body: '{}',
     }),
   unshareSession: (sessionId: string) =>
-    req<unknown>(`/oc/session/${sessionId}/share`, { method: 'DELETE' }),
+    req<unknown>(`/engine/session/${sessionId}/share`, { method: 'DELETE' }),
   renameSession: (sessionId: string, title: string) =>
-    req<OcSession>(`/oc/session/${sessionId}`, {
+    req<OcSession>(`/engine/session/${sessionId}`, {
       method: 'PATCH',
       body: JSON.stringify({ title }),
     }),
   deleteSession: (sessionId: string) =>
-    req<unknown>(`/oc/session/${sessionId}`, { method: 'DELETE' }),
-  mcps: () => req<Record<string, any>>('/oc/mcp').catch(() => ({})),
+    req<unknown>(`/engine/session/${sessionId}`, { method: 'DELETE' }),
+  mcps: () => req<Record<string, any>>('/engine/mcp').catch(() => ({})),
   mcpToggle: (name: string, connect: boolean) =>
-    req<unknown>(`/oc/mcp/${encodeURIComponent(name)}/${connect ? 'connect' : 'disconnect'}`, {
+    req<unknown>(`/engine/mcp/${encodeURIComponent(name)}/${connect ? 'connect' : 'disconnect'}`, {
       method: 'POST',
       body: '{}',
     }),
-  diffRaw: () => reqText('/oc/vcs/diff/raw').catch(() => ''),
-  skills: () => req<{ name: string; description?: string; location?: string }[]>('/oc/skill'),
-  // plugin config: GET /config → plugin array; PATCH /config to enable/disable
-  config: () => req<Record<string, any>>('/oc/config').catch(() => ({})),
+  diffRaw: () => reqText('/engine/vcs/diff').catch(() => ''),
+  skills: () => req<{ name: string; description?: string; location?: string }[]>('/engine/skill'),
+  config: () => req<Record<string, any>>('/engine/config').catch(() => ({})),
   configPatch: (patch: Record<string, any>) =>
-    req<Record<string, any>>('/oc/config', {
+    req<Record<string, any>>('/engine/config', {
       method: 'PATCH',
       body: JSON.stringify(patch),
     }),

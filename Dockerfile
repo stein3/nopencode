@@ -15,7 +15,8 @@ RUN curl -sLO https://github.com/tsl0922/ttyd/releases/download/1.7.7/ttyd.x86_6
     && chmod +x ttyd.x86_64 \
     && mv ttyd.x86_64 /usr/local/bin/ttyd
 # Pinned: the serve API + bundled web UI surface is version-coupled; bump deliberately.
-RUN npm install -g opencode-ai@1.18.18
+# v2: platform-specific binary package (npm scope changed from opencode-ai to @opencode).
+RUN npm install -g @opencode/cli-linux-x64@latest
 
 COPY inject.py /app/inject.py
 COPY start.sh /app/start.sh

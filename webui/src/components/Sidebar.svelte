@@ -61,7 +61,7 @@ import { sidePanel } from '../lib/sidePanel'
     }
   }
 
-  // live busy state from engine /oc/session/status
+  // live busy state from engine /engine/session/active
   let busyMap: Record<string, boolean> = {}
 
   // ---- model tooltip: full display name + provider/id -----------------------

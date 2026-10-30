@@ -24,7 +24,7 @@ const CALL_ID2 = 'call_qbanner2';
 // ============================== fake engine =================================
 
 const state = {
-  questions: [],          // current GET /oc/question fixture
+  questions: [],          // current GET /engine/form fixture
   replies: [],            // captured reply POSTs
   counts: {},
 };
@@ -125,7 +125,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     // ---- SSE -----------------------------------------------------------------
-    if (p === '/oc/event') {
+    if (p === '/engine/event') {
       res.writeHead(200, {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
@@ -138,7 +138,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     // ---- question endpoints --------------------------------------------------
-    if (p === '/oc/question') return json(res, state.questions);
+    if (p === '/engine/form') return json(res, state.questions);
     const mReply = p.match(/^\/oc\/question\/([^/]+)\/reply$/);
     if (mReply && req.method === 'POST') {
       const body = JSON.parse((await readBody(req)) || '{}');
@@ -162,18 +162,18 @@ const server = http.createServer(async (req, res) => {
     if (p.startsWith('/api/history/session/')) return json(res, []);
 
     // ---- engine stubs --------------------------------------------------------
-    if (p === '/oc/session/status') return json(res, {});
-    if (p.startsWith('/oc/session/') && p.endsWith('/message')) return json(res, ALL_MESSAGES);
-    if (p.startsWith('/oc/session/')) return json(res, { id: SID, title: 'Question banner smoke', revert: null });
-    if (p === '/oc/session' && req.method === 'POST')
+    if (p === '/engine/session/active') return json(res, {});
+    if (p.startsWith('/engine/session/') && p.endsWith('/message')) return json(res, ALL_MESSAGES);
+    if (p.startsWith('/engine/session/')) return json(res, { id: SID, title: 'Question banner smoke', revert: null });
+    if (p === '/engine/session' && req.method === 'POST')
       return json(res, { id: SID, title: 'Question banner smoke', revert: null });
-    if (p === '/oc/config/providers')
+    if (p === '/engine/provider')
       return json(res, {
         providers: [{ id: 'opencode', models: { 'x-preview-f-free': { id: 'x-preview-f-free' } } }],
       });
-    if (p === '/oc/path') return json(res, { directory: '/workspace' });
-    if (p === '/oc/mcp') return json(res, {});
-    if (p.startsWith('/oc/')) return json(res, []);
+    if (p === '/engine/location') return json(res, { directory: '/workspace' });
+    if (p === '/engine/mcp') return json(res, {});
+    if (p.startsWith('/engine/')) return json(res, []);
 
     // ---- statics (webui/dist) -----------------------------------------------
     const rel = p === '/' ? '/index.html' : p;

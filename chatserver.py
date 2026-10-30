@@ -1,31 +1,33 @@
 #!/usr/bin/env python3
-"""opencode chat server.
+"""opencode chat server (v2).
 
 Single-origin backend for the webui:
   /                -> webui/dist statics (SPA fallback to index.html)
-  /oc/*            -> reverse proxy to the opencode engine (REST + SSE, streamed)
+  /engine/*        -> reverse proxy to the opencode v2 engine (REST + SSE,
+                       streamed). Strips /engine prefix and forwards to the
+                       engine's /api/* routes.
   /api/history/*   -> read-only sqlite access to opencode.db (sessions, transcript;
-                      transcript accepts ?limit=N for a newest-N window)
+                       transcript accepts ?limit=N for a newest-N window)
   /api/history/session/{id}/errors
-                   -> webui turn-failure tiles (GET list / POST {message,t} /
-                      DELETE clear). Stored in the sidecar webui.db NEXT TO
-                      opencode.db — the engine does not persist session.error
-                      anywhere, so this is the only record. UNIQUE(sid,msg)
-                      collapses duplicate inserts from multiple webui clients
-                      witnessing the same SSE event.
+                    -> webui turn-failure tiles (GET list / POST {message,t} /
+                       DELETE clear). Stored in the sidecar webui.db NEXT TO
+                       opencode.db — the engine does not persist session.error
+                       anywhere, so this is the only record. UNIQUE(sid,msg)
+                       collapses duplicate inserts from multiple webui clients
+                       witnessing the same SSE event.
   /api/history/session/{id}/meta
-                   -> session metadata (star / tag). GET returns stored
-                      state; PUT/POST merges a partial update
-                      {star?: bool, tag?: string|null}; DELETE removes the
-                      row. Stored in the smeta table in webui.db.
+                    -> session metadata (star / tag). GET returns stored
+                       state; PUT/POST merges a partial update
+                       {star?: bool, tag?: string|null}; DELETE removes the
+                       row. Stored in the smeta table in webui.db.
   /api/history/errors
-                   -> ALL persisted errors across all sessions (background
-                      collector records errors even when no webui tab is open).
+                    -> ALL persisted errors across all sessions (background
+                       collector records errors even when no webui tab is open).
   /api/search      -> case-insensitive substring search across all message parts
   /healthz         -> liveness
 
-A background SSE collector thread watches the engine's /event stream and
-persists session.error and session.next.retried events to the sidecar, so
+A background SSE collector thread watches the engine's /api/event stream and
+persists session.error and session.status (retry) events to the sidecar, so
 errors are visible to the webui even when no tab was open at the time.
 
 Pure stdlib. Stateless: every /api request runs its own read-only SQL against
@@ -275,7 +277,7 @@ _collector_lock = threading.Lock()
 
 
 def _sse_collector():
-    """Background daemon thread: tail engine /event, persist error events."""
+    """Background daemon thread: tail engine /api/event, persist error events."""
     import http.client as _http
 
     while True:
@@ -283,7 +285,7 @@ def _sse_collector():
         try:
             host, port = OC_ENGINE.split(":")[0], int(OC_ENGINE.split(":")[1])
             conn = _http.HTTPConnection(host, port, timeout=300)
-            conn.request("GET", "/event", headers={"Accept": "text/event-stream"})
+            conn.request("GET", "/api/event", headers={"Accept": "text/event-stream"})
             resp = conn.getresponse()
             if resp.status != 200:
                 time.sleep(5)
@@ -313,7 +315,7 @@ def _sse_collector():
 
 def _process_sse_event(event_type, data_str):
     """Parse and persist error/retry events from the engine SSE stream."""
-    if event_type not in ("session.error", "session.next.retried"):
+    if event_type not in ("session.error", "session.status"):
         return
     try:
         data = json.loads(data_str)
@@ -327,9 +329,15 @@ def _process_sse_event(event_type, data_str):
     if not em:
         return
     msg = str(em.get("data", {}).get("message") or em.get("message") or em.get("name") or "error")
-    if event_type == "session.next.retried":
-        attempt = props.get("attempt", 1)
-        msg = f"[retry attempt #{attempt}] {msg}"
+    if event_type == "session.status":
+        # v2 engine sends retry status as session.status with type="retry"
+        status = props.get("status") or props
+        s_type = status.get("type") or status.get("state") or ""
+        if s_type == "retry":
+            attempt = status.get("attempt", 1)
+            msg = f"[retry attempt #{attempt}] {msg}"
+        else:
+            return  # not a retry status, skip
     with _collector_lock:
         try:
             conn = _serr_connect(create=True)
@@ -1024,7 +1032,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json(search(q))
             if path.startswith("/api/"):
                 return self.send_json({"error": "not found"}, 404)
-            if path.startswith("/oc/") or path == "/oc":
+            if path.startswith("/engine/"):
                 return self.proxy(u)
             return self.static(path)
         except (BrokenPipeError, ConnectionResetError):
@@ -1042,7 +1050,8 @@ class Handler(BaseHTTPRequestHandler):
 
     # ---- proxy (streaming, SSE-safe) ---------------------------------------
     def proxy(self, u):
-        target = urlunparse(("http", OC_ENGINE, u.path[len("/oc") :] or "/", "", u.query, ""))
+        engine_path = u.path[len("/engine"):] or "/"
+        target = urlunparse(("http", OC_ENGINE, "/api" + engine_path, "", u.query, ""))
         conn = http.client.HTTPConnection(OC_ENGINE, timeout=600)
         headers = {
             k: v

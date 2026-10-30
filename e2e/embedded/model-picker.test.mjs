@@ -66,7 +66,7 @@ const server = http.createServer(async (req, res) => {
 
   try {
     // ---- SSE ----------------------------------------------------------------
-    if (p === '/oc/event') {
+    if (p === '/engine/event') {
       res.writeHead(200, {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
@@ -89,16 +89,16 @@ const server = http.createServer(async (req, res) => {
     if (p.startsWith('/api/history/session/')) return json(res, []);
 
     // ---- engine stubs --------------------------------------------------------
-    if (p === '/oc/session/status') return json(res, {});
-    if (p === '/oc/permission') return json(res, []);
+    if (p === '/engine/session/active') return json(res, {});
+    if (p === '/engine/permission/request') return json(res, []);
 
-    // GET /oc/session/{id}/message — return accumulated messages
+    // GET /engine/session/{id}/message — return accumulated messages
     const mMsg = p.match(/^\/oc\/session\/([^/]+)\/message$/);
     if (mMsg && req.method === 'GET') {
       return json(res, state.messages);
     }
 
-    // POST /oc/session/{id}/prompt_async — capture body, echo user message, emit SSE
+    // POST /engine/session/{id}/prompt_async — capture body, echo user message, emit SSE
     const mPrompt = p.match(/^\/oc\/session\/([^/]+)\/prompt_async$/);
     if (mPrompt && req.method === 'POST') {
       const body = JSON.parse((await readBody(req)) || '{}');
@@ -120,7 +120,7 @@ const server = http.createServer(async (req, res) => {
       return res.end();
     }
 
-    // POST /oc/session/{id}/message — capture, echo, return
+    // POST /engine/session/{id}/message — capture, echo, return
     if (mMsg && req.method === 'POST') {
       const body = JSON.parse((await readBody(req)) || '{}');
       state.promptBodies.push({ sid: mMsg[1], body });
@@ -141,7 +141,7 @@ const server = http.createServer(async (req, res) => {
 
     if (p.match(/^\/oc\/session\/[^/]+$/) && req.method === 'GET')
       return json(res, { id: SID, title: 'model-picker-test', revert: null });
-    if (p === '/oc/session' && req.method === 'POST')
+    if (p === '/engine/session' && req.method === 'POST')
       return json(res, { id: SID, title: 'model-picker-test', revert: null });
     if (p.match(/^\/oc\/session\/[^/]+$/) && req.method === 'DELETE') {
       res.writeHead(204);
@@ -149,7 +149,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     // providers with big-pickle and other models
-    if (p === '/oc/config/providers')
+    if (p === '/engine/provider')
       return json(res, {
         providers: [
           {
@@ -162,9 +162,9 @@ const server = http.createServer(async (req, res) => {
           },
         ],
       });
-    if (p === '/oc/path') return json(res, { directory: '/workspace' });
-    if (p === '/oc/mcp') return json(res, {});
-    if (p.startsWith('/oc/')) return json(res, []);
+    if (p === '/engine/location') return json(res, { directory: '/workspace' });
+    if (p === '/engine/mcp') return json(res, {});
+    if (p.startsWith('/engine/')) return json(res, []);
 
     // ---- statics (webui/dist) ------------------------------------------------
     const rel = p === '/' ? '/index.html' : p;

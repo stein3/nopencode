@@ -107,25 +107,25 @@ async function handle(route) {
   const p = new URL(req.url()).pathname;
   const m = req.method();
   const json = (b) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(b) });
-  if (m === 'GET' && p === `/oc/session/${SID}/message`) return json(MSGS);
-  if (m === 'GET' && p === `/oc/session/${SID}`) return json({ id: SID, title: 'mock', revert: null });
-  if (m === 'GET' && p === '/oc/file/content') {
+  if (m === 'GET' && p === `/engine/session/${SID}/message`) return json(MSGS);
+  if (m === 'GET' && p === `/engine/session/${SID}`) return json({ id: SID, title: 'mock', revert: null });
+  if (m === 'GET' && p === '/engine/fs/read') {
     const q = new URL(req.url()).searchParams.get('path') ?? '';
     // mirror engine shapes: raster → binary/base64, anything else → empty text
     if (q === PNG_PATH) return json({ type: 'binary', content: PNG_B64 });
     return json({ type: 'text', content: '' });
   }
-  if (p === '/oc/session/status') return json({});
-  if (p === '/oc/config/providers')
+  if (p === '/engine/session/active') return json({});
+  if (p === '/engine/provider')
     return json({ providers: [{ id: 'opencode', models: { 'x-preview-f-free': { id: 'x-preview-f-free' } } }] });
-  if (p === '/oc/command' || p === '/oc/permission' || p === '/oc/question' || p === '/oc/skill') return json([]);
+  if (p === '/engine/command' || p === '/engine/permission/request' || p === '/engine/form' || p === '/engine/skill') return json([]);
   if (p === '/api/history/sessions')
     return json([{ id: SID, title: 'imgthumb render mock', created: 1, updated: 9, message_count: MSGS.length, cost: 0 }]);
   if (p === `/api/history/session/${SID}/errors`) return json([]);
-  if (p === '/oc/event') return route.fulfill({ status: 200, contentType: 'text/event-stream', body: '' });
+  if (p === '/engine/event') return route.fulfill({ status: 200, contentType: 'text/event-stream', body: '' });
   return route.fallback();
 }
-await page.route('**/oc/**', handle);
+await page.route('**/engine/**', handle);
 await page.route('**/api/**', handle);
 
 try {

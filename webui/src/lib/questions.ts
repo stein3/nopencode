@@ -31,7 +31,7 @@ function setQuestions(list: PendingQuestion[]) {
 
 export async function answerQuestion(req: PendingQuestion, answers: string[][]) {
   try {
-    await oc.replyQuestion(req.id, answers)
+    await oc.replyQuestion(req.id, answers, req.sessionID)
   } catch (e: any) {
     // surface failures (404 = another client answered first, network, …) —
     // an unhandled rejection here looked like a dead click
@@ -43,7 +43,7 @@ export async function answerQuestion(req: PendingQuestion, answers: string[][]) 
 
 export async function dismissQuestion(req: PendingQuestion) {
   try {
-    await oc.rejectQuestion(req.id)
+    await oc.rejectQuestion(req.id, req.sessionID)
   } catch (e: any) {
     toast(`dismiss failed: ${e?.message ?? e}`)
   } finally {

@@ -114,7 +114,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     // ---- SSE -----------------------------------------------------------------
-    if (p === '/oc/event') {
+    if (p === '/engine/event') {
       res.writeHead(200, {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
@@ -142,22 +142,22 @@ const server = http.createServer(async (req, res) => {
     if (p.startsWith('/api/history/session/')) return json(res, []);
 
     // ---- engine stubs --------------------------------------------------------
-    if (p === '/oc/session/status') return json(res, {});
-    if (p.startsWith('/oc/session/') && p.endsWith('/message')) return json(res, []);
-    if (p.startsWith('/oc/session/')) {
-      const sid = p.split('/oc/session/')[1]?.split('/')[0];
+    if (p === '/engine/session/active') return json(res, {});
+    if (p.startsWith('/engine/session/') && p.endsWith('/message')) return json(res, []);
+    if (p.startsWith('/engine/session/')) {
+      const sid = p.split('/engine/session/')[1]?.split('/')[0];
       const sess = SESSIONS.find((s) => s.id === sid);
       return json(res, { id: sid, title: sess?.title ?? 'probe', revert: null });
     }
-    if (p === '/oc/session' && req.method === 'POST')
+    if (p === '/engine/session' && req.method === 'POST')
       return json(res, { id: SESSIONS[0].id, title: SESSIONS[0].title, revert: null });
-    if (p === '/oc/config/providers')
+    if (p === '/engine/provider')
       return json(res, {
         providers: [{ id: 'opencode', models: { 'x-preview-f-free': { id: 'x-preview-f-free' } } }],
       });
-    if (p === '/oc/path') return json(res, { directory: '/workspace' });
-    if (p === '/oc/mcp') return json(res, {});
-    if (p.startsWith('/oc/')) return json(res, []);
+    if (p === '/engine/location') return json(res, { directory: '/workspace' });
+    if (p === '/engine/mcp') return json(res, {});
+    if (p.startsWith('/engine/')) return json(res, []);
 
     // ---- statics (webui/dist) -----------------------------------------------
     const rel = p === '/' ? '/index.html' : p;

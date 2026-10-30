@@ -3,8 +3,8 @@
 // Runs against an EMBEDDED fake engine (same pattern as question-picker.mjs).
 //
 // Cases:
-//   A. open session A → /rename → PATCH /oc/session/<A>
-//      open session B → /rename → PATCH /oc/session/<B>  (freshness)
+//   A. open session A → /rename → PATCH /engine/session/<A>
+//      open session B → /rename → PATCH /engine/session/<B>  (freshness)
 //   B. pending tab (ctrl+t) → /rename → "no session yet" toast, no PATCH
 //   C. themed rename dialog screenshot
 //
@@ -107,7 +107,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     // ---- SSE -----------------------------------------------------------------
-    if (p === '/oc/event') {
+    if (p === '/engine/event') {
       res.writeHead(200, {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
@@ -133,35 +133,35 @@ const server = http.createServer(async (req, res) => {
     }
 
     // ---- engine stubs --------------------------------------------------------
-    if (p === '/oc/session/status') return json(res, {});
-    if (p.startsWith('/oc/session/') && p.endsWith('/message')) {
-      const sid = p.split('/oc/session/')[1]?.split('/')[0];
+    if (p === '/engine/session/active') return json(res, {});
+    if (p.startsWith('/engine/session/') && p.endsWith('/message')) {
+      const sid = p.split('/engine/session/')[1]?.split('/')[0];
       if (sid === SID_A) return json(res, MESSAGES_A);
       if (sid === SID_B) return json(res, MESSAGES_B);
       return json(res, []);
     }
-    // PATCH /oc/session/{id} — capture rename requests
+    // PATCH /engine/session/{id} — capture rename requests
     if (req.method === 'PATCH' && p.match(/^\/oc\/session\/[^/]+$/)) {
-      const sid = decodeURIComponent(p.split('/oc/session/')[1]);
+      const sid = decodeURIComponent(p.split('/engine/session/')[1]);
       let body = {};
       try { body = JSON.parse((await readBody(req)) || '{}'); } catch {}
       state.patches.push({ sid, title: body.title });
       return json(res, { id: sid, title: body.title || 'renamed-probe' });
     }
-    if (p.startsWith('/oc/session/') && !p.includes('/message')) {
-      const sid = p.split('/oc/session/')[1]?.split('/')[0];
+    if (p.startsWith('/engine/session/') && !p.includes('/message')) {
+      const sid = p.split('/engine/session/')[1]?.split('/')[0];
       const sess = SESSIONS.find((s) => s.id === sid);
       return json(res, { id: sid, title: sess?.title ?? 'probe', revert: null });
     }
-    if (p === '/oc/session' && req.method === 'POST')
+    if (p === '/engine/session' && req.method === 'POST')
       return json(res, { id: SID_A, title: TITLE_A, revert: null });
-    if (p === '/oc/config/providers')
+    if (p === '/engine/provider')
       return json(res, {
         providers: [{ id: 'opencode', models: { 'x-preview-f-free': { id: 'x-preview-f-free' } } }],
       });
-    if (p === '/oc/path') return json(res, { directory: '/workspace' });
-    if (p === '/oc/mcp') return json(res, {});
-    if (p.startsWith('/oc/')) return json(res, []);
+    if (p === '/engine/location') return json(res, { directory: '/workspace' });
+    if (p === '/engine/mcp') return json(res, {});
+    if (p.startsWith('/engine/')) return json(res, []);
 
     // ---- statics (webui/dist) -----------------------------------------------
     const rel = p === '/' ? '/index.html' : p;
