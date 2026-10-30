@@ -200,6 +200,12 @@ let shotOn = null;   // Case A pixels, kept for the rendered-difference check
     check('A', 'grouped row order is bucketed (CCC,AAA,BBB)',
       JSON.stringify(order) === '["CCC","AAA","BBB"]', JSON.stringify(order));
     check('A', 'all 3 rows still listed', order.length === 3, `got ${order.length}`);
+    // Raw buffers, not screenshot(): case B compares the two shots byte-wise
+    // (shotOn.equals(shotOff)), so both must come from the same call shape. That
+    // means writing into SHOTS_DIR directly — which needs the directory to exist.
+    // shots/ is git-ignored, so a fresh CI checkout has none and these writes threw
+    // ENOENT after every DOM check had passed; helpers/setup.mjs now creates
+    // SHOTS_DIR at import so this no longer depends on another test running first.
     shotOn = await page.screenshot();
     fs.writeFileSync(path.join(SHOTS_DIR, 'ws-group-on.png'), shotOn);
 

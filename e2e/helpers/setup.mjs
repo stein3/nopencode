@@ -25,6 +25,18 @@ export const WEBTEST_DIR = process.env.WEBTEST_DIR || E2E_DIR
 export const DIST = process.env.WEBUI_DIST || path.join(REPO_ROOT, 'webui', 'dist')
 export const SHOTS_DIR = process.env.SHOTS_DIR || path.join(WEBTEST_DIR, 'shots')
 
+// shots/ is git-ignored (e2e/.gitignore), so a FRESH checkout — every CI runner —
+// has no such directory. screenshot() used to create it on demand, but a lot of
+// tests write straight into SHOTS_DIR (page.screenshot / locator.screenshot /
+// fs.writeFileSync) and those bypass it: the first direct write dies with ENOENT,
+// and whether a test survives depends on whether some earlier screenshot() call
+// happened to create the dir. ws-group.test.mjs hit exactly that in CI — all its
+// DOM checks passed, then its FIRST raw write (line ~204) crashed the run.
+// Create it once at import so the directory never depends on test ordering.
+// Best-effort: shots are diagnostics, so a read-only FS must not take every
+// suite down with it.
+try { fs.mkdirSync(SHOTS_DIR, { recursive: true }) } catch { /* no shots this run */ }
+
 // ---- server URLs -----------------------------------------------------------
 
 export const BASE = process.env.BASE_URL || 'http://127.0.0.1:8123'
