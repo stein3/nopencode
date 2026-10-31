@@ -10,6 +10,10 @@
   import { codeCopy } from '../lib/codeCopy'
   import { outFirstLine, outLineCount, previewLine, toolOutputOf, outputPlaceholder } from '../lib/outpreview'
   import { genTally } from '../lib/gentokens'
+  import {
+    estChars, estTokens, fmtTok, promptTally, promptTip, toolTokTip, userTokTip,
+    TOOL_TOK_MIN, TOOL_TOK_BIG,
+  } from '../lib/intokens'
   import { retryState, cancelRetry, nextPayloadKind } from '../lib/retries'
   import ModelSelect from './ModelSelect.svelte'
   import QuestionPicker from './QuestionPicker.svelte'
@@ -865,6 +869,14 @@
   function lastReasoningId(m: any): string | undefined {
     return (m.parts ?? []).filter((p: any) => p.type === 'reasoning').at(-1)?.id
   }
+  // A user row has no usage of its own — the engine only bills whole STEPS — so
+  // its cost is the size of the text it adds to the next step's prompt.
+  function userChars(m: any): number {
+    if ((m.role ?? 'user') !== 'user') return 0
+    let c = 0
+    for (const p of m.parts ?? []) if (p.type === 'text') c += (p.text ?? '').length
+    return c
+  }
   // message duration = model generation + tool execution; the tool part's
   // state.time window sits at the tail of the message (verified against
   // history: next message's created ~5ms after tool end), so split it out
@@ -1034,6 +1046,10 @@
     {/if}
   {#each msgs as m (m.id)}
     {@const tn = taskNoticeOf(m)}
+    <!-- {@const} must sit as an immediate child of the block, so the input-side
+         tallies live up here, not inside the .head div that renders them -->
+    {@const pt = promptTally(m.tokens ?? m.info?.tokens)}
+    {@const uchars = userChars(m)}
     <div
       class="msg"
       class:user={m.role === 'user' && !tn}
@@ -1050,14 +1066,21 @@
           <span class="role" class:errole={m.error && m.role !== 'user' && !isAborted(m.error)}>{roleLabel(m)}</span>
         {/if}
         {#if m.modelID}<span class="model-id" title={m.providerID ? `${m.providerID}/${m.modelID}` : m.modelID}>{m.modelID}</span>{/if}
-        {#if genTally(m.tokens ?? m.info?.tokens)}
-          {@const toks = genTally(m.tokens ?? m.info?.tokens) ?? 0}
-          {@const { agentMs } = splitTiming(m)}
+        {#if pt || genTally(m.tokens ?? m.info?.tokens) || uchars}
           <span class="statgroup">
-            <span class="stat" title={`output ${m.tokens?.output ?? 0} + reasoning ${m.tokens?.reasoning ?? 0} tokens (turn's full context input not shown)`}>{toks} tokens</span>
-            {#if agentMs > 0}
-              <span class="stat" title="agent time (tool execution excluded)">{(agentMs/1000).toFixed(1)}s</span>
-              <span class="stat" title="tokens/s over agent time only">{(toks/(agentMs/1000)).toFixed(2)} t/s</span>
+            {#if pt}
+              <span class="stat in" class:fresh={pt.fresh >= 2000} title={promptTip(pt)}>{fmtTok(pt.total)} in</span>
+            {:else if uchars}
+              <span class="stat est" title={userTokTip(uchars)}>≈{fmtTok(estChars(uchars))} in</span>
+            {/if}
+            {#if genTally(m.tokens ?? m.info?.tokens)}
+              {@const toks = genTally(m.tokens ?? m.info?.tokens) ?? 0}
+              {@const { agentMs } = splitTiming(m)}
+              <span class="stat" title={`output ${m.tokens?.output ?? 0} + reasoning ${m.tokens?.reasoning ?? 0} tokens (the "in" figure is what the step was sent)`}>{toks} tokens</span>
+              {#if agentMs > 0}
+                <span class="stat" title="agent time (tool execution excluded)">{(agentMs/1000).toFixed(1)}s</span>
+                <span class="stat" title="tokens/s over agent time only">{(toks/(agentMs/1000)).toFixed(2)} t/s</span>
+              {/if}
             {/if}
           </span>
         {/if}
@@ -1116,6 +1139,7 @@
             {@const imgPath = imageOf(p)}
             {@const scadPath = scadOf(p)}
             {@const out = toolOutputOf(p.state)}
+            {@const otok = estTokens(out)}
             {@const okey = outKeyOf(p)}
             {@const ph = outputPlaceholder(p.state?.status, !!toolError(p))}
             <div class="toolcard" class:toolerr={isToolErr(p)}>
@@ -1123,6 +1147,7 @@
                 <summary>
                   <span class="sum-text">{#if isToolErr(p)}<span class="errglyph">✗ </span>{:else}{toolStatusGlyph(p)}{/if}<span class="tname {toolColorClass(p)}">{p.tool ?? 'tool'}</span>{#if pq}<span class="tsep">·</span><span class="qwait">awaiting your answer</span>{:else if toolDetail(p)}<span class="tsep">·</span><span>{toolDetail(p)}</span>{/if}</span>
                   {#if isTruncated(p)}<span class="badge warn">truncated</span>{/if}
+                  {#if otok >= TOOL_TOK_MIN}<span class="badge tok" class:big={otok >= TOOL_TOK_BIG} title={toolTokTip(otok, out.length, isTruncated(p))}>≈{fmtTok(otok)} tok</span>{/if}
                   {#if toolDuration(p)}<span class="badge">{toolDuration(p)}</span>{/if}
                 </summary>
                 <div class="tool-body">
@@ -1708,6 +1733,15 @@
     color: var(--fg-dim);
     font-family: var(--mono);
   }
+  /* input (prompt) side of the stat cluster. `fresh` calls out a step that sent
+     a lot of NEW tokens — the number that shows up on the bill; `.est` marks a
+     chars-derived estimate, not an engine-reported count. */
+  .stat.in.fresh {
+    color: var(--warn);
+  }
+  .stat.est {
+    opacity: 0.65;
+  }
   /* keep the stat cluster readable as one unit, pull it away from model /
      timestamp only when there's room */
   @media (min-width: 720px) {
@@ -1950,6 +1984,11 @@
   .badge.warn {
     color: var(--warn);
     box-shadow: inset 0 0 0 1px rgba(204, 167, 0, 0.35);
+  }
+  /* estimated input-token cost of a tool result (see lib/intokens.ts) */
+  .badge.tok.big {
+    color: var(--warn);
+    box-shadow: inset 0 0 0 1px rgba(204, 167, 0, 0.25);
   }
   .tool-body {
     padding: 8px 10px;

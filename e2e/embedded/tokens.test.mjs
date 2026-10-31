@@ -314,7 +314,12 @@ const server = http.createServer(async (req, res) => {
     if (p.startsWith('/oc/')) return json(res, []);
 
     // ---- statics (webui/dist) -----------------------------------------------
-    const rel = p === '/' ? '/index.html' : p;
+    // The shared dist is built with base /webui/, so its index.html asks for
+    // /webui/assets/*. Strip the prefix here (cheaper than a WEBUI_BASE=/ build)
+    // or every asset 404s, the app never mounts, and the symptom is a
+    // waitForSelector('.sidebar .item') timeout that reads like a UI bug.
+    let rel = p === '/' ? '/index.html' : p;
+    if (rel.startsWith('/webui/')) rel = rel.slice(6);
     const full = fs.realpathSync(path.join(DIST, rel));
     if (!full.startsWith(fs.realpathSync(DIST)) || !fs.statSync(full).isFile())
       return json(res, { error: 'missing' }, 404);

@@ -17,6 +17,8 @@
     toast,
   } from '../lib/stores'
   import { relTime } from '../lib/util'
+  import { toolOutputOf } from '../lib/outpreview'
+  import { fmtTok, promptTally, toolTokRollup } from '../lib/intokens'
   import type { Tab } from '../lib/stores'
   import SidePanel from './SidePanel.svelte'
 
@@ -51,6 +53,10 @@
   let fetchedTokens = 0
   let limit = 0
   let fetchedTodos: any[] = []
+  // Input-side cost of the fetched page of history (see lib/intokens.ts):
+  // `fresh` = prompt tokens the provider had to process, `cached` = prompt cache
+  // re-reads, `top` = which tools injected the most, `n` = tool results seen.
+  let pStats = { fresh: 0, cached: 0, top: [] as { tool: string; tokens: number; calls: number }[], n: 0, msgs: 0 }
 
   function fmtK(n: number): string {
     if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M'
@@ -62,6 +68,36 @@
     cost = 0
     fetchedTokens = 0
     fetchedTodos = []
+    pStats = { fresh: 0, cached: 0, top: [], n: 0, msgs: 0 }
+  }
+
+  // Sum the prompt side over one page of messages. Deliberately per-page, not
+  // session-lifetime: oc.messages() is capped at RECENT_PAGE, and a number that
+  // quietly meant "some of the session" would be worse than one that is honest
+  // about its window (the label prints pStats.msgs).
+  function promptStatsOf(msgs: any[]): typeof pStats {
+    let fresh = 0
+    let cached = 0
+    let n = 0
+    const parts: { tool?: string; out?: string }[] = []
+    for (const m of msgs ?? []) {
+      const info = (m as any).info ?? m
+      const pt = promptTally(info?.tokens)
+      if (pt) {
+        fresh += pt.fresh
+        cached += pt.cached
+      }
+      // engine payloads carry parts BESIDE info (`{info, parts}`); history rows
+      // are flat, so parts hang off the row itself
+      for (const p of (m as any).parts ?? info?.parts ?? []) {
+        if (p.type !== 'tool') continue
+        const out = toolOutputOf(p.state)
+        if (!out) continue
+        n++
+        parts.push({ tool: p.tool, out })
+      }
+    }
+    return { fresh, cached, top: toolTokRollup(parts).slice(0, 3), n, msgs: (msgs ?? []).length }
   }
 
   const keyOf = (t: Tab | null) => `${t?.id ?? ''}:${t?.busy ? 1 : 0}`
@@ -85,6 +121,7 @@
       cost = sess?.cost ?? 0
       fetchedTodos = Array.isArray(td) ? td : []
       fetchedTokens = metricsFromMessages(msgs ?? []).tokens ?? 0
+      pStats = promptStatsOf(msgs ?? [])
     } catch {
       /* keep previous values */
     }
@@ -294,6 +331,27 @@
       <span class="k dim">total (tokens)</span><span class="v dim">{fmtK(usedTokens)}</span>
       <span class="k dim">total (spent)</span><span class="v dim">${(cost + rolledUpCost).toFixed(4)}</span>
     {/if}
+  </div>
+
+  <!-- Input (prompt) side of the last page of history — the half the "tokens"
+       row above deliberately leaves out. Summing prompt tokens over steps
+       double-counts the context re-sent each turn, so the two halves stay
+       separate rather than collapsing into one total. -->
+  <div class="sec">
+    Prompt cost
+    <span class="dim" title="Measured over the {pStats.msgs} newest messages of this session (page cap {RECENT_PAGE}), not its whole life.">
+      · last {pStats.msgs}
+    </span>
+  </div>
+  <div class="grid">
+    <span class="k" title="Prompt tokens the provider had to process: input + cache writes, summed over the loaded assistant steps.">new</span>
+    <span class="v" title="Prompt tokens the provider had to process: input + cache writes, summed over the loaded assistant steps.">{pStats.fresh ? fmtTok(pStats.fresh) : '—'}</span>
+    <span class="k" title="cache.read summed over the loaded steps: the conversation re-sent to the model on every step. Scales with turn count, not with work.">re-read</span>
+    <span class="v" title="cache.read summed over the loaded steps: the conversation re-sent to the model on every step. Scales with turn count, not with work.">{pStats.cached ? fmtTok(pStats.cached) : '—'}</span>
+    {#each pStats.top as t (t.tool)}
+      <span class="k dim" title="{t.calls} result(s) from {t.tool}: estimated tokens they add to the prompt (chars × 0.305). Estimated, not billed.">{t.tool} ×{t.calls}</span>
+      <span class="v dim" title="{t.calls} result(s) from {t.tool}: estimated tokens they add to the prompt (chars × 0.305). Estimated, not billed.">≈{fmtTok(t.tokens)}</span>
+    {/each}
   </div>
 
   <div class="sec">Todo</div>

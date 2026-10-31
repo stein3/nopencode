@@ -28,7 +28,16 @@ incl. ttyd + `inject.py`) and `Dockerfile.web` (chatserver + built `webui/dist`)
 - **Statics**: hashed `/assets/*` are `Cache-Control: immutable`; `index.html` is served whole (`no-store`, no ETag) because it carries the per-request CSP nonce — a 304 would pair a cached body with a fresh CSP header and block the inline theme script. The same dist is served at `/` and `/webui/` (chatserver strips the prefix).
 - **The Vite base defaults to `/`** and nothing in this repo may assume otherwise. `WEBUI_BASE` is an escape hatch for one hosting shape — the UI under a subpath behind a prefix-stripping proxy (Caddy `handle_path /webui/*`) — where the browser must request `/webui/assets/*`. A personal-hosting choice, not a repo behaviour.
 
-### Engine API traps
+### Token cost display
+
+- **Input cost: measured per STEP, estimated per TOOL CALL** (`lib/intokens.ts`, mirrored by `e2e/embedded/intokens.test.mjs` math + `intokens-ui.test.mjs` rendering). Engine usage splits into fresh (`input` + `cache.write`) and `cache.read`; chips show the total with the split in the tooltip.
+- **Never attribute MEASURED input tokens to one tool call.** `input` is the *uncached* part only, so on a cache miss it jumps to the whole prompt (measured: 74,404 after a 2,327 step); step-to-step prompt-token deltas are also polluted by branch jumps in the session JSONL tree. The per-call figure is therefore a char estimate: **tokens = chars × 0.305** (calibrated on 2,641 consecutive step pairs of real history; median 0.307 tok/char, divisor p25 3.62 / p75 2.80). `chars/4` — used elsewhere in the stack — under-reads tool output ~20%.
+- **Keep the fresh and re-read halves separate.** A summed "prompt tokens" double-counts the context re-sent every turn (one 79-message session: 5.21M re-read vs 56K fresh), same trap as the old sidebar token stat.
+
+### Svelte / e2e assertion traps
+
+- **`{@const}` must be an immediate child of `{#if}` / `{#each}` / `{:else if}` / …** — one placed between plain markup inside a `<div>` is a build error, not a lint warning. Transcript's `pt`/`uchars` sit at the `{#each}` root for that reason.
+- **Assert conditional classes with `classList`, never string matching**: Svelte's scope hash is emitted BETWEEN class names (`class="badge tok svelte-xyz big"`), so `html.includes('badge tok big')` fails on correct code. Prefer `querySelectorAll('.badge.tok.big')` plus a computed-style check when the colour is the point.
 
 - **Eager image decode**: corrupt image at prompt time → `session.error` + entire message dropped, nothing persists.
 - `/permission` items have NO `title`, `pattern`, `path`, or `type` field. Use `patterns[0]` for file path, `metadata.input` for command.
