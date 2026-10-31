@@ -13,7 +13,7 @@ import fs from 'node:fs';
 import http from 'node:http';
 import { DIST, launchBrowser, SHOTS_DIR } from '../helpers/setup.mjs';
 
-const PORT = 8141;
+const PORT = 8182;
 const BASE = `http://127.0.0.1:${PORT}`;
 
 // ============================== fake engine =================================

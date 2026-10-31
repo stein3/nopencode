@@ -117,9 +117,10 @@ Reference tests demonstrating the core patterns:
 3. Use `launchBrowser()` instead of a manual `chromium.launch` — it bakes in
    the software-rendering and font flags needed for headless Chromium (see
    [Browser launch](#browser-launch)).
-4. **Pick a unique `PORT`** (the current range is 8127–8165; check sibling
-   files for collisions first). Alternatively use `server.listen(0)` for an
-   ephemeral port.
+4. **Pick a unique `PORT`** (the current range is 8127–8184; check sibling
+   files for collisions first — CI never sees a clash because every test gets
+   its own runner, so a duplicate port only bites when you run tests locally in
+   parallel). Alternatively use `server.listen(0)` for an ephemeral port.
 5. Use `seedSession(title, count)` to create fixture sessions via
    `noReply:true` POSTs.
 6. Use `cleanup(sids)` in a `finally` block.

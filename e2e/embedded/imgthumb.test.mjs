@@ -10,7 +10,7 @@ import { DIST, E2E_DIR, launchBrowser, screenshot, sleep, poll } from '../helper
 //  4. read of a MISSING image → no thumbnail rendered
 //  5. read of a NON-image file → no thumbnail rendered
 
-const PORT = 8141;
+const PORT = 8181;
 const BASE = `http://127.0.0.1:${PORT}`;
 const SID = 'ses_imgthumb';
 const PNG_PATH = '/workspace/shot.png';

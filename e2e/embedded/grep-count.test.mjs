@@ -12,7 +12,7 @@ import fs from 'node:fs';
 import http from 'node:http';
 import { DIST, launchBrowser, SHOTS_DIR } from '../helpers/setup.mjs';
 
-const PORT = 8140;
+const PORT = 8180;
 const BASE = `http://127.0.0.1:${PORT}`;
 const SID = 'ses_grepcount01';
 const MSG_ID = 'msg_grepcount1';

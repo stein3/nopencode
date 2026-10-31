@@ -42,7 +42,7 @@ import fs from 'node:fs';
 import http from 'node:http';
 import { DIST, launchBrowser, sleep, poll, screenshot, SHOTS_DIR } from '../helpers/setup.mjs';
 
-const PORT = 8165;
+const PORT = 8183;
 const BASE = `http://127.0.0.1:${PORT}`;
 
 // ============================== fixtures ====================================

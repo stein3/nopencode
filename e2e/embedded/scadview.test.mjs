@@ -16,7 +16,7 @@ import { DIST, launchBrowser, poll, screenshot } from '../helpers/setup.mjs';
 //  7. re-reading an EDITED file re-renders it (a path-keyed cache served the
 //     first version forever)
 
-const PORT = 8171;
+const PORT = 8184;
 const BASE = `http://127.0.0.1:${PORT}`;
 const SID = 'ses_scadview';
 
