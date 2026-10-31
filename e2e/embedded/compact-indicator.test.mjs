@@ -123,9 +123,9 @@ const server = http.createServer(async (req, res) => {
     if (p === '/oc/mcp') return json(res, {});
     if (p.startsWith('/oc/')) return json(res, []);
 
-    // the shared dist is built with base /webui/, but this fake serves the app at
-    // '/' — strip the prefix so /webui/assets/* resolves (AGENTS: miss this and
-    // every asset 404s and the app never mounts)
+    // serve the app at '/'; also strip a '/webui/' prefix so a dist built with
+    // WEBUI_BASE=/webui/ (subpath hosting) still works here instead of 404ing
+    // every asset and mounting blank
     const rel = p === '/' ? '/index.html' : p.startsWith('/webui/') ? p.slice(6) : p;
     const full = fs.realpathSync(path.join(DIST, rel));
     if (!full.startsWith(fs.realpathSync(DIST)) || !fs.statSync(full).isFile())

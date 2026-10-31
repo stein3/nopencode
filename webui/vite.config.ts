@@ -19,16 +19,19 @@ const monacoCodiconCss = fileURLToPath(
 // can target any local `opencode serve` instance.
 const ocEngine = process.env.OC_ENGINE || 'http://127.0.0.1:4096'
 
-// The public route serves the UI under the /webui/ subpath (Caddy
-// `handle_path /webui/*` strips the prefix before proxying). Vite's default
-// base '/' emits ABSOLUTE root paths for the manifest, service worker and
-// icons — which match no Caddy handler and 404, so the browser can never read
-// the manifest or register the SW (Chrome degrades to a plain tab shortcut
-// instead of an installable PWA). Building under /webui/ keeps every PWA asset
-// inside the existing strip-prefix route. Override with WEBUI_BASE=/ for local
-// root serving (e.g. chatserver on :8123). Runtime fetch('/oc/*') and
-// fetch('/api/*') are hardcoded-absolute in api.ts and unaffected by base.
-const base = process.env.WEBUI_BASE || '/webui/'
+// The build defaults to Vite base '/', which is what every real consumer of this
+// dist wants: chatserver.py and pi-web both serve it at `/` (and both also strip
+// a `/webui/` prefix for old links), and the embedded e2e fake servers serve it at
+// `/`. PWA manifest/service-worker/icon URLs and manifest `id`/`scope` follow
+// `base`, so a root build is installable at the root.
+//
+// WEBUI_BASE is an escape hatch for ONE deployment shape: hosting the UI under a
+// subpath behind a prefix-stripping proxy (e.g. Caddy `handle_path /webui/*`).
+// There the browser must request `/webui/assets/...`, so build with
+// `WEBUI_BASE=/webui/`. That is a host-routing choice, not a repo default — do
+// not make anything in this repo depend on it. Runtime `fetch('/oc/*')` and
+// `fetch('/api/*')` are hardcoded-absolute in api.ts and unaffected by base.
+const base = process.env.WEBUI_BASE || '/'
 export default defineConfig({
   base,
   plugins: [

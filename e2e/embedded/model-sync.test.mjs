@@ -12,7 +12,7 @@
 //   S4 explicit local pick        → beats the engine value (immediately)
 //   S5 local pick survives a reload even when the engine says otherwise
 //
-// Run: cd ../webui && WEBUI_BASE=/ npm run build && node e2e/embedded/model-sync.test.mjs
+// Run: cd ../webui && npm run build && node e2e/embedded/model-sync.test.mjs
 
 import path from 'node:path';
 import fs from 'node:fs';

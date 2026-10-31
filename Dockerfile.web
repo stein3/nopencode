@@ -7,6 +7,12 @@ WORKDIR /build/webui
 COPY webui/package.json webui/package-lock.json ./
 RUN npm ci --no-audit --no-fund
 COPY webui/ .
+# Root base is the default and what this image serves at /. Override ONLY when
+# the container sits behind a prefix-stripping subpath proxy (e.g. Caddy
+# `handle_path /webui/*`), where the browser must request /webui/assets/*:
+#   docker build --build-arg WEBUI_BASE=/webui/ ...
+ARG WEBUI_BASE=
+ENV WEBUI_BASE=${WEBUI_BASE}
 RUN npm run build
 
 FROM python:3.13-slim

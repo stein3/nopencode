@@ -132,9 +132,9 @@ const server = http.createServer(async (req, res) => {
     if (p === '/oc/mcp') return json(res, {});
     if (p.startsWith('/oc/')) return json(res, []);
 
-    // webui/dist is built with base '/webui/' (what pi-web's serveStatic and
-    // chatserver.py expect), so a root-served fake must strip that prefix —
-    // otherwise every asset 404s and the app never mounts (looks like a bug).
+    // serve at '/'; the extra '/webui/' strip keeps a dist built with
+    // WEBUI_BASE=/webui/ (subpath hosting) working here too — without it every
+    // asset 404s and the app never mounts, which reads like a UI bug.
     const rel = p === '/' ? '/index.html' : p.startsWith('/webui/') ? p.slice('/webui'.length) : p;
     const full = fs.realpathSync(path.join(DIST, rel));
     if (!full.startsWith(fs.realpathSync(DIST)) || !fs.statSync(full).isFile())

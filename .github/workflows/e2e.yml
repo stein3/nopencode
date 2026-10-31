@@ -27,8 +27,6 @@ jobs:
 
       - name: Build webui
         working-directory: webui
-        env:
-          WEBUI_BASE: /
         run: npm ci && npm run build
 
       # vite-plugin-svelte prints its a11y warnings to stdout and still exits 0,
@@ -37,8 +35,6 @@ jobs:
       # between an a11y regression and a green check.
       - name: Fail on svelte a11y warnings
         working-directory: webui
-        env:
-          WEBUI_BASE: /
         run: |
           npx vite build 2>&1 | tee /tmp/a11y-build.log
           if grep -E 'A11y:' /tmp/a11y-build.log; then

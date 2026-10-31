@@ -1281,9 +1281,9 @@ class Handler(BaseHTTPRequestHandler):
 
     # ---- static ------------------------------------------------------------
     def static(self, path):
-        # The default build uses Vite base '/webui/' (the public route strips
-        # that prefix at the proxy). Strip it here too so the same dist also
-        # works when chatserver is hit directly, e.g. http://localhost:7683/.
+        # Serves the dist at both routes: root-base builds (the default) answer
+        # directly, and a '/webui/...' request is stripped so the same directory
+        # also works under subpath hosting (WEBUI_BASE=/webui/) and for old links.
         if path == "/webui" or path.startswith("/webui/"):
             path = path[len("/webui"):] or "/"
         if path == "/" or "." not in os.path.basename(path):

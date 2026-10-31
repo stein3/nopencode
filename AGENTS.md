@@ -9,7 +9,7 @@ incl. ttyd + `inject.py`) and `Dockerfile.web` (chatserver + built `webui/dist`)
 - **Two independent builds**: `Dockerfile` (engine) and `Dockerfile.web` (web). Changing `webui/` or `chatserver.py` does not bust the engine build cache.
 - Deploy: `sudo docker compose up -d --build`. Web-only rebuild: `sudo docker compose up -d --build --no-deps opencode-web`.
 - `compose.yaml` `init: true` is required — without it PID 1 doesn't reap children and zombies accumulate.
-- CI: `.github/workflows/e2e.yml` builds the dist once (`WEBUI_BASE=/`), its `build` job **fails on any `A11y:` warning** the svelte compiler emits, and its test matrix is **generated from `e2e/embedded/*.test.mjs`** — one job per file, so a test is gated the moment it lands and the workflow holds no list to keep current.
+- CI: `.github/workflows/e2e.yml` builds the dist once, its `build` job **fails on any `A11y:` warning** the svelte compiler emits, and its test matrix is **generated from `e2e/embedded/*.test.mjs`** — one job per file, so a test is gated the moment it lands and the workflow holds no list to keep current.
 
 ## Non-obvious patterns
 
@@ -26,6 +26,7 @@ incl. ttyd + `inject.py`) and `Dockerfile.web` (chatserver + built `webui/dist`)
 - **Never put `content-visibility:auto` on `.msg` rows.** It was the transcript's perf win and was **removed** in `e532dc8`: with `contain-intrinsic-size: auto 160px`, rows swapping from the estimate to real height as they entered view gave up to ~3.9k px of scroll-anchor motion. Every row lays out for real; don't "restore the optimization."
 - **Monaco codicon font** must be explicitly imported in DiffPane or glyph icons render blank.
 - **Statics**: hashed `/assets/*` are `Cache-Control: immutable`; `index.html` is served whole (`no-store`, no ETag) because it carries the per-request CSP nonce — a 304 would pair a cached body with a fresh CSP header and block the inline theme script. The same dist is served at `/` and `/webui/` (chatserver strips the prefix).
+- **The Vite base defaults to `/`** and nothing in this repo may assume otherwise. `WEBUI_BASE` is an escape hatch for one hosting shape — the UI under a subpath behind a prefix-stripping proxy (Caddy `handle_path /webui/*`) — where the browser must request `/webui/assets/*`. A personal-hosting choice, not a repo behaviour.
 
 ### Engine API traps
 
@@ -37,7 +38,6 @@ incl. ttyd + `inject.py`) and `Dockerfile.web` (chatserver + built `webui/dist`)
 
 Authoring details (fake-engine server shape, seeding with `noReply:true`, `domcontentloaded` vs `networkidle`, Playwright install) live in **`e2e/README.md`** — read it before writing or debugging a test. The ones that bite hardest:
 
-- **Always build the dist with `WEBUI_BASE=/`** — every fake server serves `webui/dist` at `/`, so a default-base (`/webui/`) bundle 404s its own assets and the app mounts blank. The symptom is a `waitForSelector('.sidebar .item')` timeout that reads exactly like a UI or fixture bug.
 - Each test owns a unique PORT — check siblings before picking one.
 - **`poll()` footgun**: `poll(() => el.count() === 0, T)` always times out — `count()` returns a Promise and `Promise === 0` is false. Always await: `poll(async () => (await el.count()) === 0, T)`.
 - **Locator reads must `waitFor({state:'attached'})` before `textContent()`** — a bare `count()` races the history render and fails a check whose node exists 5 ms later.

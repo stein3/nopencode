@@ -37,6 +37,24 @@ export const SHOTS_DIR = process.env.SHOTS_DIR || path.join(WEBTEST_DIR, 'shots'
 // suite down with it.
 try { fs.mkdirSync(SHOTS_DIR, { recursive: true }) } catch { /* no shots this run */ }
 
+// The Vite base defaults to '/' (WEBUI_BASE is only for subpath hosting), so the
+// fakes' root-served statics match what a real container serves. This warning
+// exists for the one way that can still go wrong: a dist built with a NON-ROOT
+// base left on disk — dist is git-ignored, so `git pull` never refreshes it, and
+// pi-web's bind-mounted copy ages the same way. Without the warning the symptom
+// is a 15 s `.sidebar .item` timeout that reads exactly like a UI or fixture bug,
+// and the two fakes that do strip `/webui/` would pass anyway (partial green).
+// One line names the cause and the fix.
+try {
+  const html = fs.readFileSync(path.join(DIST, 'index.html'), 'utf8')
+  if (/\b(?:src|href)="\/webui\//.test(html)) {
+    console.warn(
+      `\n[setup] ${DIST}/index.html requests /webui/* assets — this dist was built with a` +
+        ` non-root Vite base (stale, or WEBUI_BASE=/webui/). Rebuild it: cd webui && npm run build\n`
+    )
+  }
+} catch { /* no dist yet — the usual 'build first' failure follows */ }
+
 // ---- server URLs -----------------------------------------------------------
 
 export const BASE = process.env.BASE_URL || 'http://127.0.0.1:8123'
