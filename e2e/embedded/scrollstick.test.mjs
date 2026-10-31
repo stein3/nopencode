@@ -26,7 +26,7 @@
 import path from 'node:path';
 import fs from 'node:fs';
 import http from 'node:http';
-import { DIST, launchBrowser, screenshot, sleep } from '../helpers/setup.mjs';
+import { DIST, EXE, launchBrowser, screenshot, sleep } from '../helpers/setup.mjs';
 
 const PORT = 8139;
 const BASE = `http://127.0.0.1:${PORT}`;
@@ -268,6 +268,22 @@ try {
   const browser = await launchBrowser();
   const page = await browser.newPage({ viewport: { width: 1280, height: 1000 } });
   page.on('pageerror', (e) => pageErrors.push(e.message));
+  // Load knob for the jank-dependent race. The failure needs a growth-driven
+  // follow() write to land between a wheel and its own (20-90ms late) scroll
+  // event; CPU throttling over CDP slows the box but did NOT open that window
+  // here — unfixed main still passed S2 at ×6/×10/×20 (min 96-960) — so this is
+  // extra load, not a reproducer. CI's 2-core contention is not emulated by
+  // throttling alone; when CI disagrees, read the pin off dataset.stuck (S3).
+  const THROTTLE = Number(process.env.SCROLL_THROTTLE || 0);
+  if (THROTTLE > 0) {
+    const cdp = await page.context().newCDPSession(page);
+    await cdp.send('Emulation.setCPUThrottlingRate', { rate: THROTTLE });
+  }
+  // "same lockfile, same browser" is false here: setup.mjs prefers a
+  // chrome-headless-shell from the local ms-playwright cache, CI installs
+  // playwright-core's Chromium. Print which build ran so a CI log names it.
+  console.log(`chromium: ${EXE}\nthrottle: ${THROTTLE > 0 ? `×${THROTTLE}` : 'off'}`);
+
   await page.addInitScript(() => {
     window.__wheels = [];
     window.__scrolls = [];
@@ -331,12 +347,24 @@ try {
 
     // ---- S3 second notch ----------------------------------------------------
     console.log('\nCASE S3 — second notch parks the reader further up, unyanked');
+    // Was: `min distance > 160` — an absolute-pixel bar tuned to THIS box. e2e/
+    // fixtures/ (fonts) is git-ignored, so CI lays out with runner fonts: rows
+    // wrap differently, growth-per-tick differs, and a correct build read 142 —
+    // a miss by 18px of font metrics, not of behaviour. Assert the two things
+    // that are metric-independent: the pin is off (Transcript writes
+    // scroller.dataset.stuck for exactly this) and the reader ended up further
+    // from the bottom than they started.
+    const pre3 = await distFromBottom(page);
     await page.mouse.wheel(0, -100);
     await sleep(150);
     const s3samples = await sampleDist(page, 700);
     const d3min = Math.min(...s3samples);
     const st3 = await scrollTopOf(page);
-    check('S3', 'still unpinned (min distance > 160)', d3min > 160, `min=${d3min}, scrollTop=${st3}`);
+    const pin3 = await page.evaluate(
+      () => document.querySelector('.tabpane[style*="flex"] .transcript')?.dataset.stuck);
+    check('S3', 'pin OFF after the second notch', pin3 === 'false', `dataset.stuck=${pin3}`);
+    check('S3', 'second notch lifted the reader ≥60px further from the bottom',
+      d3min >= pre3 + 60, `min=${d3min}, before=${pre3}, scrollTop=${st3}`);
 
     // ---- S4 growth does not drag an unpinned reader -------------------------
     console.log('\nCASE S4 — streaming growth leaves the parked reader alone');
