@@ -1,69 +1,56 @@
 # nopencode — ttyd/webui stack
 
-## Navigation
-
-| Path | What |
-|------|------|
-| `chatserver.py` | Stateless Python HTTP server — proxies engine API, serves webui, owns search (FTS5 in webui.db) |
-| `webui/` | Svelte 4 + Vite frontend (`npm run build` → `webui/dist`, git-ignored) |
-| `webui/src/lib/` | Core libs: `api.ts` (engine client), `sse.ts` (SSE/event stream), `stores.ts` (Svelte stores), `markdown.ts`, `retries.ts` |
-| `webui/src/components/` | Svelte components: `App.svelte`, `Transcript.svelte`, `Sidebar.svelte`, `Composer.svelte`, `DiffPane.svelte` |
-| `Dockerfile` | Engine image (opencode CLI + ttyd + inject.py + python 3.13 via COPY --from python:3.13-slim-bookworm; apt python3 3.11 kept for its runtime libs) |
-| `Dockerfile.web` | Web image (python:3.13-slim + chatserver.py + webui/dist) |
-| `compose.yaml` | Service orchestration. `x-limits` anchor for shared caps |
-| `inject.py` | HTML patcher for ttyd's index.html |
-| `start.sh` | Engine container entrypoint |
-| `e2e/embedded/` | Self-contained headless tests (fake engine servers, no deploy needed) |
+Svelte 4 SPA (`webui/`) served by a stateless Python proxy (`chatserver.py`) in front of a
+headless `opencode serve` engine. Two independent container images: `Dockerfile` (engine,
+incl. ttyd + `inject.py`) and `Dockerfile.web` (chatserver + built `webui/dist`).
 
 ## Build & deploy
 
 - **Two independent builds**: `Dockerfile` (engine) and `Dockerfile.web` (web). Changing `webui/` or `chatserver.py` does not bust the engine build cache.
 - Deploy: `sudo docker compose up -d --build`. Web-only rebuild: `sudo docker compose up -d --build --no-deps opencode-web`.
 - `compose.yaml` `init: true` is required — without it PID 1 doesn't reap children and zombies accumulate.
+- CI: `.github/workflows/e2e.yml` builds the dist once (`WEBUI_BASE=/`) and its `build` job **fails on any `A11y:` warning** the svelte compiler emits, then runs one job per test listed in its matrix. 9 of the 51 files in `e2e/embedded/` are **not** in that matrix, so a "held by X.test.mjs" note below means locally-run, not CI-gated.
 
 ## Non-obvious patterns
 
 ### Svelte gotchas
 
-- **Frozen reactive expressions**: a function called in a template (`{fn($store)}`) only re-runs when the function *binding* is dirtied — reactive vars read *inside* the body are invisible to the compiler. Fix: `$: result = fn($store)` and render `{result}`. Affected: ComposerModelPicker label, CommandPalette sid resolution, rename dialog seeding.
+- **Frozen reactive expressions**: a function called in a template (`{fn($store)}`) only re-runs when the function *binding* is dirtied — reactive vars read *inside* the body are invisible to the compiler. Fix: `$: result = fn($store)` and render `{result}`.
 - **localStorage invisible to reactivity**: `$: x = localStorage.getItem(...)` never re-runs when localStorage changes. Keep such data in a writable store.
-- **A reactive block that mutates its own dep loops**: InfoPanel's `$: if ($sessionListDirty > 0 && !linkedDirtyTimer)` re-fired the instant the timer callback reset `linkedDirtyTimer = undefined` → permanent 250 ms `hist.sessions()` + `oc.status()` hammer. React on the counter *changing* (`$sessionListDirty !== linkedDirtySeen`), not on `> 0`.
+- **A reactive block that mutates its own dep loops**: gate on the counter *changing* (`$sessionListDirty !== linkedDirtySeen`), never on `> 0` — a timer callback clearing the flag re-fires the block into a permanent 250 ms fetch loop.
 
 ### Architecture
 
 - **chatserver.py is stateless** — every request runs its own SQL against opencode.db. No in-memory DB materialization.
 - **FTS5 search** lives in `webui.db` (writable sidecar), not `opencode.db` (read-only). Trigram index, incremental sync every 30s.
-- **`content-visibility:auto`** on `.msg` rows — offscreen rows skip style/layout/paint.
+- **Never put `content-visibility:auto` on `.msg` rows.** It was the transcript's perf win and was **removed** in `e532dc8`: with `contain-intrinsic-size: auto 160px`, rows swapping from the estimate to real height as they entered view gave up to ~3.9k px of scroll-anchor motion. Every row lays out for real; don't "restore the optimization."
 - **Monaco codicon font** must be explicitly imported in DiffPane or glyph icons render blank.
 - **Statics**: hashed `/assets/*` are `Cache-Control: immutable`; `index.html` is served whole (`no-store`, no ETag) because it carries the per-request CSP nonce — a 304 would pair a cached body with a fresh CSP header and block the inline theme script. The same dist is served at `/` and `/webui/` (chatserver strips the prefix).
-- **`.scad` viewer** (`ScadView.svelte` + `lib/scad*.ts`): read-tool parts of `.scad` files render inline 3D. Source comes from the engine's `/file/content` (text), compiles via OpenSCAD wasm in a worker, draws with three.js. The wasm is the npm dep `@kreijstal/openscad-wasm`, **exact-pinned** (no `main`/`exports` map → subpath import; types hand-written in `src/openscad-wasm.d.ts`). Traps: CSP needs `'wasm-unsafe-eval'` (chatserver `_apply_security`); the wasm build has no GL so **only mesh export** (no PNG); `main()` runs **once per instance** — a fresh `OpenSCAD()` per render, only the compiled `WebAssembly.Module` is cached; results are cached by SOURCE, not path (a path-keyed cache served stale geometry after a re-read of an edited file), and `$: show(path)` is guarded by a `shown` local because Svelte re-invalidates props on every parent update — Transcript re-renders constantly while streaming; `camera.up` must be set BEFORE `new OrbitControls(...)` — the controls build their rotation basis once in the constructor, so a later change leaves the drag math and `lookAt` in different frames and orbit feels non-logical; the 11 MB wasm is `globIgnore`d from the PWA precache (Vite names the asset after the source file, so the glob still matches when installed from npm).
 
 ### Engine API traps
 
 - **Eager image decode**: corrupt image at prompt time → `session.error` + entire message dropped, nothing persists.
 - `/permission` items have NO `title`, `pattern`, `path`, or `type` field. Use `patterns[0]` for file path, `metadata.input` for command.
 - `POST /session/{id}/fork` takes undocumented `{messageID}` body — exclusive copy before that message.
+
 ### E2E tests
 
-- `waitUntil:'networkidle'` never fires (SSE keeps connection open) — use `domcontentloaded`.
-- `POST /session/{id}/message` with `noReply:true` + parts = cheap way to seed fixtures without an LLM.
+Authoring details (fake-engine server shape, seeding with `noReply:true`, `domcontentloaded` vs `networkidle`, Playwright install) live in **`e2e/README.md`** — read it before writing or debugging a test. The ones that bite hardest:
+
+- **Always build the dist with `WEBUI_BASE=/`** — every fake server serves `webui/dist` at `/`, so a default-base (`/webui/`) bundle 404s its own assets and the app mounts blank. The symptom is a `waitForSelector('.sidebar .item')` timeout that reads exactly like a UI or fixture bug.
 - Each test owns a unique PORT — check siblings before picking one.
 - **`poll()` footgun**: `poll(() => el.count() === 0, T)` always times out — `count()` returns a Promise and `Promise === 0` is false. Always await: `poll(async () => (await el.count()) === 0, T)`.
-- Agent-picker fixtures need the dist built as `WEBUI_BASE=/ npm run build` — with the default `/webui/` base the fake's static handler 404s `/webui/assets/*` and nothing renders (masquerades as a picker bug).
-- `~/.cache/ms-playwright` can be empty in a fresh sandbox — every embedded test dies with "Executable doesn't exist". Restore: `cd e2e && node node_modules/playwright-core/cli.js install chromium-headless-shell`.
-- **A fake server that serves the shared dist at `/` must strip the `/webui/` prefix** in its static handler (`p.startsWith('/webui/') ? p.slice(6) : p`) — cheaper than a `WEBUI_BASE=/` build. Miss it and every asset 404s, the app never mounts, and the symptom is a `waitForSelector('.sidebar .item')` timeout that reads like a UI bug.
-- **`grep-count.test.mjs` is broken independently of any UI change** (verified 2026-10-28, fails identically at HEAD): the prefix bug above, and its `FREEZE_RE` abort of the post-turn `/message` refetch empties the transcript (`.msg` count 0), so no `.toolcard` ever appears. Fix it before adjudicating a diff against it.
-- **Locator reads in embedded tests must `waitFor({state:'attached'})` before `textContent()`** — a bare `count()` races the history render and fails a check whose node exists 5 ms later (a flake that later proves nothing).
+- **Locator reads must `waitFor({state:'attached'})` before `textContent()`** — a bare `count()` races the history render and fails a check whose node exists 5 ms later.
 - **A tool row's output box keys off `state.output`, never the tool name**, and mounts its body only while expanded (a `read` result can be 50 KB). Held by `e2e/embedded/tool-output-box.test.mjs`.
 
 ### Mobile
 
 - Chrome Android ≥108: viewport meta must include `interactive-widget=resizes-content`.
-- All `100vh` sites use `@supports (height:100dvh)` guard — bare `var(--vvh,100dvh)` outside @supports breaks on engines without dvh.
+- All `100vh` sites use an `@supports (height:100dvh)` guard — bare `var(--vvh,100dvh)` outside @supports breaks on engines without dvh.
 
 ### Streaming / rendering
 
-- `headings=false` (user-role messages only — Transcript passes `m.role !== 'user'`): `renderer.heading` returns the raw line as literal `<p>` (token.raw carries the `#`/setext markers; trailing `\n` trimmed). Suppression MUST live in the renderer, never as a pre-escape regex — `\#` corrupts `# comments` inside ``` fences. Returning `false` from the override delegates to marked's default (the `marked.use` wrapper falls back only on strict `false`; `''` swallows the heading). Agent/reasoning/subagent text keeps full markdown. Guard: `e2e/embedded/user-md.test.mjs`.
-- **Turn status is one slot: the Footer's `.status_indicator`** — footer is three zones (`.fleft` context/cost, `.fcenter` cylon + label, `.fright` ctrl+p) and the side zones carry **equal `flex: 1 1 0` shares**, which is what keeps the middle dead-centre whatever the numbers read (variants `.thinking` / `.compacting`; labels are lowercase `thinking...` / `compacting...` rendered as per-character `<i class="ch">` spans that each run the old ellipsis blink, 0.1s stagger over a 1.4s cycle, **floor `opacity: .35`** — a 0 floor left only ~half the word lit (CASE H samples computed opacity and holds the floor). `.stext` clips on narrow viewports so the ctrl+p button stays inside). **Under 380px the three contents do not fit (≈330px into 320), so the `@media` rule drops the cylon and trims the button padding — and that block MUST sit after `.cmd`/`.cylon` in the stylesheet: same specificity, an earlier copy silently loses, and a `flex-end` zone narrower than its content overflows leftward UNDER the centred label.** ComposerToolbar carries no status; the footer never prints the session's cwd either. Transcript's `.cmpbox.running` is **telemetry-only** (renders only with `engineM`), so its sibling failure branch must exclude `state === 'running'` — otherwise a summary with no engine to ask renders "Compaction failed". Held by `e2e/embedded/compact-indicator.test.mjs` (cases A/A2/D/E/F/G/H/I).
+- **Turn status is ONE slot: the Footer's `.status_indicator`** (variants `.thinking` / `.compacting`). The footer's three zones need **equal `flex: 1 1 0` shares on the side zones** — that is what keeps the middle dead-centre whatever the numbers read. The `@media (max-width:380px)` rule that drops the cylon **must sit after `.cmd`/`.cylon`** in the stylesheet: same specificity, an earlier copy silently loses. ComposerToolbar carries no status; the footer never prints the session's cwd. Transcript's `.cmpbox.running` is **telemetry-only**, so its sibling failure branch must exclude `state === 'running'` — otherwise a summary with no engine to ask renders "Compaction failed". Held by `e2e/embedded/compact-indicator.test.mjs`.
+- `headings=false` (user-role messages only — Transcript passes `m.role !== 'user'`): suppression MUST live in `renderer.heading`, never as a pre-escape regex — `\#` corrupts `# comments` inside ``` fences. Returning `false` from the override delegates to marked's default; `''` swallows the heading. Agent/reasoning/subagent text keeps full markdown. Guard: `e2e/embedded/user-md.test.mjs`.
 - Delta coalescing in `sse.ts`: `message.part.delta` chunks buffered per key with ~40ms flush; `message.part.updated` snapshot ALWAYS drops buffered deltas first to prevent duplication.
-- `scheduleRefetch()` gated on `!busy` in `message.updated` handler — otherwise in-progress thinking text gets overwritten by stale engine snapshots.
+- `scheduleRefetch()` gated on `!busy` in `message.updated` — otherwise in-progress thinking text gets overwritten by a stale engine snapshot.
