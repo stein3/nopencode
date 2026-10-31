@@ -9,7 +9,7 @@ incl. ttyd + `inject.py`) and `Dockerfile.web` (chatserver + built `webui/dist`)
 - **Two independent builds**: `Dockerfile` (engine) and `Dockerfile.web` (web). Changing `webui/` or `chatserver.py` does not bust the engine build cache.
 - Deploy: `sudo docker compose up -d --build`. Web-only rebuild: `sudo docker compose up -d --build --no-deps opencode-web`.
 - `compose.yaml` `init: true` is required — without it PID 1 doesn't reap children and zombies accumulate.
-- CI: `.github/workflows/e2e.yml` builds the dist once (`WEBUI_BASE=/`) and its `build` job **fails on any `A11y:` warning** the svelte compiler emits, then runs one job per test listed in its matrix. 9 of the 51 files in `e2e/embedded/` are **not** in that matrix, so a "held by X.test.mjs" note below means locally-run, not CI-gated.
+- CI: `.github/workflows/e2e.yml` builds the dist once (`WEBUI_BASE=/`), its `build` job **fails on any `A11y:` warning** the svelte compiler emits, and its test matrix is **generated from `e2e/embedded/*.test.mjs`** — one job per file, so a test is gated the moment it lands and the workflow holds no list to keep current.
 
 ## Non-obvious patterns
 
@@ -41,7 +41,7 @@ Authoring details (fake-engine server shape, seeding with `noReply:true`, `domco
 - Each test owns a unique PORT — check siblings before picking one.
 - **`poll()` footgun**: `poll(() => el.count() === 0, T)` always times out — `count()` returns a Promise and `Promise === 0` is false. Always await: `poll(async () => (await el.count()) === 0, T)`.
 - **Locator reads must `waitFor({state:'attached'})` before `textContent()`** — a bare `count()` races the history render and fails a check whose node exists 5 ms later.
-- **A tool row's output box keys off `state.output`, never the tool name**, and mounts its body only while expanded (a `read` result can be 50 KB). Held by `e2e/embedded/tool-output-box.test.mjs`.
+- **A tool row's output box keys off `state.output`, never the tool name**, and mounts its body only while expanded (a `read` result can be 50 KB).
 
 ### Mobile
 
@@ -50,7 +50,7 @@ Authoring details (fake-engine server shape, seeding with `noReply:true`, `domco
 
 ### Streaming / rendering
 
-- **Turn status is ONE slot: the Footer's `.status_indicator`** (variants `.thinking` / `.compacting`). The footer's three zones need **equal `flex: 1 1 0` shares on the side zones** — that is what keeps the middle dead-centre whatever the numbers read. The `@media (max-width:380px)` rule that drops the cylon **must sit after `.cmd`/`.cylon`** in the stylesheet: same specificity, an earlier copy silently loses. ComposerToolbar carries no status; the footer never prints the session's cwd. Transcript's `.cmpbox.running` is **telemetry-only**, so its sibling failure branch must exclude `state === 'running'` — otherwise a summary with no engine to ask renders "Compaction failed". Held by `e2e/embedded/compact-indicator.test.mjs`.
-- `headings=false` (user-role messages only — Transcript passes `m.role !== 'user'`): suppression MUST live in `renderer.heading`, never as a pre-escape regex — `\#` corrupts `# comments` inside ``` fences. Returning `false` from the override delegates to marked's default; `''` swallows the heading. Agent/reasoning/subagent text keeps full markdown. Guard: `e2e/embedded/user-md.test.mjs`.
+- **Turn status is ONE slot: the Footer's `.status_indicator`** (variants `.thinking` / `.compacting`). The footer's three zones need **equal `flex: 1 1 0` shares on the side zones** — that is what keeps the middle dead-centre whatever the numbers read. The `@media (max-width:380px)` rule that drops the cylon **must sit after `.cmd`/`.cylon`** in the stylesheet: same specificity, an earlier copy silently loses. ComposerToolbar carries no status; the footer never prints the session's cwd. Transcript's `.cmpbox.running` is **telemetry-only**, so its sibling failure branch must exclude `state === 'running'` — otherwise a summary with no engine to ask renders "Compaction failed".
+- `headings=false` (user-role messages only — Transcript passes `m.role !== 'user'`): suppression MUST live in `renderer.heading`, never as a pre-escape regex — `\#` corrupts `# comments` inside ``` fences. Returning `false` from the override delegates to marked's default; `''` swallows the heading. Agent/reasoning/subagent text keeps full markdown.
 - Delta coalescing in `sse.ts`: `message.part.delta` chunks buffered per key with ~40ms flush; `message.part.updated` snapshot ALWAYS drops buffered deltas first to prevent duplication.
 - `scheduleRefetch()` gated on `!busy` in `message.updated` — otherwise in-progress thinking text gets overwritten by a stale engine snapshot.

@@ -53,99 +53,42 @@ jobs:
           path: webui/dist
           retention-days: 1
 
+  # The test matrix is generated from the directory on purpose: a hand-maintained
+  # list silently stops gating the day someone adds a test file (42 of 51 were
+  # gated when this was written). Every *.test.mjs in e2e/embedded/ becomes a job.
+  list-tests:
+    name: Build test matrix
+    runs-on: ubuntu-latest
+    outputs:
+      tests: ${{ steps.ls.outputs.tests }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - name: Enumerate e2e/embedded/*.test.mjs
+        id: ls
+        run: |
+          node -e '
+            const fs = require("fs");
+            const files = fs.readdirSync("e2e/embedded")
+              .filter((f) => f.endsWith(".test.mjs"))
+              .sort()
+              .map((f) => ({ name: f.replace(/\.test\.mjs$/, ""), file: f }));
+            if (!files.length) { console.error("no tests found"); process.exit(1); }
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, "tests=" + JSON.stringify(files) + "\n");
+          '
+
   test:
     name: "${{ matrix.name }}"
-    needs: build
+    needs: [build, list-tests]
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - name: agent-label
-            file: agent-label.test.mjs
-          - name: agent-picker
-            file: agent-picker.test.mjs
-          - name: chords
-            file: chords.test.mjs
-          - name: engine-retry
-            file: engine-retry.test.mjs
-          - name: errtile
-            file: errtile.test.mjs
-          - name: errtile-persist
-            file: errtile-persist.test.mjs
-          - name: errtile-render
-            file: errtile-render.test.mjs
-          - name: fork
-            file: fork.test.mjs
-          - name: gentokens
-            file: gentokens.test.mjs
-          - name: grep-count
-            file: grep-count.test.mjs
-          - name: hidelight
-            file: hidelight.test.mjs
-          - name: hotkeys
-            file: hotkeys.test.mjs
-          - name: imgthumb
-            file: imgthumb.test.mjs
-          - name: kbd
-            file: kbd.test.mjs
-          - name: label
-            file: label.test.mjs
-          - name: linked-sessions
-            file: linked-sessions.test.mjs
-          - name: model-badge
-            file: model-badge.test.mjs
-          - name: model-picker
-            file: model-picker.test.mjs
-          - name: model-sync
-            file: model-sync.test.mjs
-          - name: modelid
-            file: modelid.test.mjs
-          - name: mru
-            file: mru.test.mjs
-          - name: palette-sid
-            file: palette-sid.test.mjs
-          - name: qbanner
-            file: qbanner.test.mjs
-          - name: question-picker
-            file: question-picker.test.mjs
-          - name: queue-e2e
-            file: queue-e2e.test.mjs
-          - name: scadview
-            file: scadview.test.mjs
-          - name: scrollstick
-            file: scrollstick.test.mjs
-          - name: search-groups
-            file: search-groups.test.mjs
-          - name: settings
-            file: settings.test.mjs
-          - name: settings-cmd
-            file: settings-cmd.test.mjs
-          - name: sidebar-model-tip
-            file: sidebar-model-tip.test.mjs
-          - name: stall-retry
-            file: stall-retry.test.mjs
-          - name: sse-resilience
-            file: sse-resilience.test.mjs
-          - name: subs
-            file: subs.test.mjs
-          - name: tasknotice
-            file: tasknotice.test.mjs
-          - name: titleclip
-            file: titleclip.test.mjs
-          - name: tokens
-            file: tokens.test.mjs
-          - name: uploads
-            file: uploads.test.mjs
-          - name: session-filters
-            file: session-filters.test.mjs
-          - name: session-grouping
-            file: session-grouping.test.mjs
-          - name: ws-group
-            file: ws-group.test.mjs
-          - name: tabs-a11y
-            file: tabs-a11y.test.mjs
-
+        include: ${{ fromJSON(needs.list-tests.outputs.tests) }}
     steps:
       - uses: actions/checkout@v7
 
