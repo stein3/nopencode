@@ -45,11 +45,13 @@
   }
 </script>
 
-<div class="tabbar" role="tablist" bind:this={bar}>
+<div class="tabbar" role="tablist" bind:this={bar} id="app-tabs">
   {#each $tabs as t (t.id)}
     <div
       role="tab"
       tabindex="0"
+      id={`app-tab-${t.id}`}
+      aria-controls={`app-pane-${t.id}`}
       aria-selected={$active === t.id}
       data-sid={t.id}
       class="tab"

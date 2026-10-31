@@ -7,6 +7,7 @@
   import { isImagePath, imageDataUrl } from '../lib/images'
   import { extLabel, isImageMime } from '../lib/attachments'
   import { isAborted, roleLabel, taskNoticeOf, copyText } from '../lib/util'
+  import { codeCopy } from '../lib/codeCopy'
   import { outFirstLine, outLineCount, previewLine, toolOutputOf, outputPlaceholder } from '../lib/outpreview'
   import { genTally } from '../lib/gentokens'
   import { retryState, cancelRetry, nextPayloadKind } from '../lib/retries'
@@ -982,31 +983,18 @@
     toast((await copyText(text)) ? 'copied' : 'copy failed')
   }
 
-  // Fence copy button. One delegated handler covers every {@html} markdown
-  // sink (message bodies, thinking, subagent notes) — the button is inert HTML
-  // from md(), so match it by class and read the text off its sibling <code>
-  // (hljs markup preserves the source in textContent).
-  function onBodyClick(e: MouseEvent) {
-    const btn = (e.target as Element | null)?.closest?.('button.code-copy') as
-      | HTMLButtonElement
-      | null
-    const code = btn?.closest('.codeblock')?.querySelector('code')
-    if (!btn || !code) return
-    copyText(code.textContent ?? '').then((ok) => toast(ok ? 'code copied' : 'copy failed'))
-    btn.textContent = '✓'
-    setTimeout(() => {
-      // a streaming re-render may have replaced the node already
-      if (btn.isConnected) btn.textContent = '📋'
-    }, 1200)
-  }
+  // Fence copy button — delegated by the use:codeCopy action below (see
+  // src/lib/codeCopy.ts for why it is not an on:click on this scroller).
 </script>
 
 <svelte:window on:keydown={onKey} />
 
 <div
   class="transcript"
+  role="log"
+  aria-label="Conversation for {tab.title || tab.id.slice(0, 12)}"
   bind:this={scroller}
-  on:click={onBodyClick}
+  use:codeCopy
   on:scroll={onScroll}
 >
   <div class="feed" bind:this={feed}>

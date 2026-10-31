@@ -31,6 +31,21 @@ jobs:
           WEBUI_BASE: /
         run: npm ci && npm run build
 
+      # vite-plugin-svelte prints its a11y warnings to stdout and still exits 0,
+      # so `npm run build` alone never fails on them. Re-running the build with
+      # the cache cold is cheap (~6s) and the grep is the only thing standing
+      # between an a11y regression and a green check.
+      - name: Fail on svelte a11y warnings
+        working-directory: webui
+        env:
+          WEBUI_BASE: /
+        run: |
+          npx vite build 2>&1 | tee /tmp/a11y-build.log
+          if grep -E 'A11y:' /tmp/a11y-build.log; then
+            echo '::error::svelte reported accessibility warnings (see above)'
+            exit 1
+          fi
+
       - name: Upload webui dist
         uses: actions/upload-artifact@v4
         with:
@@ -128,6 +143,8 @@ jobs:
             file: session-grouping.test.mjs
           - name: ws-group
             file: ws-group.test.mjs
+          - name: tabs-a11y
+            file: tabs-a11y.test.mjs
 
     steps:
       - uses: actions/checkout@v7

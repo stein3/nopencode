@@ -511,6 +511,11 @@
     {#each $tabs as t (t.id)}
       <div
         class="tabpane"
+        role="tabpanel"
+        id={`app-pane-${t.id}`}
+        aria-labelledby={`app-tab-${t.id}`}
+        tabindex={-1}
+        inert={$active !== t.id}
         style:display={$active === t.id ? 'flex' : 'none'}
         on:dragenter={(e) => paneDragEnter(e, t.id)}
         on:dragover={(e) => paneDragOver(e, t.id)}
