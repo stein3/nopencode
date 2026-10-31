@@ -879,8 +879,21 @@
     }
     return { agentMs: Math.max(0, total - toolMs), toolMs }
   }
+  const tsMs = (t?: number) => (t ? (t < 1e12 ? t * 1000 : t) : undefined)
   function timeStr(t?: number): string {
-    return t ? new Date(t < 1e12 ? t * 1000 : t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''
+    const ms = tsMs(t)
+    return ms ? new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''
+  }
+  // the visible stamp is clock-time only, so the calendar date — and how long
+  // ago that really was, i.e. today or previously — lives in the hover
+  function timeTip(m: any): string {
+    const ms = tsMs(m.time?.created)
+    if (!ms) return ''
+    const when = new Date(ms).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })
+    const span = m.time?.completed ? `${when} → ${timeStr(m.time.completed)}` : when
+    const age = Math.max(0, Date.now() - ms)
+    const days = Math.floor(age / 86400000)
+    return `${span} · ${days >= 1 ? `${days}d` : `${Math.floor(age / 60000)}m`} ago`
   }
 
   // TUI-parity: abort → retry operation when session is busy (e.g. engine
@@ -1048,27 +1061,29 @@
             {/if}
           </span>
         {/if}
-        {#if $showTimestamps}
-          <span class="time">{timeStr(m.time?.created)}</span>
-        {/if}
         {#if queuedIds.has(m.id)}
           <span class="qbadge" title="waiting for the current reply to finish">queued</span>
         {/if}
-        <span class="acts">
-          {#if !tn}
-            <button class="act" title="Copy message text" on:click={() => copyMessage(m.id)}>📋</button>
-          {/if}
-          {#if m.role === 'user' && !tn}
-            <button class="act" title="Revert session to before this message" on:click={() => revertTo(m.id)}>↩</button>
-            <button class="act" title="Fork a new session from before this message" on:click={() => forkFrom(m.id)}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <circle cx="12" cy="18" r="3" />
-                <circle cx="6" cy="6" r="3" />
-                <circle cx="18" cy="6" r="3" />
-                <path d="M18 9v1a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V9" />
-                <line x1="12" y1="12" x2="12" y2="15" />
-              </svg>
-            </button>
+        <span class="tail">
+          <span class="acts">
+            {#if !tn}
+              <button class="act" title="Copy message text" on:click={() => copyMessage(m.id)}>📋</button>
+            {/if}
+            {#if m.role === 'user' && !tn}
+              <button class="act" title="Revert session to before this message" on:click={() => revertTo(m.id)}>↩</button>
+              <button class="act" title="Fork a new session from before this message" on:click={() => forkFrom(m.id)}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="12" cy="18" r="3" />
+                  <circle cx="6" cy="6" r="3" />
+                  <circle cx="18" cy="6" r="3" />
+                  <path d="M18 9v1a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V9" />
+                  <line x1="12" y1="12" x2="12" y2="15" />
+                </svg>
+              </button>
+            {/if}
+          </span>
+          {#if $showTimestamps}
+            <span class="time" title={timeTip(m)}>{timeStr(m.time?.created)}</span>
           {/if}
         </span>
       </div>
@@ -1672,8 +1687,18 @@
   :global(.msg:not(.user)) .role {
     color: var(--accent);
   }
+  /* right-justified tail of the header row: the stamp sits at the far right
+     and the hover-revealed .acts group tucks in to its left, so the timestamp
+     never jumps sideways when the actions appear */
+  .tail {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 8px;
+    margin-left: auto;
+  }
   .time {
     color: var(--fg-dim);
+    white-space: nowrap;
   }
   .statgroup {
     display: inline-flex;
@@ -1700,7 +1725,6 @@
     max-width: 40%;
   }
   .acts {
-    margin-left: auto;
     display: none;
     gap: 4px;
   }
