@@ -1,12 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy, tick } from 'svelte'
-  import * as monaco from 'monaco-editor/editor/editor.api'
-  import EditorWorker from 'monaco-editor/editor/editor.worker.js?worker'
-  // editor.api does NOT include the codicon stylesheet, so every glyph icon
-  // Monaco draws (fold chevrons beside unchanged regions, diff arrows,
-  // widget buttons) renders as nothing without this font-face declaration.
-  // Alias defined in vite.config.ts (monaco's exports map blocks deep css).
-  import 'monaco-codicons.css'
+  import { monaco, ensureMonaco, monacoThemeFor, langOf } from '../lib/monaco'
   import {
     cachedDiffs,
     fetchDiffs,
@@ -17,10 +11,19 @@
     type ParsedDiff,
   } from '../lib/diffs'
   import { theme } from '../lib/stores'
+  import { shellMutationHint } from '../lib/changes'
+  import type { Tab } from '../lib/stores'
 
   export let sessionId: string
   export let visible = false
   export let onClose: () => void = () => {}
+  // the tab object, only so this pane can admit what it CANNOT see: an agent
+  // that edits through python/sed/patch produces no patch on either backend, so
+  // the merged diff list would silently under-report. A count, never a fake row
+  // (docs/file-browser.md §3b).
+  export let tab: Tab | null = null
+
+  $: shellHint = shellMutationHint(tab ?? undefined)
 
   let container: HTMLElement
   let files: DiffFile[] = []
@@ -48,40 +51,9 @@
   // diffs.ts caches so nothing is refetched)
   const modelCache = new Map<string, monaco.editor.IDiffEditorModel>()
 
-  if (!(self as any).MonacoEnvironment) {
-    ;(self as any).MonacoEnvironment = { getWorker: () => new EditorWorker() }
-  }
+  ensureMonaco()
 
-  monaco.editor.defineTheme('oc-dark', {
-    base: 'vs-dark',
-    inherit: true,
-    rules: [],
-    colors: {
-      'editor.background': '#1e1e1e',
-      'diffEditor.insertedTextBackground': '#2ea04326',
-      'diffEditor.removedTextBackground': '#f8514926',
-    },
-  })
-
-  monaco.editor.defineTheme('oc-light', {
-    base: 'vs',
-    inherit: true,
-    rules: [],
-    colors: {
-      'editor.background': '#f6f8fa',
-      'editor.foreground': '#1f2328',
-      'editor.lineHighlightBackground': '#eaeef280',
-      'editorLineNumber.foreground': '#656d76',
-      'editor.selectionBackground': '#0969da33',
-      'diffEditor.insertedTextBackground': '#1e725c26',
-      'diffEditor.removedTextBackground': '#cf222e26',
-    },
-  })
-
-  $: {
-    const isLight = $theme === 'solarized-light' || $theme === 'github-light' || $theme === 'catppuccin-latte' || $theme === 'gruvbox-light'
-    if (editor) monaco.editor.setTheme(isLight ? 'oc-light' : 'oc-dark')
-  }
+  $: if (editor) monaco.editor.setTheme(monacoThemeFor($theme))
 
   let editor: monaco.editor.IStandaloneDiffEditor | null = null
 
@@ -103,17 +75,6 @@
   }
 
   $: if (visible && editor) requestAnimationFrame(() => editor!.layout())
-
-  function langOf(path: string): string {
-    const ext = path.split('.').pop()?.toLowerCase() ?? ''
-    const map: Record<string, string> = {
-      ts: 'typescript', tsx: 'typescript', js: 'javascript', jsx: 'javascript',
-      py: 'python', md: 'markdown', json: 'json', yaml: 'yaml', yml: 'yaml',
-      sh: 'shell', html: 'html', css: 'css', svelte: 'html', rs: 'rust', go: 'go',
-      toml: 'ini', sql: 'sql',
-    }
-    return map[ext] ?? 'plaintext'
-  }
 
   function setModels(m: monaco.editor.IDiffEditorModel) {
     editor?.setModel(m)
@@ -269,6 +230,11 @@
       <span class="path" title={current.file}>{current.file}</span>
     {/if}
   </div>
+  {#if shellHint}
+    <div class="warn" title="python/sed/patch edits carry no patch on either backend — open Files to see what git saw">
+      ⚠ {shellHint} shell command{shellHint > 1 ? 's' : ''} may have changed files
+    </div>
+  {/if}
   {#if error}
     <div class="err">⚠ {error} <button on:click={() => load(true)}>retry</button></div>
   {:else if loading}
@@ -367,6 +333,12 @@
     padding: 10px;
     color: var(--err);
     font-size: 12px;
+  }
+  .warn {
+    padding: 4px 10px;
+    font-size: 11.5px;
+    color: var(--fg-dim);
+    border-bottom: 1px solid var(--border);
   }
   .hint.overlay {
     position: absolute;

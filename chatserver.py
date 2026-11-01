@@ -4,9 +4,12 @@
 Single-origin backend for the webui:
   /, /webui/       -> webui/dist statics (SPA fallback to index.html)
   /oc/*            -> reverse proxy to the opencode engine (REST + SSE,
-                      streamed). GET /oc/workspaces + GET /oc/fs/dirs are
-                      served locally instead (the engine has no such routes;
-                      see workspace_root/chips/complete_directories)
+                      streamed). GET /oc/workspaces, /oc/fs/dirs and
+                      /oc/fs/{list,file,find,status,diff} are served locally
+                      instead (the engine has no such routes; see
+                      workspace_root/chips/complete_directories and the
+                      FS_ROUTES block — read-only, ceiling-bounded file browser
+                      for the webui's Files drawer, docs/file-browser.md)
   /api/history/*   -> read-only sqlite access to opencode.db (sessions, transcript;
                       transcript accepts ?limit=N for a newest-N window)
   /api/history/session/{id}/errors
@@ -43,6 +46,7 @@ Env: PORT(8080) HOST(0.0.0.0) OC_ENGINE(http://127.0.0.1:4096)
      OC_WEBUI_DB(<dir of OC_DB>/webui.db)
 """
 
+import base64
 import gzip
 import http.client
 import json
@@ -51,6 +55,7 @@ import os
 import re
 import secrets
 import sqlite3
+import subprocess
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -1039,6 +1044,324 @@ def session_changes(sid):
     return {"files": [{"file": p, "ops": files[p]} for p in order]}
 
 
+# ---------------------------------------------------------------------------
+# File browser — GET /oc/fs/{list,file,find,status,diff}
+#
+# Same contract, same rules and same JSON shapes as pi-web's /oc/fs/*, because
+# the webui's Files drawer is one component talking to two backends (docs/
+# file-browser.md). Read-only end to end: no write route, no OS opener, and
+# read-only GIT ONLY — this worktree routinely carries another agent's
+# in-flight edits, so `git add`/`stash`/`checkout` from a browser drawer is a
+# data-loss bug, not a style problem. (`GIT_OPTIONAL_LOCKS=0` matters: plain
+# `git status` REFRESHES and rewrites .git/index, which is a write.)
+#
+# The CEILING is what stands between these routes and an arbitrary-read
+# endpoint: every request names a `cwd` (the drawer follows the tab), nothing
+# may resolve above it, and a symlink is only usable if where it POINTS is also
+# allowed. Deliberately NOT /oc/file/content, which takes an absolute path with
+# no containment because it exists to read a before-image the transcript already
+# named.
+# ---------------------------------------------------------------------------
+
+FS_LIST_CAP = 500
+FS_FIND_CAP = 200
+FS_MAX_DEPTH = 12
+FS_FILE_BYTES = 1024 * 1024
+FS_DIFF_BYTES = 512 * 1024
+# Overridable so a check can prove the refusal without seeding 20k files.
+FS_STATUS_CAP = int(os.environ.get("OC_FS_STATUS_CAP") or 20000)
+FS_CEILING = os.path.realpath(os.environ.get("OC_FS_CEILING") or WORKTREE)
+# tau's IGNORED_NAMES (pi-tau-web-server/bin/server-main.js) plus the few that
+# only bite once a repo is under the root. `.env` is the ONE dotfile that stays
+# visible — reading it is a common reason to open the drawer.
+FS_IGNORE = {
+    "node_modules", ".git", "__pycache__", ".DS_Store", ".Trash", ".next", ".nuxt",
+    "dist", "build", ".cache", ".turbo", "venv", ".venv", "env", ".env.local", ".pi",
+    "coverage", ".nyc_output", ".parcel-cache", ".pytest_cache", "target",
+}
+FS_IMAGE = {
+    ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif",
+    ".webp": "image/webp", ".svg": "image/svg+xml", ".ico": "image/x-icon", ".avif": "image/avif",
+}
+
+
+class FsError(Exception):
+    def __init__(self, status, message):
+        super().__init__(message)
+        self.status = status
+
+
+def fs_hidden(name):
+    return name in FS_IGNORE or (name.startswith(".") and name != ".env")
+
+
+def fs_within(x, root):
+    return x == root or x.startswith(root + os.sep)
+
+
+def fs_root(qs):
+    """Validate the cwd param: required, a real directory, inside the ceiling."""
+    raw = (qs.get("cwd") or [""])[0].strip()
+    if not raw:
+        raise FsError(400, "cwd is required — the drawer browses the session workspace, never a server-wide root")
+    raw = os.path.expanduser(raw)
+    abs_ = os.path.abspath(raw)
+    if not fs_within(abs_, FS_CEILING):
+        raise FsError(403, "%s is outside the workspace ceiling (%s)" % (abs_, FS_CEILING))
+    real = os.path.realpath(abs_)
+    if not fs_within(real, FS_CEILING):
+        raise FsError(403, "%s resolves to %s, outside the workspace ceiling (%s)" % (abs_, real, FS_CEILING))
+    if not os.path.isdir(real):
+        raise FsError(400, "not a directory: %s" % raw)
+    return real
+
+
+def fs_path(root, p):
+    """Resolve one path under a root; (abs, real-or-None), ceiling-checked both."""
+    raw = (p or "").strip()
+    abs_ = os.path.abspath(os.path.join(root, os.path.expanduser(raw))) if raw else root
+    if not fs_within(abs_, FS_CEILING):
+        raise FsError(403, "%s is outside the workspace ceiling (%s)" % (abs_, FS_CEILING))
+    real = os.path.realpath(abs_) if os.path.exists(abs_) else None
+    # tau's rule: a symlink is only usable if where it POINTS is allowed too.
+    if real and not fs_within(real, FS_CEILING):
+        raise FsError(403, "%s is a symlink to %s, outside the workspace ceiling (%s)" % (abs_, real, FS_CEILING))
+    return abs_, real
+
+
+def git_out(cwd, args):
+    """Read-only git. None on failure ("not a repo", "no such path in HEAD", …)."""
+    try:
+        r = subprocess.run(
+            ["git", "-C", cwd] + args,
+            capture_output=True,
+            timeout=15,
+            env={**os.environ, "GIT_OPTIONAL_LOCKS": "0"},
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if r.returncode != 0:
+        return None
+    return r.stdout.decode("utf-8", "replace")
+
+
+def fs_list(qs):
+    root = fs_root(qs)
+    abs_, real = fs_path(root, (qs.get("path") or [""])[0])
+    d = real or abs_
+    try:
+        scan = list(os.scandir(d))
+    except OSError as e:
+        raise FsError(404 if e.errno == 2 else 400, "cannot list %s: %s" % (abs_, e.strerror))
+    if not os.path.isdir(d):
+        raise FsError(400, "not a directory: %s" % abs_)
+    items = []
+    for e in scan:
+        if fs_hidden(e.name):
+            continue
+        try:
+            st = e.stat(follow_symlinks=False)  # never stat THROUGH a symlink
+            mtime = st.st_mtime * 1000.0
+            is_dir = e.is_dir(follow_symlinks=False)
+            size = None if is_dir else st.st_size
+            link = e.is_symlink()
+            escapes = False
+            if link:
+                size = None  # parity with pi-web: a link's own byte count is noise
+                t = os.path.realpath(e.path)
+                if fs_within(t, FS_CEILING):
+                    is_dir = os.path.isdir(t)
+                    size = None
+                else:
+                    escapes = True  # listed so the drawer can grey it out; reads 403
+        except OSError:
+            continue  # raced away
+        item = {"name": e.name, "path": e.path, "isDirectory": is_dir, "size": size, "mtime": mtime}
+        if link:
+            item["symlink"] = True
+        if escapes:
+            item["escapes"] = True
+        items.append(item)
+    # tau's order: directories first, then A→Z
+    items.sort(key=lambda i: (not i["isDirectory"], i["name"].lower()))
+    return {
+        "root": root,
+        "path": d,
+        "items": items[:FS_LIST_CAP],
+        "truncated": len(items) > FS_LIST_CAP,
+        "cap": FS_LIST_CAP,
+    }
+
+
+def fs_file(qs):
+    root = fs_root(qs)
+    abs_, real = fs_path(root, (qs.get("path") or [""])[0])
+    if not real:
+        raise FsError(404, "no such file: %s" % abs_)
+    if not os.path.isfile(real):
+        raise FsError(400, "not a file: %s (use /oc/fs/list)" % abs_)
+    size = os.path.getsize(real)
+    if size > FS_FILE_BYTES:
+        return {"path": abs_, "size": size, "type": "too_large", "truncated": True}
+    with open(real, "rb") as fh:
+        buf = fh.read()
+    mime = FS_IMAGE.get(os.path.splitext(abs_)[1].lower())
+    if mime:
+        return {"path": abs_, "size": size, "type": "image", "mime": mime, "base64": base64.b64encode(buf).decode()}
+    # NUL => binary. No body at all: base64 of a blob on every click is not a
+    # preview, and the drawer has nothing to draw with it.
+    if b"\0" in buf:
+        return {"path": abs_, "size": size, "type": "binary"}
+    return {"path": abs_, "size": size, "type": "text", "content": buf.decode("utf-8", "replace")}
+
+
+def fs_find(qs):
+    root = fs_root(qs)
+    needle = (qs.get("q") or [""])[0].strip().lower()
+    if not needle:
+        raise FsError(400, "q is required")
+    matches = []
+    truncated = False
+    queue = [(root, 0)]
+    while queue and not truncated:
+        d, depth = queue.pop(0)
+        try:
+            scan = list(os.scandir(d))
+        except OSError:
+            continue  # raced away or unreadable: skip the subtree, do not fail the search
+        for e in scan:
+            if fs_hidden(e.name):
+                continue
+            depth1 = depth + 1
+            try:
+                is_dir = e.is_dir(follow_symlinks=False)
+            except OSError:
+                continue
+            if e.is_symlink():
+                # NAMES are searchable through a link, but a link is never
+                # WALKED: that is the one way a search could leave the ceiling.
+                t = os.path.realpath(e.path)
+                if not fs_within(t, FS_CEILING):
+                    continue
+                if depth1 <= FS_MAX_DEPTH and needle in e.name.lower():
+                    matches.append({"name": e.name, "path": e.path, "isDirectory": False, "symlink": True})
+                continue
+            if depth1 <= FS_MAX_DEPTH and needle in e.name.lower():
+                matches.append({"name": e.name, "path": e.path, "isDirectory": is_dir})
+            if is_dir and depth1 < FS_MAX_DEPTH:
+                queue.append((e.path, depth1))
+            if len(matches) >= FS_FIND_CAP:
+                truncated = True
+                break
+    return {"root": root, "matches": matches, "truncated": truncated, "cap": FS_FIND_CAP, "depth": FS_MAX_DEPTH}
+
+
+def porcelain_status(xy):
+    """`M ` (staged) and ` M` (worktree) collapse to ONE word: the drawer badges
+    "this file is dirty", and whether the change happens to be staged is
+    somebody else's business in a shared worktree."""
+    x, y = xy[0], xy[1]
+    if xy == "??":
+        return "untracked"
+    if x == "U" or y == "U":
+        return "conflicted"
+    if x == "R" or y == "R":
+        return "renamed"
+    if x == "C" or y == "C":
+        return "copied"
+    if x == "D" or y == "D":
+        return "deleted"
+    if x == "A":
+        return "added"
+    if x == "T" or y == "T":
+        return "typechange"
+    return "modified"
+
+
+def parse_porcelain_z(out, top):
+    """porcelain v1 with -z: NUL-separated `XY path` records, and a rename/copy
+    inserts the SOURCE as the next field."""
+    fields = out.split("\0")
+    dirty = []
+    i = 0
+    while i < len(fields):
+        rec = fields[i]
+        i += 1
+        if len(rec) < 4:
+            continue
+        xy, rel = rec[:2], rec[3:]
+        if not rel:
+            continue
+        if xy[0] in ("R", "C") or xy[1] in ("R", "C"):
+            i += 1  # skip the source field
+        rel = rel.lstrip("./")
+        dirty.append({"path": rel, "abs": os.path.join(top, rel), "status": porcelain_status(xy), "xy": xy})
+    return dirty
+
+
+def fs_status(qs):
+    root = fs_root(qs)
+    top = (git_out(root, ["rev-parse", "--show-toplevel"]) or "").strip() or None
+    if not top:
+        return {"root": root, "repo": False, "dirty": []}  # not a repo: plain tree, no error tile
+    raw = git_out(top, ["status", "--porcelain=v1", "-z", "--untracked-files=all"])
+    head = (git_out(top, ["rev-parse", "--short", "HEAD"]) or "").strip() or None
+    branch = (git_out(top, ["rev-parse", "--abbrev-ref", "HEAD"]) or "").strip() or None
+    base = {"root": root, "repo": True, "toplevel": top, "head": head, "branch": branch}
+    if raw is None:
+        return {**base, "dirty": [], "error": "git status failed"}
+    all_ = parse_porcelain_z(raw, top)
+    if len(all_) > FS_STATUS_CAP:
+        # Refuse rather than ship 200k rows the drawer cannot draw: a truncated
+        # dirty set would silently un-badge files, worse than saying no.
+        return {
+            **base, "dirty": [], "truncated": True, "cap": FS_STATUS_CAP,
+            "error": "%d changed files exceed the %d-entry cap" % (len(all_), FS_STATUS_CAP),
+        }
+    # A repo may reach ABOVE the ceiling (a cwd one level inside it). Then the
+    # dirty set is cut at the ceiling: those files are unreadable here anyway,
+    # and naming them would leak what the containment rule exists to hide.
+    dirty = [d for d in all_ if fs_within(d["abs"], FS_CEILING)]
+    scoped = len(dirty) != len(all_)
+    out = {**base, "dirty": dirty, "scoped": scoped, "truncated": False}
+    if scoped:
+        out["omitted"] = len(all_) - len(dirty)
+    return out
+
+
+def fs_diff(qs):
+    root = fs_root(qs)
+    abs_, real = fs_path(root, (qs.get("path") or [""])[0])
+    top = (git_out(root, ["rev-parse", "--show-toplevel"]) or "").strip() or None
+    if not top:
+        raise FsError(400, "not a git repository: %s" % root)
+    rel = os.path.relpath(abs_, top)
+    if not rel or rel.startswith("..") or os.path.isabs(rel):
+        raise FsError(403, "%s is outside the git repository at %s" % (abs_, top))
+    body = git_out(top, ["diff", "--no-color", "-U3", "HEAD", "--", rel])
+    if body is None:
+        raise FsError(400, "git diff failed for %s" % rel)
+    patch = body
+    untracked = False
+    if not patch.strip():
+        in_head = git_out(top, ["cat-file", "-e", "HEAD:%s" % rel]) is not None
+        if not in_head and real and os.path.isfile(real):
+            # No HEAD side at all: synthesize all-adds.
+            untracked = True
+            with open(real, "r", errors="replace") as fh:
+                lines = fh.read().rstrip("\n").split("\n")
+            patch = "--- /dev/null\n+++ b/%s\n@@ -0,0 +1,%d @@\n" % (rel, len(lines)) + "\n".join("+" + l for l in lines)
+    truncated = len(patch) > FS_DIFF_BYTES
+    return {
+        "root": root, "toplevel": top, "path": abs_, "rel": rel,
+        "patch": patch[:FS_DIFF_BYTES] if truncated else patch,
+        "truncated": truncated, "untracked": untracked,
+    }
+
+
+FS_ROUTES = {"list": fs_list, "file": fs_file, "find": fs_find, "status": fs_status, "diff": fs_diff}
+
+
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     server_version = "opencode-chatserver/0.2"
@@ -1120,6 +1443,14 @@ class Handler(BaseHTTPRequestHandler):
             if self.command == "GET" and path == "/oc/fs/dirs":
                 prefix = (parse_qs(u.query).get("prefix") or [""])[0]
                 return self.send_json({"items": complete_directories(prefix)})
+            # File browser drawer (docs/file-browser.md). Local, NOT proxied:
+            # the engine serves none of these routes.
+            m = re.match(r"^/oc/fs/(list|file|find|status|diff)$", path)
+            if m and self.command == "GET":
+                try:
+                    return self.send_json(FS_ROUTES[m.group(1)](parse_qs(u.query)))
+                except FsError as e:
+                    return self.send_json({"error": str(e)}, e.status)
             if path == "/api/history/sessions":
                 return self.send_json(load_sessions())
             if path == "/api/history/errors":

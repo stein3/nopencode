@@ -20,6 +20,8 @@ export const CHORD_HINTS: Record<string, string> = {
   n: 'new',
   l: 'sessions',
   b: 'info',
+  f: 'files',
+  d: 'changes',
   m: 'models',
   a: 'agents',
   g: 'timeline',

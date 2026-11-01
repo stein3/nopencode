@@ -7,7 +7,7 @@
   import QuestionBanner from './components/QuestionBanner.svelte'
   import Footer from './components/Footer.svelte'
   import { hist, oc } from './lib/api'
-  import { tabs, permissions, sidebarOpen, selectedModel, paletteOpen, infoOpen, toggleInfo, mcpOpen, toggleMcp, toastMsg, patchMetrics, clearSessionUnread, loadOpenTabs, rekeySessionAgent, rekeySessionModel, rekeySessionVariant, modelPickerOpen, syncEngineRetryFromStatus, theme, markSessionListDirty, setSessionSynced, refFromEngine, type Tab } from './lib/stores'
+  import { tabs, permissions, sidebarOpen, selectedModel, paletteOpen, infoOpen, toggleInfo, mcpOpen, toggleMcp, toastMsg, patchMetrics, clearSessionUnread, loadOpenTabs, rekeySessionAgent, rekeySessionModel, rekeySessionVariant, modelPickerOpen, syncEngineRetryFromStatus, theme, markSessionListDirty, setSessionSynced, refFromEngine, drawer, openDrawer, closeDrawer, toggleDrawer, setDrawerTab, type Tab } from './lib/stores'
   import CommandPalette from './components/CommandPalette.svelte'
   import CommandDialog from './components/CommandDialog.svelte'
   import RenameDialog from './components/RenameDialog.svelte'
@@ -30,7 +30,9 @@
 
   let composers: Record<string, Composer> = {}
   let sidebarEl: Sidebar | undefined
-  let diffOpen = false
+  // the right drawer (Files | Changes) lives in a store, not a local: the
+  // command palette and the composer's `/` menu must both be able to open it
+  let wsRoot = ''
 
   // apply theme to <html> on store change
   $: document.documentElement.setAttribute('data-theme', $theme)
@@ -207,7 +209,13 @@
   let wsCapable: boolean | null = null
   const wsProbe = oc
     .workspaces()
-    .then((d) => (wsCapable = Array.isArray(d?.chips) && typeof d?.root === 'string'))
+    .then((d) => {
+      wsCapable = Array.isArray(d?.chips) && typeof d?.root === 'string'
+      // the workspace ceiling doubles as the file-browser root for tabs the
+      // engine reports no directory for (opencode sessions have no cwd field)
+      if (typeof d?.root === 'string') wsRoot = d.root
+      return wsCapable
+    })
     .catch(() => (wsCapable = false))
 
   function startPendingTab(cwd?: string) {
@@ -314,12 +322,14 @@
       jumpTab: (n) => jump(n),
       navSession: (dir) => sidebarEl?.navSession(dir),
       openPalette: () => paletteOpen.set(true),
-      toggleDiff: () => (diffOpen = !diffOpen),
+      toggleDiff: () => toggleDrawer('changes'),
       // ctrl+x leader chords (TUI parity); which-key strip shows the map
       chords: {
         n: newChat,
         l: () => sidebarEl?.navSession(1),
         b: () => toggleInfo(),
+        f: () => openDrawer('files'),
+        d: () => toggleDrawer('changes'),
         m: () => modelPickerOpen.set(true),
         a: () => runBuiltin('agents'),
         g: () => runBuiltin('timeline'),
@@ -448,7 +458,10 @@
     if (Math.abs(dx) < SWIPE_DIST || Math.abs(dx) < Math.abs(dy) * 1.4) return
     openTouch = null // consumed — one gesture, at most one action
     if (!$sidebarOpen && dx > 0) sidebarOpen.set(true)
-    else if (!$infoOpen && dx < 0) infoOpen.set(true)
+    else if (!$infoOpen && dx < 0) {
+      infoOpen.set(true)
+      closeDrawer() // one right drawer at a time
+    }
   }
 
   function edgeSwipeEnd(e: TouchEvent) {
@@ -482,13 +495,23 @@
       </button>
       <button
         class="burger"
-        class:on={diffOpen}
-        title="Toggle diff pane (Ctrl+D)"
-        on:click={() => (diffOpen = !diffOpen)}
+        class:on={$drawer.open && $drawer.tab === 'changes'}
+        title="Toggle changes pane (Ctrl+D)"
+        on:click={() => toggleDrawer('changes')}
       >
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
           <rect x="2" y="3" width="20" height="18" rx="2" />
           <line x1="12" y1="3" x2="12" y2="21" />
+        </svg>
+      </button>
+      <button
+        class="burger"
+        class:on={$drawer.open && $drawer.tab === 'files'}
+        title="Toggle file browser (Ctrl+X then F)"
+        on:click={() => toggleDrawer('files')}
+      >
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 6a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
         </svg>
       </button>
       <button class="burger" class:on={$infoOpen} title="Toggle info panel" on:click={toggleInfo}>▤</button>
@@ -574,15 +597,42 @@
       onOpen={(id) => openHistory(id)}
     />
   {/if}
-  {#if diffOpen}
-    <div class="diffwrap" use:sidePanel={{ side: 'right', getOpen: () => diffOpen, setOpen: (v) => (diffOpen = v) }}>
-      {#await import('./components/DiffPane.svelte') then DiffPane}
-        <DiffPane.default
-          sessionId={tabs.snapshot(tabs.getActive())?.pending ? '' : tabs.getActive()}
-          visible={diffOpen}
-          onClose={() => (diffOpen = false)}
-        />
-      {/await}
+  {#if $drawer.open}
+    <div
+      class="diffwrap"
+      use:sidePanel={{ side: 'right', getOpen: () => true, setOpen: () => closeDrawer() }}
+    >
+      <div class="dtabbar">
+        <button
+          class:on={$drawer.tab === 'files'}
+          title="Workspace tree + git status (Ctrl+X F)"
+          on:click={() => setDrawerTab('files')}>Files</button
+        ><button
+          class:on={$drawer.tab === 'changes'}
+          title="This session's edits, per call (Ctrl+D)"
+          on:click={() => setDrawerTab('changes')}>Changes</button>
+      </div>
+      <div class="dtabbody">
+        {#if $drawer.tab === 'changes'}
+          {#await import('./components/DiffPane.svelte') then DiffPane}
+            <DiffPane.default
+              sessionId={tabs.snapshot(tabs.getActive())?.pending ? '' : tabs.getActive()}
+              tab={$tabs.find((t) => t.id === $active) ?? null}
+              visible={$drawer.open}
+              onClose={() => closeDrawer()}
+            />
+          {/await}
+        {:else}
+          {#await import('./components/FileBrowser.svelte') then FileBrowser}
+            <FileBrowser.default
+              cwd={($tabs.find((t) => t.id === $active)?.cwd ?? wsRoot) || ''}
+              tab={$tabs.find((t) => t.id === $active) ?? null}
+              visible={$drawer.open}
+              onClose={() => closeDrawer()}
+            />
+          {/await}
+        {/if}
+      </div>
     </div>
   {/if}
 </div>
@@ -642,6 +692,39 @@
     width: 45%;
     min-width: 340px;
     height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+  /* one drawer, two tabs: Files (tree + git) and Changes (per-call diffs).
+     The strip is part of the host so both panes get the same switcher. */
+  .dtabbar {
+    display: flex;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-panel);
+    flex-shrink: 0;
+  }
+  .dtabbar button {
+    background: transparent;
+    border: 0;
+    border-right: 1px solid var(--border);
+    color: var(--fg-dim);
+    cursor: pointer;
+    font: inherit;
+    font-size: 12px;
+    padding: 7px 14px;
+  }
+  .dtabbar button.on {
+    color: var(--accent);
+    background: var(--bg);
+  }
+  .dtabbody {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+  }
+  .dtabbody > :global(*) {
+    flex: 1;
+    min-width: 0;
   }
   @supports (height: 100dvh) {
     .diffwrap {

@@ -1,4 +1,4 @@
-import { tabs, sessionTodos, patchMetrics, metricsFromMessages, tokenTally, markSessionUnread, patchEngineRetry, clearEngineRetry, syncEngineRetryFromStatus, patchEngineMetrics, syncEngineMetricsFromStatus, patchCompactionState, syncCompactionFromStatus, markSessionListDirty, sessionListDirty, setSessionQueue, dropSessionQueue } from './stores'
+import { tabs, sessionTodos, patchMetrics, metricsFromMessages, tokenTally, markSessionUnread, patchEngineRetry, clearEngineRetry, syncEngineRetryFromStatus, patchEngineMetrics, syncEngineMetricsFromStatus, patchCompactionState, syncCompactionFromStatus, markSessionListDirty, sessionListDirty, setSessionQueue, dropSessionQueue, bumpFsTick } from './stores'
 import { oc, hist } from './api'
 import { refreshPermissions } from './permissions'
 import { refreshQuestions } from './questions'
@@ -369,6 +369,11 @@ function openStream() {
     }
     if (type === 'session.idle') {
       tabs.patch(sid, { busy: false, compacting: false })
+      // The Files drawer's git badges come from ONE `git status` per turn end:
+      // idle is already on the wire, so the tree re-badges with no filesystem
+      // watcher and no polling. Drop the caches; the component refetches only if
+      // it is actually open.
+      bumpFsTick()
       // reconcile against the engine's finished state NOW: scheduleRefetch is
       // busy-gated (every message.updated refetch during the turn no-ops), so
       // without this nothing re-fetches `time.completed`/final tokens after a
