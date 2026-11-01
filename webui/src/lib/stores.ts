@@ -819,16 +819,23 @@ export function closeInfo() {
 // ONE drawer, two tabs. The webui already stacks three right drawers
 // (info, diff, MCP); a fourth is unusable on a phone, so the file browser and
 // the diff pane share a host and a segmented control picks which renders.
-// Ctrl+D keeps its exact meaning (open on Changes); ctrl+x f opens Files.
+// Ctrl+D toggles the WHOLE drawer and restores whichever tab was used last
+// (drawer.tab already is that, and it is persisted); ctrl+x f pins Files and
+// ctrl+x d pins Changes.
 export type DrawerTab = 'files' | 'changes'
 const DRAWER_TAB_KEY = 'opencode.drawer.tab'
 
 function storedDrawerTab(): DrawerTab {
+  // A drawer nobody has switched inside yet opens on FILES: the control that
+  // opens it is a folder icon, and 'changes' was only ever the default while this
+  // host held a single pane. Since the button and Ctrl+D now RESTORE this value
+  // instead of naming a tab, its default is the drawer's front door — so an
+  // unrecognised value falls back to Files too, never to the legacy pane.
+  let v: string | null = null
   try {
-    return localStorage.getItem(DRAWER_TAB_KEY) === 'files' ? 'files' : 'changes'
-  } catch {
-    return 'changes'
-  }
+    v = localStorage.getItem(DRAWER_TAB_KEY)
+  } catch {}
+  return v === 'changes' ? 'changes' : 'files'
 }
 
 export const drawer = writable<{ open: boolean; tab: DrawerTab }>({ open: false, tab: storedDrawerTab() })
@@ -853,6 +860,20 @@ export function toggleDrawer(tab: DrawerTab) {
   drawer.update((d) => {
     const next = { open: !(d.open && d.tab === tab), tab }
     try { localStorage.setItem(DRAWER_TAB_KEY, tab) } catch {}
+    if (next.open) infoOpen.set(false) // one right drawer at a time
+    return next
+  })
+}
+
+/**
+ * Ctrl+D. There is no separate "last used tab" tracker: drawer.tab IS that —
+ * setDrawerTab writes it on every switch and persists it, so restoring it after
+ * a close is the whole feature. Closes an open drawer, opens a closed one, and
+ * never disguises a tab-switch as a toggle.
+ */
+export function toggleDrawerLast() {
+  drawer.update((d) => {
+    const next = { open: !d.open, tab: d.tab }
     if (next.open) infoOpen.set(false) // one right drawer at a time
     return next
   })

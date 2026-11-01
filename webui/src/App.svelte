@@ -7,7 +7,7 @@
   import QuestionBanner from './components/QuestionBanner.svelte'
   import Footer from './components/Footer.svelte'
   import { hist, oc } from './lib/api'
-  import { tabs, permissions, sidebarOpen, selectedModel, paletteOpen, infoOpen, toggleInfo, mcpOpen, toggleMcp, toastMsg, patchMetrics, clearSessionUnread, loadOpenTabs, rekeySessionAgent, rekeySessionModel, rekeySessionVariant, modelPickerOpen, syncEngineRetryFromStatus, theme, markSessionListDirty, setSessionSynced, refFromEngine, drawer, openDrawer, closeDrawer, toggleDrawer, setDrawerTab, type Tab } from './lib/stores'
+  import { tabs, permissions, sidebarOpen, selectedModel, paletteOpen, infoOpen, toggleInfo, mcpOpen, toggleMcp, toastMsg, patchMetrics, clearSessionUnread, loadOpenTabs, rekeySessionAgent, rekeySessionModel, rekeySessionVariant, modelPickerOpen, syncEngineRetryFromStatus, theme, markSessionListDirty, setSessionSynced, refFromEngine, drawer, openDrawer, closeDrawer, toggleDrawer, toggleDrawerLast, setDrawerTab, type Tab } from './lib/stores'
   import CommandPalette from './components/CommandPalette.svelte'
   import CommandDialog from './components/CommandDialog.svelte'
   import RenameDialog from './components/RenameDialog.svelte'
@@ -326,7 +326,7 @@
       jumpTab: (n) => jump(n),
       navSession: (dir) => sidebarEl?.navSession(dir),
       openPalette: () => paletteOpen.set(true),
-      toggleDiff: () => toggleDrawer('changes'),
+      toggleDrawer: () => toggleDrawerLast(),
       // ctrl+x leader chords (TUI parity); which-key strip shows the map
       chords: {
         n: newChat,
@@ -499,20 +499,9 @@
       </button>
       <button
         class="burger"
-        class:on={$drawer.open && $drawer.tab === 'changes'}
-        title="Toggle changes pane (Ctrl+D)"
-        on:click={() => toggleDrawer('changes')}
-      >
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-          <rect x="2" y="3" width="20" height="18" rx="2" />
-          <line x1="12" y1="3" x2="12" y2="21" />
-        </svg>
-      </button>
-      <button
-        class="burger"
-        class:on={$drawer.open && $drawer.tab === 'files'}
-        title="Toggle file browser (Ctrl+X then F)"
-        on:click={() => toggleDrawer('files')}
+        class:on={$drawer.open}
+        title="Toggle the drawer (Ctrl+D)"
+        on:click={() => toggleDrawerLast()}
       >
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
           <path d="M3 6a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
@@ -613,7 +602,7 @@
           on:click={() => setDrawerTab('files')}>Files</button
         ><button
           class:on={$drawer.tab === 'changes'}
-          title="This session's edits, per call (Ctrl+D)"
+          title="This session's edits, per call (Ctrl+X then D)"
           on:click={() => setDrawerTab('changes')}>Changes</button
         ><span
           class="dpath"

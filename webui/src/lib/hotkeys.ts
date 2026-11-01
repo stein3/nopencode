@@ -8,7 +8,8 @@ export interface HotkeyHandlers {
   cycleTabs: (dir: 1 | -1) => void
   jumpTab: (n: number) => void
   navSession?: (dir: 1 | -1) => void
-  toggleDiff?: () => void
+  // ctrl+d: the right drawer (Files | Changes), on the tab used last
+  toggleDrawer?: () => void
   openPalette?: () => void
   // ctrl+x leader chords (TUI parity): plain key → action, resolved while a
   // chord is armed. Keys without an entry disarm silently.
@@ -108,9 +109,9 @@ export function initHotkeys(h: HotkeyHandlers) {
       e.preventDefault()
       h.closeTab()
     } else if (mod && !e.shiftKey && e.key.toLowerCase() === 'd') {
-      // diff pane toggle
+      // the right drawer: Files or Changes, whichever was used last
       e.preventDefault()
-      h.toggleDiff?.()
+      h.toggleDrawer?.()
     } else if (mod && e.key === '/') {
       // works even while typing (e.g. escape hatch out of the search box)
       e.preventDefault()

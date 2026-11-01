@@ -135,8 +135,8 @@ git reports changed, a dir survives only if its roll-up count is non-zero, and
 turning it on opens every ancestor of every dirty file, so the dirt is visible
 instead of folded away.
 
-- `Ctrl+D` (existing `toggleDiff`, `hotkeys.ts`) → opens the drawer on
-  **Changes**, unchanged behaviour; `ctrl+x d` does the same as a chord.
+- `Ctrl+D` (existing `toggleDiff` → `toggleDrawer`) → toggles the WHOLE
+  drawer, on whichever tab was used last (§9); `ctrl+x d` pins **Changes**.
 - **`ctrl+x f`** → opens **Files** (`f: 'files'` added to `CHORD_HINTS`, so
   which-key advertises it), plus a folder button in the topbar. Not `Ctrl+E`:
   every direct Ctrl-letter risks shadowing a browser or editor binding, and the
@@ -441,6 +441,22 @@ to the tree.
 - inline-vs-side-by-side parity in the transcript's own diff blocks;
 - deciding whether `DiffPane`'s merged per-session mode is worth keeping once the
   Changes tab and the browser's git view both exist.
+
+**One drawer button, one hotkey — SHIPPED** (operator's call, after using it).
+The topbar diff icon is gone (the folder icon opens the drawer, the tab strip
+inside it picks the pane), and `Ctrl+D` toggles the WHOLE drawer restoring
+whichever tab was used last. Two notes worth keeping:
+
+- No new "last tab" state was needed: `drawer.tab` already was that
+  (`setDrawerTab` persists it), so the body is `toggleDrawerLast()` — flip
+  `open`, keep `tab`. The `ctrl+x f` / `ctrl+x d` chords stay as explicit pins,
+  which is what makes the last-used default safe.
+- The stored default FLIPPED to `files`. With one restore-style button the
+  default is the drawer's front door, and a folder icon that opens the Changes
+  pane was the one wrong answer — so an unset (or unrecognised) stored value now
+  falls back to Files, never to the legacy pane. `fsbox-check` asserts Ctrl+D
+  under both orders (files→D, changes→D) plus the close path, which is what
+  caught that: the first green run opened on Changes and cascaded 21 red.
 
 ## 10. Out of scope (stated so it stays out)
 
