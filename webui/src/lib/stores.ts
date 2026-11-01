@@ -910,6 +910,53 @@ export function closeDrawer() {
   })
 }
 
+// ---- drawer width (drag to resize) -----------------------------------------
+// The drawer may eat the transcript's space down to TRANSCRIPT_FLOOR of the
+// viewport and no further — the same 0.28 fsbox-check asserts on the rendered
+// layout (main.clientWidth >= viewport * 0.28), and stores.test.ts pins that
+// the two numbers have not drifted apart. 340px matches .diffwrap's CSS
+// min-width. All the policy is in clampDrawerWidth; the drag handler in App is
+// DOM glue around it.
+export const TRANSCRIPT_FLOOR = 0.28
+export const DRAWER_MIN_WIDTH = 340
+const WIDTH_KEY = 'opencode.drawer.width'
+
+export function clampDrawerWidth(px: number, shared: number, viewport: number): number {
+  // `shared` is what drawer + transcript currently split (their combined
+  // width), so a clamp computed against it stays honest whatever the sidebar is
+  // doing. The transcript's share rounds UP: a drawer ceiling of round(641.6)
+  // would leave main at 358px, under the 358.4px floor and red in fsbox-check.
+  // When the ceiling falls under the floor — a tiny window — the floor wins: an
+  // unusable-but-draggable drawer beats one that swallows the screen.
+  const floor = Math.ceil(viewport * TRANSCRIPT_FLOOR)
+  const ceil = Math.max(DRAWER_MIN_WIDTH, shared - floor)
+  return Math.min(Math.max(Math.round(px), DRAWER_MIN_WIDTH), ceil)
+}
+
+export const drawerWidth = writable<number | null>(storedDrawerWidth())
+
+export function setDrawerWidth(px: number) {
+  drawerWidth.set(px)
+}
+
+export function saveDrawerWidth() {
+  try {
+    localStorage.setItem(WIDTH_KEY, String(get(drawerWidth) ?? ''))
+  } catch {}
+}
+
+export function storedDrawerWidth(): number | null {
+  try {
+    const raw = localStorage.getItem(WIDTH_KEY)
+    if (raw == null || raw === '') return null
+    const n = Number(raw)
+    // anything a resize could not have produced is not a width
+    return Number.isFinite(n) && n > 0 ? n : null
+  } catch {
+    return null
+  }
+}
+
 // Bumped when a turn ends (SSE session.idle). The Files tab re-reads git status
 // on this and nothing else: no filesystem watcher, no polling — the transcript
 // already says when the agent stopped moving.

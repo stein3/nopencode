@@ -19,8 +19,28 @@ registerHooks({
     }
   },
 })
-const { drawer, infoOpen, openDrawer, closeDrawer, toggleDrawer, toggleDrawerLast, toggleInfo } =
-  await import('./stores.ts')
+// Node has no localStorage; stores.ts tolerates that (try/catch everywhere),
+// but the width persistence needs one BEFORE the import — the module reads it
+// at init.
+const mem = new Map<string, string>()
+;(globalThis as any).localStorage = {
+  getItem: (k: string) => (mem.has(k) ? mem.get(k)! : null),
+  setItem: (k: string, v: string) => void mem.set(k, String(v)),
+  removeItem: (k: string) => void mem.delete(k),
+}
+const {
+  drawer,
+  infoOpen,
+  openDrawer,
+  closeDrawer,
+  toggleDrawer,
+  toggleDrawerLast,
+  toggleInfo,
+  clampDrawerWidth,
+  setDrawerWidth,
+  saveDrawerWidth,
+  storedDrawerWidth,
+} = await import('./stores.ts')
 
 // The drawer and Info share the right edge (one at a time), so opening the
 // drawer hides Info — but it must give the space BACK. The latch lives in
@@ -62,4 +82,41 @@ test('an explicit Info toggle supersedes the restore', () => {
   toggleInfo() // and closes Info again by hand
   closeDrawer() // drawer already closed — nothing to give back
   assert.equal(get(infoOpen), false, 'no resurrection after an explicit close')
+})
+
+// ---- resizable drawer ------------------------------------------------------
+// The clamp is the whole policy; the drag action is DOM glue around it. The
+// 0.28 transcript floor is the SAME number fsbox-check asserts on the rendered
+// layout (main.clientWidth >= viewport * 0.28) — the test pins that they have
+// not drifted apart.
+test('clampDrawerWidth holds the 340px floor and the transcript share', async () => {
+  const { TRANSCRIPT_FLOOR } = await import('./stores.ts')
+  assert.equal(TRANSCRIPT_FLOOR, 0.28, 'fsbox-check asserts exactly this floor on the rendered layout')
+
+  // below the floor: 340 wins (matches .diffwrap's min-width)
+  assert.equal(clampDrawerWidth(100, 1000, 1280), 340)
+  // above the ceiling: the transcript keeps 28% of the viewport
+  const max = clampDrawerWidth(10000, 1000, 1280)
+  assert.equal(max, 1000 - Math.ceil(1280 * 0.28))
+  assert.equal(1000 - max >= 1280 * 0.28, true, 'main keeps its share')
+  // a sane value passes through untouched
+  assert.equal(clampDrawerWidth(520, 1000, 1280), 520)
+  // tiny window: the min wins over a ceiling that fell below it
+  assert.equal(clampDrawerWidth(500, 400, 500), 340)
+})
+
+test('the drawer width survives a reload and garbage does not', () => {
+  setDrawerWidth(520)
+  saveDrawerWidth()
+  assert.equal(storedDrawerWidth(), 520)
+  mem.set('opencode.drawer.width', 'wide')
+  assert.equal(storedDrawerWidth(), null, 'non-numeric is not a width')
+  mem.set('opencode.drawer.width', '-20')
+  assert.equal(storedDrawerWidth(), null, 'negative is not a width')
+  mem.set('opencode.drawer.width', '0')
+  assert.equal(storedDrawerWidth(), null, 'zero is not a width')
+  // valid again, and it also feeds the live store
+  setDrawerWidth(400)
+  saveDrawerWidth()
+  assert.equal(storedDrawerWidth(), 400)
 })
