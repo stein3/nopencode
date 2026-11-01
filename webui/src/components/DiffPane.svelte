@@ -178,11 +178,16 @@
   onMount(() => {
     ensureEditor()
     // Track pane width so hunk models switch between the row-aligned pair
-    // (side-by-side) and the unpadded pair (inline) exactly when monaco does.
+    // (side-by-side) and the unpadded pair (inline) exactly when monaco does —
+    // and tell monaco explicitly: its own narrow-width flip
+    // (useInlineViewWhenSpaceIsLimited) is guarded by !screenReaderMode in
+    // diffEditorOptions.js and is a no-op there, while this observer would
+    // still swap the models. Layout and models must not disagree.
     resizeObserver = new ResizeObserver((entries) => {
       const v = entries[0].contentRect.width <= INLINE_BREAKPOINT
       if (v !== inlineView) {
         inlineView = v
+        editor?.updateOptions({ renderSideBySide: !v })
         if (current && !fullMode && visible) show(current)
       }
     })
