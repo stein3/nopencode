@@ -16,7 +16,18 @@
   export let visible = true
   /** 'file' | 'diff'. The parent sets 'diff' when the tree says the path is dirty. */
   export let mode: 'file' | 'diff' = 'file'
-  export let inline = false // narrow drawer → unpadded hunk models, as DiffPane does
+
+  // Split vs inline is OURS to decide, measured off the container — not a prop
+  // (the old `inline` prop was never set by anyone, so the viewer was always
+  // split) and not monaco's implicit flip: `useInlineViewWhenSpaceIsLimited` is
+  // guarded by !screenReaderMode in diffEditorOptions.js and is a silent no-op
+  // in screen-reader-optimized mode. Same 900px breakpoint DiffPane uses (and
+  // monaco's own default), and it must re-decide on width changes — the drawer
+  // is draggable now.
+  const INLINE_BREAKPOINT = 900
+  let inlineView = false
+  let currentPatch = ''
+  let ro: ResizeObserver | undefined
 
   let container: HTMLElement
   let note = ''
@@ -74,24 +85,38 @@
   }
 
   function showDiff(patch: string) {
+    currentPatch = patch
+    inlineView = (container?.clientWidth || 0) <= INLINE_BREAKPOINT
     ensureMonaco()
     if (!diffEditor) {
       diffEditor = monaco.editor.createDiffEditor(container, {
         theme: monacoThemeFor($theme),
         readOnly: true,
         automaticLayout: true,
-        renderSideBySide: !inline,
+        renderSideBySide: !inlineView,
         useInlineViewWhenSpaceIsLimited: true,
         minimap: { enabled: false },
         scrollBeyondLastLine: false,
         fontSize: 12.5,
       })
+      ro ??= new ResizeObserver((entries) => {
+        const v = entries[0].contentRect.width <= INLINE_BREAKPOINT
+        if (v === inlineView) return
+        inlineView = v
+        // flip the LAYOUT explicitly (the implicit flip cannot be trusted,
+        // see the comment above) and swap the model pair with it: the padded
+        // row-aligned pair exists to align split view, and shows as empty
+        // red/green slabs in inline — exactly what the narrow screenshot had.
+        diffEditor?.updateOptions({ renderSideBySide: !v })
+        if (kind === 'diff' && currentPatch) showDiff(currentPatch)
+      })
+      ro.observe(container)
     }
     if (pair) {
       pair.original.dispose()
       pair.modified.dispose()
     }
-    const parsed = inline ? parsePatchInline(patch) : parsePatch(patch)
+    const parsed = inlineView ? parsePatchInline(patch) : parsePatch(patch)
     pair = {
       original: monaco.editor.createModel(parsed.original, langOf(path)),
       modified: monaco.editor.createModel(parsed.modified, langOf(path)),
@@ -146,7 +171,11 @@
 
   const base = (p: string) => p.split('/').pop() ?? p
 
-  onDestroy(destroyEditors)
+  onDestroy(() => {
+    destroyEditors()
+    ro?.disconnect()
+    ro = undefined
+  })
 </script>
 
 <div class="viewer">
