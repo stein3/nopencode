@@ -38,13 +38,18 @@ for t in embedded/*.test.mjs; do node "$t"; done
 > + headless Chromium contention. The `for` loop above runs every file, one at a
 > time.
 
-> **Three checks need no browser** (useful in a sandbox without
+> **Four checks need no browser** (useful in a sandbox without
 > `~/.cache/ms-playwright`): `embedded/gentokens.test.mjs` imports
 > `webui/src/lib/gentokens.ts` directly through Node's type stripping,
 > `embedded/session-grouping.test.mjs` does the same for
 > `webui/src/lib/sessionGroups.ts` (the sidebar's workspace-grouping order
-> rules), and `python3 e2e/chatserver-tokens-check.py` imports `chatserver.py`
-> against a throwaway sqlite fixture — no server, no engine, no chromium.
+> rules), `python3 e2e/chatserver-tokens-check.py` imports `chatserver.py`
+> against a throwaway sqlite fixture, and `python3 e2e/chatserver-fs-check.py`
+> imports it against a throwaway file tree + fixture git repos to pin the
+> `/oc/fs/*` file-browser contract (containment ceiling, symlink escapes, caps,
+> read-only git) — no server, no engine, no chromium. Its node twin is
+> `pi-web`'s `web/.testbin/fsbrowse-check.mjs`; the drawer is one component, so
+> both backends must answer identically (docs/file-browser.md).
 
 ## Environment Variables
 

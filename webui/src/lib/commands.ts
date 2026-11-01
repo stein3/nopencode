@@ -17,6 +17,7 @@ import {
   settingsOpen,
   pluginsOpen,
   infoOpen,
+  openDrawer,
   cmdVersion,
   type DialogSpec,
 } from './stores'
@@ -307,6 +308,26 @@ registry.builtins = [
       const raw = await oc.diffRaw()
       openDialog({ title: 'git diff', pre: raw || '(no changes)' })
     },
+  },
+  {
+    // the drawer's Files tab: the session's workspace tree, badged by git.
+    // `/diff` above stays the raw worktree dump — different question, keep both.
+    name: 'files',
+    description: 'Open the file browser (workspace tree + git status)',
+    source: 'builtin',
+    title: 'File browser',
+    category: 'View',
+    keybind: 'ctrl+x f',
+    run: () => openDrawer('files'),
+  },
+  {
+    name: 'changes',
+    description: "Open the changes pane (this session's edits, per call)",
+    source: 'builtin',
+    title: 'Session changes',
+    category: 'View',
+    keybind: 'ctrl+d',
+    run: () => openDrawer('changes'),
   },
   {
     name: 'export',

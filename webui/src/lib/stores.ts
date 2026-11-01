@@ -802,6 +802,8 @@ export const infoOpen = writable(
 )
 export function toggleInfo() {
   infoOpen.update((v) => {
+    // symmetric with openDrawer: opening Info closes the Files/Changes drawer
+    if (v === false) drawer.update((d) => ({ ...d, open: false }))
     try {
       localStorage.setItem(INFO_KEY, v ? '0' : '1')
     } catch {}
@@ -811,6 +813,61 @@ export function toggleInfo() {
 export function closeInfo() {
   infoOpen.set(false)
   try { localStorage.setItem(INFO_KEY, '0') } catch {}
+}
+
+// ---- right drawer: Files | Changes ----------------------------------------
+// ONE drawer, two tabs. The webui already stacks three right drawers
+// (info, diff, MCP); a fourth is unusable on a phone, so the file browser and
+// the diff pane share a host and a segmented control picks which renders.
+// Ctrl+D keeps its exact meaning (open on Changes); ctrl+x f opens Files.
+export type DrawerTab = 'files' | 'changes'
+const DRAWER_TAB_KEY = 'opencode.drawer.tab'
+
+function storedDrawerTab(): DrawerTab {
+  try {
+    return localStorage.getItem(DRAWER_TAB_KEY) === 'files' ? 'files' : 'changes'
+  } catch {
+    return 'changes'
+  }
+}
+
+export const drawer = writable<{ open: boolean; tab: DrawerTab }>({ open: false, tab: storedDrawerTab() })
+
+export function setDrawerTab(tab: DrawerTab) {
+  drawer.update((d) => ({ ...d, tab }))
+  try { localStorage.setItem(DRAWER_TAB_KEY, tab) } catch {}
+}
+
+export function openDrawer(tab: DrawerTab) {
+  setDrawerTab(tab)
+  // Two right drawers at once crushes the transcript: at a 1280px viewport
+  // info + drawer leaves the conversation ~180px wide (caught in the fsbox
+  // screenshot, invisible to every overflow assertion). One right drawer at a
+  // time — whichever the user asked for last.
+  infoOpen.set(false)
+  drawer.update((d) => ({ ...d, open: true }))
+}
+
+/** Open on `tab`; if that tab is already showing, close (the toggle semantics). */
+export function toggleDrawer(tab: DrawerTab) {
+  drawer.update((d) => {
+    const next = { open: !(d.open && d.tab === tab), tab }
+    try { localStorage.setItem(DRAWER_TAB_KEY, tab) } catch {}
+    if (next.open) infoOpen.set(false) // one right drawer at a time
+    return next
+  })
+}
+
+export function closeDrawer() {
+  drawer.update((d) => ({ ...d, open: false }))
+}
+
+// Bumped when a turn ends (SSE session.idle). The Files tab re-reads git status
+// on this and nothing else: no filesystem watcher, no polling — the transcript
+// already says when the agent stopped moving.
+export const fsTick = writable(0)
+export function bumpFsTick() {
+  fsTick.update((n) => n + 1)
 }
 
 const MCP_KEY = 'opencode.mcpOpen'
