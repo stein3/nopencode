@@ -15,6 +15,8 @@
   export let touched: Set<string>
   export let onPick: (item: FsItem) => void
   export let onToggle: (path: string, open: boolean) => void
+  /** Filter to git-dirty entries (a dir stays if a dirty file lives under it). */
+  export let onlyDirty = false
 
   let items: FsItem[] = []
   let truncated = false
@@ -38,25 +40,29 @@
   load()
 
   const base = (p: string) => p.split('/').pop() ?? p
+
+  // With onlyDirty, a dir survives only if dirtyDirs counted something under it
+  // — the count is already exact (built from git's own dirty list, keyed by the
+  // same absolute paths the listing carries), so this needs no second walk.
+  $: shown = onlyDirty
+    ? items.filter((it) => dirty.has(it.path) || (it.isDirectory && dirCounts.get(it.path)))
+    : items
 </script>
 
 <div class="dir" class:nested={depth > 0}>
-  {#if depth > 0}
-    <button class="crumb" on:click={() => onToggle(path, false)}>▾ {base(path)}</button>
-  {/if}
   {#if error}
     <div class="note">⚠ {error}</div>
   {:else if loading && !items.length}
     <div class="note">loading…</div>
   {/if}
-  {#each items as item (item.path)}
+  {#each shown as item (item.path)}
     {#if item.isDirectory}
       <button
         class="row dirrow"
         class:escapes={item.escapes}
         class:linked={item.symlink}
         title={item.escapes ? `${item.path} — points outside the workspace` : item.path}
-        on:click={() => (item.escapes ? null : onToggle(item.path, true))}
+        on:click={() => (item.escapes ? null : onToggle(item.path, !expanded.has(item.path)))}
       >
         <span class="tw">{expanded.has(item.path) ? '▾' : '▸'}</span>
         <span class="nm">{item.name}</span>
@@ -106,6 +112,9 @@
   {#if truncated}
     <div class="note">… more entries than the listing cap</div>
   {/if}
+  {#if !shown.length && !loading && !error}
+    <div class="note">{onlyDirty ? 'nothing dirty here' : 'empty'}</div>
+  {/if}
 </div>
 
 <style>
@@ -116,8 +125,7 @@
     padding-left: 12px;
     border-left: 1px solid var(--border);
   }
-  .row,
-  .crumb {
+  .row {
     display: flex;
     align-items: center;
     gap: 6px;
@@ -133,15 +141,10 @@
     cursor: pointer;
     box-sizing: border-box;
   }
-  .row:hover,
-  .crumb:hover {
+  .row:hover {
     background: var(--bg-hover, var(--bg-panel));
   }
   .dirrow .nm {
-    font-weight: 600;
-  }
-  .crumb {
-    color: var(--fg-dim);
     font-weight: 600;
   }
   .tw {

@@ -193,6 +193,21 @@ export function dirtyDirs(st: FsStatus | null | undefined, root: string): Map<st
   return out
 }
 
+// Front-elided path for the drawer header: the tail (the workspace name) is the
+// part worth reading, and /workspace/... prefixes are noise at 12px.
+export function shortPath(p: string, max = 34): string {
+  if (!p) return ''
+  if (p.length <= max) return p
+  const parts = p.split('/').filter(Boolean)
+  let out = '…/' + p.replace(/^\/+/, '')
+  for (let i = 1; i < parts.length; i++) {
+    const cand = '…/' + parts.slice(i).join('/')
+    out = cand
+    if (cand.length <= max) return cand
+  }
+  return out
+}
+
 export function fmtSize(n: number | null | undefined): string {
   if (n == null) return ''
   if (n < 1024) return `${n} B`

@@ -34,6 +34,7 @@
   let query = ''
   let matches: FsMatch[] | null = null
   let findTruncated = false
+  let onlyDirty = false
   let error = ''
   let unsupported = false
   let refreshMs = 0
@@ -74,6 +75,24 @@
 
   // reveal-on-edit: the newest edit the session made, while the drawer is open
   $: if (visible && changes.length) reveal(changes[changes.length - 1].file)
+
+  // NOTE: onlyDirty and status must both appear in this statement's own
+  // condition — a Svelte reactive statement tracks only the identifiers it
+  // references itself, not what the function it calls reads (that bug made the
+  // file|diff toggle a no-op; fsbox-check caught it).
+  $: if (visible && onlyDirty && status) expandDirty()
+
+  // Turning the filter on must show the dirt, not a list of closed folders:
+  // every ancestor of every dirty path opens at once (same ancestor walk
+  // reveal-on-edit uses).
+  function expandDirty() {
+    const next = new Set(expanded)
+    let changed = false
+    for (const d of status?.dirty ?? []) {
+      for (const a of ancestors(d.abs)) if (!next.has(a)) { next.add(a); changed = true }
+    }
+    if (changed) expanded = next
+  }
 
   function ancestors(target: string): string[] {
     if (!cwd || !target) return []
@@ -161,6 +180,10 @@
 <div class="fb">
   <div class="toolbar">
     <input class="filter" placeholder="find files…" bind:value={query} on:input={onQuery} />
+    <label class="only" title="show only files git reports as changed">
+      <input type="checkbox" bind:checked={onlyDirty} />
+      <span>dirty</span>
+    </label>
     <span class="count" title={cwd}>
       {#if status?.repo}
         {status.branch ?? 'detached'}{#if dirtyCount} · {dirtyCount} dirty{/if}{#if status.scoped} (partial){/if}
@@ -205,6 +228,7 @@
           {touched}
           {onPick}
           {onToggle}
+          {onlyDirty}
         />
       {/if}
     </div>
@@ -230,6 +254,21 @@
     align-items: center;
     padding: 6px 10px;
     border-bottom: 1px solid var(--border);
+  }
+  .only {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    color: var(--fg-dim);
+    cursor: pointer;
+    flex-shrink: 0;
+    white-space: nowrap;
+  }
+  .only input {
+    accent-color: var(--accent);
+    margin: 0;
+    cursor: pointer;
   }
   .filter {
     flex: 1;

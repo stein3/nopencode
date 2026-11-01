@@ -126,6 +126,15 @@ keeps working exactly as it does today:
 [ Files | Changes ]                     ← segmented control in the drawer head
 ```
 
+The head of the Files tab carries **the directory pi actually runs the session
+in** — front-elided by `shortPath`, whole path in the `title`. It is the value
+the bridge resolved through `liveCwd()`, so after a workspace rename the header
+shows what is really being browsed, not the dead path pinned in the transcript.
+Beside the dirty count sits a **`dirty` checkbox**: the tree then holds only what
+git reports changed, a dir survives only if its roll-up count is non-zero, and
+turning it on opens every ancestor of every dirty file, so the dirt is visible
+instead of folded away.
+
 - `Ctrl+D` (existing `toggleDiff`, `hotkeys.ts`) → opens the drawer on
   **Changes**, unchanged behaviour; `ctrl+x d` does the same as a chord.
 - **`ctrl+x f`** → opens **Files** (`f: 'files'` added to `CHORD_HINTS`, so
@@ -370,18 +379,22 @@ to the tree.
   `sed -i`-only transcript yields zero diff rows plus exactly one hint, while a
   `grep`/`ls` turn yields neither.
 - `web/.testbin/fsbox-check.mjs` — the **rendered** drawer (chromium + the
-  sibling dist, SKIP-able through `optional.mjs`, port 8139). 24 assertions;
-  **17 failed against the pre-fix bridge**. The tree as drawn, the git badges
-  (● / +), a dirty file opening in a real Monaco **diff** editor carrying a
-  change no tool part reported, the `file` toggle producing a single-model
-  editor (this caught the §7 bug), untracked-as-all-adds, dir expansion, the
-  Changes tab still drawing the old pane, and no container overflow.
+  sibling dist, SKIP-able through `optional.mjs`, port 8139). 36 assertions:
+  **17 failed against a bridge with no `/oc/fs/*`**, and **6 fail against the
+  committed pre-fix webui build** — the way to prove a *rendered* assertion went
+  red rather than merely being new is `git archive HEAD webui | tar -x`, build
+  that, and run the check with `WEBUI_DIST=` pointing at it. Covers the tree as
+  drawn, the git badges (● / +), the header's cwd and dirty filter, a dirty file
+  opening in a real Monaco **diff** editor, the `file` toggle producing a
+  single-model editor (this caught the §7 bug), untracked-as-all-adds, dir expand
+  **and collapse**, one row per expanded dir, the Changes tab still drawing the
+  old pane, and no container overflow.
 - The renamed-header-cwd case is NOT re-tested here: the drawer browses
   `tab.cwd`, and `cwd-check.mjs` already pins that a session whose header cwd is
   gone answers a cwd that exists. Adding a second assertion of the same fallback
   through a different route would only duplicate it.
 
-## 7. Two things the build taught
+## 7. Things the build taught
 
 - **A Svelte reactive statement tracks only the identifiers it references
   itself.** `$: if (visible && path && cwd) load()` does NOT re-run when
@@ -393,6 +406,20 @@ to the tree.
   drawer badges "dirty vs HEAD"; diffing against the index made staged files —
   e.g. anything another agent staged — render as "git reports no change" next to
   a ● badge. Both backend checks now stage a file ON PURPOSE to keep that honest.
+- **A nested tree instance must not render its own header for the directory it
+  is showing.** It duplicated the parent's row (`▾ web 4`, then `▾ web`) — and
+  deleting that row removed the ONLY collapse affordance, because the parent's
+  dir row expanded unconditionally (`onToggle(path, true)`). One row per dir
+  means that row has to toggle. Both halves are asserted: the row count, and
+  "clicking an open dir collapses it".
+- **Do not assert diff internals through Monaco's per-pane DOM.** Under its width
+  breakpoint the diff editor goes INLINE, so there is no separate
+  original/modified text to read (and its overview ruler paints no child nodes to
+  count). Make the two sides token-distinct in the FIXTURE instead — a HEAD-only
+  string that exists nowhere on disk, a worktree-only string that exists nowhere
+  in HEAD — and then "the diff shows both" plus "the file view shows exactly one"
+  hold in either layout, while a one-model-mounted-twice regression fails one of
+  them.
 
 ## 8. Sequencing (done)
 
