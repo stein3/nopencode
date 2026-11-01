@@ -22,6 +22,7 @@
   import { cancelRetry } from './lib/retries'
   import { answerPermission, refreshPermissions } from './lib/permissions'
   import { initHotkeys } from './lib/hotkeys'
+  import { hasDraft, clearDraft, pruneDrafts, installDraftGuard, discardPrompt } from './lib/drafts'
   import { runBuiltin } from './lib/commands'
   import { installVisualViewportFix } from './lib/visualViewport'
   import { focusMode, initKbdLock, enableFocusMode, disableFocusMode } from './lib/kbdlock'
@@ -257,6 +258,11 @@
   }
 
   function closeTab(id: string) {
+    // The compose box's text lives only in that pane's Composer, so closing the
+    // tab silently deletes an unsent message. Confirm first (× button, middle
+    // click, Alt+W / Ctrl+W in focus mode, sidebar close — all land here).
+    if (hasDraft(id) && !window.confirm(discardPrompt(tabs.snapshot(id)?.title ?? ''))) return
+    clearDraft(id)
     cancelRetry(id) // no orphan retry timers for closed sessions
     tabs.close(id)
   }
@@ -331,6 +337,7 @@
       },
     })
     const removeKbdLock = initKbdLock()
+    const removeDraftGuard = installDraftGuard()
     window.addEventListener('touchstart', edgeSwipeStart, { passive: true })
     window.addEventListener('touchmove', edgeSwipeMove, { passive: true })
     window.addEventListener('touchend', edgeSwipeEnd)
@@ -338,6 +345,7 @@
     return () => {
       removeHotkeys()
       removeKbdLock()
+      removeDraftGuard()
       window.removeEventListener('oc:new-chat', onNewChatEvent)
       document.removeEventListener('oc:focus-sidebar', onFocusSidebar)
       window.removeEventListener('touchstart', edgeSwipeStart)
@@ -349,6 +357,9 @@
 
   let order: string[] = []
   $: order = $tabs.map((t) => t.id)
+  // a closed or rekeyed tab (pending-* → real session id) can no longer report
+  // its draft, so its entry must go or the reload prompt would never clear
+  $: pruneDrafts(order)
   const active = tabs.active
   // viewing a session clears its done/unread sidebar light (covers tab clicks,
   // hotkey cycling, new chats — any path that changes the active tab)
