@@ -90,6 +90,13 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.web
+      # Root base is the repo default and what a plain build produces. Set
+      # WEBUI_BASE=/webui/ in .env (gitignored) only when this container sits
+      # behind a prefix-stripping subpath proxy, where the browser must request
+      # /webui/assets/*, /webui/sw.js and /webui/manifest.webmanifest — otherwise
+      # those host-root paths escape the prefix and the app never boots.
+      args:
+        WEBUI_BASE: ${WEBUI_BASE:-}
     restart: unless-stopped
     entrypoint: ["python3"]
     command: ["/app/chatserver.py"]
