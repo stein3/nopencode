@@ -442,6 +442,12 @@ to the tree.
 - deciding whether `DiffPane`'s merged per-session mode is worth keeping once the
   Changes tab and the browser's git view both exist.
 
+**The drawer gives Info its space back — SHIPPED.** One-right-drawer-at-a-time
+meant opening the drawer silently ate the Info panel for good. Now a latch
+records that the DRAWER (not the user) closed Info, and closing the drawer
+restores it; an explicit Info toggle consumes the latch, so nothing is
+resurrected. Held by `stores.test.ts` (4 cases) and an fsbox assertion pair.
+
 **One drawer button, one hotkey — SHIPPED** (operator's call, after using it).
 The topbar diff icon is gone (the folder icon opens the drawer, the tab strip
 inside it picks the pane), and `Ctrl+D` toggles the WHOLE drawer restoring
