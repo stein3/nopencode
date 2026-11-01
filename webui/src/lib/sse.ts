@@ -173,7 +173,7 @@ export async function loadOlder(sessionId: string): Promise<void> {
   }
 }
 
-export function refetchNow(sessionId: string) {
+export function refetchNow(sessionId: string, opts?: { quiet?: boolean }) {
   const prev = timers.get(sessionId)
   if (prev) clearTimeout(prev)
   timers.delete(sessionId)
@@ -183,7 +183,15 @@ export function refetchNow(sessionId: string) {
   // message id while its PART state is stale (a tool part frozen at `running`,
   // so its diff/metadata never renders). Id equality proves nothing about part
   // state; only `dirty` forces the authoritative copy in.
-  tabs.patch(sessionId, { dirty: true })
+  //
+  // `quiet` is for the PERIODIC reconcile of a tab this client already believes
+  // is idle and clean. It still needs that authoritative copy — SSE has no
+  // replay, which is why a backgrounded/locked mobile tab re-syncs on return —
+  // but it must not light the tab-bar dot: Tabs.svelte paints `dirty && !busy`
+  // green, so a routine re-pull of a transcript we already hold rendered as a
+  // status change on a session doing nothing (the reported "green dot flashes on
+  // idle tabs"). The fetch is identical; only the flag is not set.
+  tabs.patch(sessionId, { dirty: !opts?.quiet })
   oc.messages(sessionId, RECENT_PAGE)
     .then((msgs) => applyMessages(sessionId, msgs, msgs.length < RECENT_PAGE))
     .catch(() => {})
@@ -596,7 +604,12 @@ async function catchUp() {
     if (!!t.busy !== busy) tabs.patch(t.id, { busy })
     // a missed session.next.compaction.ended must not pin the indicator forever
     if (!busy && t.compacting) tabs.patch(t.id, { compacting: false })
-    if (!busy) refetchNow(t.id)
+    // Still re-pull EVERY open idle tab — this is the whole point of catchUp():
+    // a mobile tab backgrounded through a turn lost every frame and SSE cannot
+    // replay them. Quiet so the pass stays invisible:  is what Tabs.svelte
+    // paints green, and it has no other reader, so an idle+clean tab needs the
+    // data without the signal. A stale tab is already patched busy just above.
+    if (!busy) refetchNow(t.id, { quiet: true })
   }
 }
 
