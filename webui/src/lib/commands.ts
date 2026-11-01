@@ -326,7 +326,9 @@ registry.builtins = [
     source: 'builtin',
     title: 'Session changes',
     category: 'View',
-    keybind: 'ctrl+d',
+    // ctrl+d now means "the drawer, whichever tab was last" — the explicit pin
+    // for Changes is the chord
+    keybind: 'ctrl+x d',
     run: () => openDrawer('changes'),
   },
   {
