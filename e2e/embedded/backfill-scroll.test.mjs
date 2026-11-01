@@ -11,7 +11,7 @@
 // `anchoring` is armed, so the restore preserves the user's LIVE position
 // shifted by exactly the prepended height.
 //
-// Fixture: 400 messages; the engine serves newest-N with a 350ms delay so the
+// Fixture: 400 messages; the engine serves newest-N with a delay (MSG_DELAY_MS) so the
 // load window is wide enough to scroll inside deterministically. RECENT_PAGE
 // (80) loads first → tab.partial → scrolling near the top arms auto-backfill.
 //
@@ -40,7 +40,7 @@ const PORT = 8174;
 const BASE = `http://127.0.0.1:${PORT}`;
 const SID = 'ses_backfill01';
 const TOTAL = 400;
-const MSG_DELAY_MS = 900; // >> the wheel loop (~200ms) so the mid sample is pre-restore
+const MSG_DELAY_MS = 1500; // >> wheel loop + mid settle-poll, so the mid sample is pre-restore
 
 // ============================== fake engine =================================
 
@@ -232,11 +232,32 @@ try {
     const box = await pane.boundingBox();
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
     await page.mouse.wheel(0, -1); // fires onScroll near top → arms maybeLoadOlder
-    await sleep(30); // request now in flight (server holds 350ms)
+    await sleep(30); // request now in flight (server holds MSG_DELAY_MS)
     for (let i = 0; i < 12; i++) {
       await page.mouse.wheel(0, 120);
       await sleep(15);
     }
+    // The last wheel step can apply a frame after the loop ends; sampling mid
+    // before it lands races it (mid sees step N-1, the anchor re-bases on step
+    // N, the restore preserves N → B1 compares two different positions and
+    // fails spuriously). Wait for scrollTop to settle before the anchor sample.
+    await page.evaluate(
+      () =>
+        new Promise((resolve) => {
+          const sc = document.querySelector('.tabpane[style*="flex"] .transcript');
+          let last = sc.scrollTop;
+          let stable = 0;
+          const t0 = performance.now();
+          const step = () => {
+            const t = sc.scrollTop;
+            stable = t === last ? stable + 1 : 0;
+            last = t;
+            if (stable >= 2 || performance.now() - t0 > 400) return resolve(undefined);
+            requestAnimationFrame(step);
+          };
+          requestAnimationFrame(step);
+        }),
+    );
     const mid = await page.evaluate(() => {
       const sc = document.querySelector('.tabpane[style*="flex"] .transcript');
       const top = sc.getBoundingClientRect().top;
@@ -244,9 +265,9 @@ try {
       for (const m of sc.querySelectorAll('.msg')) {
         if (m.getBoundingClientRect().bottom > top + 2) { row = m.id; break; }
       }
-      return { top: Math.round(sc.scrollTop), row };
+      return { top: Math.round(sc.scrollTop), row, rows: sc.querySelectorAll('.msg').length };
     });
-    await sleep(900); // let the restore land (server holds 900ms + settle)
+    await sleep(1700); // let the restore land (server responds at ~MSG_DELAY_MS)
     const afterTop = await scrollTopOf(page);
     const afterRow = await rowAtViewportTop(page);
     const rowsAfter = await rowCount(page);
@@ -254,11 +275,15 @@ try {
     // B1: the restore must keep the SAME row under the reader's eyes. Before
     // the fix it wrote an absolute scrollTop from a frozen anchor, teleporting
     // the reader to whatever row that stale offset mapped to after the prepend.
+    // mid must have been sampled while the load was still in flight (rows0):
+    // post-restore, mid.row trivially equals afterRow — fail loudly instead.
     check(
       'B1',
       'same row under the viewport top after the restore',
-      mid.row != null && mid.row === afterRow,
-      `row ${mid.row} → ${afterRow} (scrollTop ${mid.top} → ${afterTop})`,
+      mid.rows === rows0 && mid.row != null && mid.row === afterRow,
+      mid.rows !== rows0
+        ? `mid sampled after the restore landed (rows ${mid.rows} ≠ ${rows0}) — window collapsed`
+        : `row ${mid.row} → ${afterRow} (scrollTop ${mid.top} → ${afterTop})`,
     );
 
     // B2: no single-frame upward jump (the restore is one rAF write)
