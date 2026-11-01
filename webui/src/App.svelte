@@ -629,8 +629,7 @@
         ><span
           class="dpath"
           title={drawerCwd ? `working directory: ${drawerCwd}` : 'no workspace for this session'}
-          >{shortPath(drawerCwd)}</span
-        >
+        ><span class="dpathin">{shortPath(drawerCwd)}</span></span>
       </div>
       <div class="dtabbody">
         {#if $drawer.tab === 'changes'}
@@ -708,17 +707,27 @@
   .burger.pressed {
     color: var(--accent);
   }
+  /* The path owns whatever width the tabs leave, and sits in the middle of
+     it — .dtabbar has no align-items, so a bare inline span stretched the full
+     strip height and hugged the top edge. The text goes in an inner span
+     because a flex container cannot ellipsis an anonymous text child: the
+     inner element is the flex item that shrinks to the available width. */
   .dpath {
     flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--fg-dim);
+    font-family: var(--mono);
+    font-size: 10.5px;
+    padding: 0 8px;
+  }
+  .dpathin {
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    text-align: right;
-    color: var(--fg-dim);
-    font-family: var(--mono);
-    font-size: 10.5px;
-    padding-left: 8px;
   }
   .diffwrap {
     width: 45%;
