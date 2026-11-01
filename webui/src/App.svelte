@@ -27,12 +27,16 @@
   import { focusMode, initKbdLock, enableFocusMode, disableFocusMode } from './lib/kbdlock'
   import { msgModel } from './lib/util'
   import { sidePanel, SWIPE_EDGE, SWIPE_DIST } from './lib/sidePanel'
-
+  import { shortPath } from './lib/fs'
   let composers: Record<string, Composer> = {}
   let sidebarEl: Sidebar | undefined
   // the right drawer (Files | Changes) lives in a store, not a local: the
   // command palette and the composer's `/` menu must both be able to open it
   let wsRoot = ''
+  // the directory pi actually runs this session in (the bridge already resolved
+  // the liveCwd() fallback for a renamed workspace) — the drawer browses this,
+  // so the header must show it or the path is invisible anywhere in the UI
+  $: drawerCwd = ($tabs.find((t) => t.id === $active)?.cwd ?? wsRoot) || ''
 
   // apply theme to <html> on store change
   $: document.documentElement.setAttribute('data-theme', $theme)
@@ -610,7 +614,12 @@
         ><button
           class:on={$drawer.tab === 'changes'}
           title="This session's edits, per call (Ctrl+D)"
-          on:click={() => setDrawerTab('changes')}>Changes</button>
+          on:click={() => setDrawerTab('changes')}>Changes</button
+        ><span
+          class="dpath"
+          title={drawerCwd ? `working directory: ${drawerCwd}` : 'no workspace for this session'}
+          >{shortPath(drawerCwd)}</span
+        >
       </div>
       <div class="dtabbody">
         {#if $drawer.tab === 'changes'}
@@ -625,7 +634,7 @@
         {:else}
           {#await import('./components/FileBrowser.svelte') then FileBrowser}
             <FileBrowser.default
-              cwd={($tabs.find((t) => t.id === $active)?.cwd ?? wsRoot) || ''}
+              cwd={drawerCwd}
               tab={$tabs.find((t) => t.id === $active) ?? null}
               visible={$drawer.open}
               onClose={() => closeDrawer()}
@@ -687,6 +696,18 @@
   /* focus-mode toggle pressed state — same accent treatment as .burger.on */
   .burger.pressed {
     color: var(--accent);
+  }
+  .dpath {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-align: right;
+    color: var(--fg-dim);
+    font-family: var(--mono);
+    font-size: 10.5px;
+    padding-left: 8px;
   }
   .diffwrap {
     width: 45%;
