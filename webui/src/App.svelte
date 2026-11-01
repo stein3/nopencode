@@ -29,6 +29,8 @@
   import { msgModel } from './lib/util'
   import { sidePanel, SWIPE_EDGE, SWIPE_DIST } from './lib/sidePanel'
   import { shortPath } from './lib/fs'
+  import { dragWidth } from './lib/resizer'
+  import { drawerWidth } from './lib/stores'
   let composers: Record<string, Composer> = {}
   let sidebarEl: Sidebar | undefined
   // the right drawer (Files | Changes) lives in a store, not a local: the
@@ -604,8 +606,11 @@
   {#if $drawer.open}
     <div
       class="diffwrap"
+      style:--drawer-w={$drawerWidth != null ? `${$drawerWidth}px` : undefined}
       use:sidePanel={{ side: 'right', getOpen: () => true, setOpen: () => closeDrawer() }}
     >
+      <!-- drag to resize: width policy lives in clampDrawerWidth (stores.ts) -->
+      <div class="rgrip" title="Drag to resize" use:dragWidth></div>
       <div class="dtabbar">
         <button
           class:on={$drawer.tab === 'files'}
@@ -719,11 +724,29 @@
     white-space: nowrap;
   }
   .diffwrap {
-    width: 45%;
+    /* --drawer-w is set inline after a drag; the fallback keeps the old
+       percentage, and the ≤1100px media query below overrides both. */
+    width: var(--drawer-w, 45%);
     min-width: 340px;
     height: 100vh;
     display: flex;
     flex-direction: column;
+    position: relative;
+  }
+  .rgrip {
+    position: absolute;
+    left: -3px;
+    top: 0;
+    bottom: 0;
+    width: 7px;
+    cursor: ew-resize;
+    touch-action: none; /* pointer drags resize; page must not scroll instead */
+    z-index: 5;
+  }
+  .rgrip:hover {
+    background: var(--accent);
+    opacity: 0.35;
+    border-radius: 3px;
   }
   /* one drawer, two tabs: Files (tree + git) and Changes (per-call diffs).
      The strip is part of the host so both panes get the same switcher. */
@@ -769,6 +792,10 @@
       width: 90vw;
       z-index: 100;
       box-shadow: -8px 0 30px rgba(0, 0, 0, 0.5);
+    }
+    /* the overlay is 90vw by design — there is no width to drag here */
+    .rgrip {
+      display: none;
     }
   }
   .spacer {

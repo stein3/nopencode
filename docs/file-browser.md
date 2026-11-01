@@ -448,6 +448,19 @@ records that the DRAWER (not the user) closed Info, and closing the drawer
 restores it; an explicit Info toggle consumes the latch, so nothing is
 resurrected. Held by `stores.test.ts` (4 cases) and an fsbox assertion pair.
 
+**The drawer resizes — SHIPPED.** A 7px grip on the drawer's left edge
+(pointer events + `setPointerCapture`; `touch-action: none`, and it swallows the
+touch stream so the swipe-to-close and edge handlers never read a resize as a
+swipe). All the policy is in one pure function — `clampDrawerWidth(px, shared,
+viewport)`: 340px floor, and the transcript keeps `TRANSCRIPT_FLOOR = 0.28` of
+the viewport — the same number `fsbox-check` asserts on the rendered layout,
+pinned not to drift by `stores.test.ts`. Width persists in localStorage and is
+re-clamped on mount and on window resize (a width stored on a big screen must
+not hold the transcript under its floor). The ≤1100px overlay hides the grip:
+90vw is the design there, not a starting point. And `automaticLayout: true` on
+the Monaco editors is now verified, not assumed — fsbox watches the editor's box
+track the drawer's through a drag.
+
 **One drawer button, one hotkey — SHIPPED** (operator's call, after using it).
 The topbar diff icon is gone (the folder icon opens the drawer, the tab strip
 inside it picks the pane), and `Ctrl+D` toggles the WHOLE drawer restoring
