@@ -1,4 +1,4 @@
-import { writable } from 'svelte/store'
+import { get, writable } from 'svelte/store'
 import { hist, type OcMessage, type OcQueue } from './api'
 import { genTally } from './gentokens'
 import { msgModel } from './util'
@@ -804,6 +804,9 @@ export function toggleInfo() {
   infoOpen.update((v) => {
     // symmetric with openDrawer: opening Info closes the Files/Changes drawer
     if (v === false) drawer.update((d) => ({ ...d, open: false }))
+    // an explicit toggle owns the space from here on: whatever the drawer
+    // suppressed is no longer the drawer's to give back
+    infoSuppressed = false
     try {
       localStorage.setItem(INFO_KEY, v ? '0' : '1')
     } catch {}
@@ -811,6 +814,7 @@ export function toggleInfo() {
   })
 }
 export function closeInfo() {
+  infoSuppressed = false
   infoOpen.set(false)
   try { localStorage.setItem(INFO_KEY, '0') } catch {}
 }
@@ -840,6 +844,24 @@ function storedDrawerTab(): DrawerTab {
 
 export const drawer = writable<{ open: boolean; tab: DrawerTab }>({ open: false, tab: storedDrawerTab() })
 
+// The drawer and Info share the right edge (one at a time), so the drawer's
+// open HIDES Info — and must hand the space back on close. The latch is not
+// "Info was closed" but "the drawer is what closed it": an Info the user closed
+// by hand must stay closed (stored.test.ts pins both directions). Deliberately
+// module state, not localStorage: it is a trip-level debt, not a preference.
+let infoSuppressed = false
+
+function suppressInfo() {
+  if (get(infoOpen)) infoSuppressed = true
+  infoOpen.set(false)
+}
+
+function restoreInfo() {
+  if (!infoSuppressed) return
+  infoSuppressed = false
+  infoOpen.set(true)
+}
+
 export function setDrawerTab(tab: DrawerTab) {
   drawer.update((d) => ({ ...d, tab }))
   try { localStorage.setItem(DRAWER_TAB_KEY, tab) } catch {}
@@ -851,7 +873,7 @@ export function openDrawer(tab: DrawerTab) {
   // info + drawer leaves the conversation ~180px wide (caught in the fsbox
   // screenshot, invisible to every overflow assertion). One right drawer at a
   // time — whichever the user asked for last.
-  infoOpen.set(false)
+  suppressInfo()
   drawer.update((d) => ({ ...d, open: true }))
 }
 
@@ -860,7 +882,8 @@ export function toggleDrawer(tab: DrawerTab) {
   drawer.update((d) => {
     const next = { open: !(d.open && d.tab === tab), tab }
     try { localStorage.setItem(DRAWER_TAB_KEY, tab) } catch {}
-    if (next.open) infoOpen.set(false) // one right drawer at a time
+    if (next.open) suppressInfo()
+    else restoreInfo()
     return next
   })
 }
@@ -874,13 +897,17 @@ export function toggleDrawer(tab: DrawerTab) {
 export function toggleDrawerLast() {
   drawer.update((d) => {
     const next = { open: !d.open, tab: d.tab }
-    if (next.open) infoOpen.set(false) // one right drawer at a time
+    if (next.open) suppressInfo()
+    else restoreInfo()
     return next
   })
 }
 
 export function closeDrawer() {
-  drawer.update((d) => ({ ...d, open: false }))
+  drawer.update((d) => {
+    if (d.open) restoreInfo() // only a real close owes the space back
+    return { ...d, open: false }
+  })
 }
 
 // Bumped when a turn ends (SSE session.idle). The Files tab re-reads git status
