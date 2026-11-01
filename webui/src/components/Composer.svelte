@@ -1,6 +1,7 @@
 <script lang="ts">
-  import { onMount, tick } from 'svelte'
+  import { onMount, onDestroy, tick } from 'svelte'
   import { oc, isSendUnknown } from '../lib/api'
+  import { setDraftDirty, clearDraft } from '../lib/drafts'
   import type { OcFilePart, OcQueue } from '../lib/api'
   import {
     tabs,
@@ -157,6 +158,14 @@
     autosize()
     focus()
   }
+
+  // ---- unsent-draft guard ------------------------------------------------
+  // This box's text is component state: closing the tab (or reloading) throws it
+  // away, so report emptiness flips to the draft registry, which owns the
+  // close confirm and the beforeunload prompt. Flips only — a per-keystroke
+  // store write would churn the tab bar's render on every character.
+  $: setDraftDirty(tab.id, !!text.trim())
+  onDestroy(() => clearDraft(tab.id))
 
   // ---- inline slash menu -------------------------------------------------
   // active while the box starts with "/name" (trailing space/args allowed
