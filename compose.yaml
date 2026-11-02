@@ -83,8 +83,7 @@ services:
   # tiny sidecar webui.db (persisted error tiles) next to it.
   opencode-web:
     <<: *limits
-    mem_limit: 256m
-    cpus: 0.5
+    mem_limit: 1g
     image: opencode-web:latest
     container_name: opencode-web
     build:
