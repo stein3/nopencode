@@ -64,21 +64,11 @@ for t in embedded/*.test.mjs; do node "$t"; done
 ## CI
 
 GitHub Actions workflow at `.github/workflows/e2e.yml` runs as a **matrix with
-one job per test file** (the matrix is the canonical list). Each entry has a
-`name` and `file`:
+one job per test file**. The matrix is **generated from the directory**:
+`list-tests` enumerates `e2e/embedded/*.test.mjs`, so a test is gated the
+moment it lands and the workflow holds no list to keep in sync.
 
-```yaml
-strategy:
-  matrix:
-    include:
-      - name: question-picker
-        file: question-picker.test.mjs
-      - name: session-filters
-        file: session-filters.test.mjs
-      # ...
-```
-
-To add a new test: add a `- name:` / `file:` entry to the existing matrix. Do
+To add a new test: drop the file into `e2e/embedded/`. Do
 **not** create a new workflow file. The `build` job builds `webui/dist` once and
 uploads it as an artifact; each matrix job downloads it before running.
 
@@ -95,8 +85,7 @@ e2e/
 │   ├── hidelight.test.mjs
 │   ├── chords.test.mjs
 │   ├── fork.test.mjs
-│   ├── ... (many test files; see .github/workflows/e2e.yml for the
-│            canonical list of what CI runs)
+│   ├── ... (every *.test.mjs here is one CI job)
 │   └── nest.test.mjs.disabled   # skipped (not in matrix)
 ├── helpers/
 │   └── setup.mjs       # Shared: env config, browser launch, fixtures
@@ -126,10 +115,13 @@ Reference tests demonstrating the core patterns:
 5. Use `seedSession(title, count)` to create fixture sessions via
    `noReply:true` POSTs.
 6. Use `cleanup(sids)` in a `finally` block.
-7. Use `createChecker()` for PASS/FAIL assertions.
+7. Use `createChecker()` for PASS/FAIL assertions — its `check(name, cond,
+   detail)` takes THREE args; the 4-arg `check(c, name, pass, note)` shape is a
+   test-local helper some files define, not the shared one (passing 4 args to
+   the shared one passes vacuously).
 8. Use `screenshot(page, name)` for captures (writes to `SHOTS_DIR`).
-9. Add a `- name:` / `file:` entry to the matrix in
-   `.github/workflows/e2e.yml`.
+9. Nothing to wire: CI's matrix is generated from `e2e/embedded/*.test.mjs`,
+   so the new file is gated automatically.
 
 ## Test-writing reference
 

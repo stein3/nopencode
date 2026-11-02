@@ -30,6 +30,7 @@ const mem = new Map<string, string>()
 }
 const {
   drawer,
+  tabs,
   infoOpen,
   openDrawer,
   closeDrawer,
@@ -119,4 +120,27 @@ test('the drawer width survives a reload and garbage does not', () => {
   setDrawerWidth(400)
   saveDrawerWidth()
   assert.equal(storedDrawerWidth(), 400)
+})
+
+// A re-open (sidebar row click, boot restore, openHistory → openLive chains)
+// must never blank a loaded transcript: callers pass `messages: []` as
+// "nothing known yet" and refill right after — but when the refill fails
+// (engine blip, slow fetch) the tab used to stay EMPTY. See the
+// reopen-clobber.test.mjs e2e regression for the full wiring.
+test('re-opening a tab with an empty message list keeps the loaded transcript', () => {
+  tabs.open({ id: 'ses_keep', title: 't', messages: [{ info: { id: 'm1' }, parts: [] }, { info: { id: 'm2' }, parts: [] }], live: true })
+  tabs.open({ id: 'ses_keep', title: 't', messages: [], live: true })
+  const t = get(tabs).find((x) => x.id === 'ses_keep')
+  assert.deepEqual(
+    t.messages.map((m: any) => m.info.id),
+    ['m1', 'm2'],
+    'the empty re-open list is a placeholder, not a snapshot',
+  )
+})
+
+test('re-opening a tab with a real snapshot replaces the loaded window', () => {
+  tabs.open({ id: 'ses_swap', title: 't', messages: [{ info: { id: 'm1' }, parts: [] }], live: true })
+  tabs.open({ id: 'ses_swap', title: 't', messages: [{ info: { id: 'm9' }, parts: [] }], live: true })
+  const t = get(tabs).find((x) => x.id === 'ses_swap')
+  assert.deepEqual(t.messages.map((m: any) => m.info.id), ['m9'], 'a non-empty snapshot still wins')
 })

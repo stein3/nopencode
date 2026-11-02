@@ -101,7 +101,22 @@ function makeTabs() {
       openIds.add(t.id)
       update((tabs) => {
         const i = tabs.findIndex((x) => x.id === t.id)
-        if (i >= 0) return tabs.map((tab, idx) => (idx === i ? { ...tab, ...t } : tab))
+        if (i >= 0)
+          return tabs.map((tab, idx) =>
+            idx === i
+              ? {
+                  ...tab,
+                  ...t,
+                  // A re-open must never blank a loaded transcript. Callers
+                  // pass `messages: []` as "nothing known yet" (openHistory →
+                  // openLive chains, boot restore) and refill right after —
+                  // but when the refill fails (engine blip) the tab used to
+                  // stay EMPTY. An empty incoming list is a placeholder, not a
+                  // snapshot; a non-empty one replaces the window as before.
+                  messages: t.messages.length || !tab.messages.length ? t.messages : tab.messages,
+                }
+              : tab,
+          )
         return [...tabs, t]
       })
       if (activate) {
