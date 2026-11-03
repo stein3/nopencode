@@ -359,6 +359,23 @@ export function metricsFromMessages(msgs: any[], complete = true): SessionMetric
     break
   }
   if (complete) out.messages = list.length
+  // The activity clock, from the same authoritative payload. Without this the
+  // overlay's `updated` had ONE writer — a `session.updated` SSE frame — and a
+  // session whose turn ended without one (abort, a compaction that failed, a
+  // dropped stream) kept a stale row timestamp that nothing ever overwrote.
+  // Same definition as the bridge's `lastActivityMs`: newest user/assistant
+  // stamp; a partial page can only under-report, so it is `complete`-gated.
+  if (complete) {
+    let act = 0
+    for (const m of list) {
+      const info = (m as any).info ?? m
+      const role = info?.role ?? 'assistant'
+      if (role !== 'user' && role !== 'assistant') continue
+      const t = Number(info?.time?.created) || 0
+      if (t > act) act = t
+    }
+    if (act > 0) out.updated = act
+  }
   return out
 }
 

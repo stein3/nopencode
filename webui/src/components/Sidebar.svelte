@@ -331,7 +331,16 @@ import { sidePanel } from '../lib/sidePanel'
         if (!m) return s as Row
         return {
           ...s,
-          updated: m.updated ?? s.updated,
+          // FRESHER WINS, never "overlay wins". `m.updated` has exactly one
+          // writer — a `session.updated` SSE frame (sse.ts) — and nothing ever
+          // refreshes it: the transcript refetch (`metricsFromMessages`) carries
+          // tokens/messages/cost but no `updated`, and the bridge deliberately
+          // keeps `time.updated` OUT of its signature gate, so a session whose
+          // turn ended abnormally (abort, compaction, a dropped stream) pins its
+          // row at the last frame it saw FOREVER — a stale overlay beat a fresh
+          // 60 s poll, and even a reload could lose to the next old frame. Both
+          // numbers are real timestamps, so max() is the monotone fix.
+          updated: Math.max(m.updated ?? 0, s.updated ?? 0) || s.updated,
           cost: m.cost ?? s.cost,
           message_count: m.messages ?? s.message_count,
           // live SSE tally wins; fall back to the sqlite snapshot instead of

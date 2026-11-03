@@ -41,6 +41,7 @@ const {
   setDrawerWidth,
   saveDrawerWidth,
   storedDrawerWidth,
+  metricsFromMessages,
 } = await import('./stores.ts')
 
 // The drawer and Info share the right edge (one at a time), so opening the
@@ -143,4 +144,33 @@ test('re-opening a tab with a real snapshot replaces the loaded window', () => {
   tabs.open({ id: 'ses_swap', title: 't', messages: [{ info: { id: 'm9' }, parts: [] }], live: true })
   const t = get(tabs).find((x) => x.id === 'ses_swap')
   assert.deepEqual(t.messages.map((m: any) => m.info.id), ['m9'], 'a non-empty snapshot still wins')
+})
+
+// ---- the activity clock on the refetch path --------------------------------
+// `sessionMetrics[sid].updated` had exactly ONE writer: a `session.updated` SSE
+// frame. pi-web gates those frames on a projection signature that deliberately
+// EXCLUDES time.updated, so a session whose turn ended without one (abort, a
+// failed compaction, a dropped stream) kept its row timestamp pinned, and the
+// transcript refetch — the one payload that always lands — had no clock to
+// overwrite it with. metricsFromMessages must supply it.
+test('metricsFromMessages carries the newest user/assistant stamp as updated', () => {
+  const msgs = [
+    { info: { id: 'u1', role: 'user', time: { created: 5_000 } } },
+    { info: { id: 'a1', role: 'assistant', time: { created: 9_000 }, tokens: { output: 3 } } },
+  ]
+  assert.equal(metricsFromMessages(msgs, true).updated, 9_000)
+})
+
+test('metricsFromMessages ignores non-conversation roles for the clock', () => {
+  const msgs = [
+    { info: { id: 'a1', role: 'assistant', time: { created: 9_000 } } },
+    { info: { id: 't1', role: 'tool', time: { created: 500_000 } } },
+  ]
+  assert.equal(metricsFromMessages(msgs, true).updated, 9_000)
+})
+
+test('a PARTIAL page emits no updated (it can only under-report the clock)', () => {
+  const msgs = [{ info: { id: 'a1', role: 'assistant', time: { created: 9_000 } } }]
+  assert.equal('updated' in metricsFromMessages(msgs, false), false)
+  assert.equal('updated' in metricsFromMessages([], true), false)
 })
