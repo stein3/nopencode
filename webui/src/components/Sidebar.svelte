@@ -250,18 +250,28 @@ import { sidePanel } from '../lib/sidePanel'
   }
 
   async function load() {
+    // SEQUENCE the reloads. Activity now drives refreshes, so several can be in
+    // flight (a slow one overtaking a fast one), and the list endpoint lags the
+    // wire by design — a response that started BEFORE the change must never be
+    // the one that lands. `loadSeq` is bumped on entry and a response is applied
+    // only while it is still the newest request.
+    const seq = ++loadSeq
     try {
       const all = await hist.sessions()
+      if (seq !== loadSeq) return
       sessions = all.sort((a, b) => b.updated - a.updated)
       applyServerMeta(all)
     } catch (e) {
-      console.error('history load failed', e)
+      if (seq === loadSeq) console.error('history load failed', e)
     }
   }
+  let loadSeq = 0
   load()
 
   // instant reload when any code path bumps the dirty signal (create, rename,
-  // cross-client SSE title change) — complements the 60 s safety-net poll
+  // cross-client activity) — complements the 60 s safety-net poll. The bump is
+  // coalesced/delayed in stores.ts because the LIST ENDPOINT LAGS THE WIRE: a
+  // reload fired on the event re-fetches the pre-change snapshot.
   $: if ($sessionListDirty > 0) load()
 
   // sqlite snapshot only changes on reload — poll so non-open sessions stay
