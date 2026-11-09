@@ -690,10 +690,73 @@ export interface CompactionState {
 }
 export const compactionStates = writable<Record<string, CompactionState>>({})
 
+// A dismissal must OUTLIVE the poll that re-seeds it. The bridge's
+// `entry.compaction` is sticky on purpose — pi leaves no durable trace of a
+// cancelled/failed summary (no JSONL entry, and its failure hook never leaves
+// the extension runner), so that live record is the only thing that survives,
+// and the webui re-derives live state from the status poll by design. Deleting
+// the store entry (the transcript's ×) was therefore undone by the next 10s
+// tick, the sidebar poll and catchUp() on stream re-open: the alert was
+// undismissable. The × records a per-session WATERMARK of the record it
+// dismissed — the sticky record stays (it is a contract with both bridges, not
+// a bug to unwind), but a poll offering an outcome at or before that watermark
+// is already seen. Persisted, so a reload does not resurrect it either; a NEW
+// compaction carries a later `at` and alerts again.
+const CMP_DISMISSED_KEY = 'opencode.compactionDismissed'
+interface CmpDismissal {
+  at: number // the dismissed record's own `at` (engine clock), 0 if it had none
+  sig: string // engine clock is absent -> fall back to the exact outcome
+}
+const cmpSig = (c: any) => `${c?.state ?? ''}|${c?.reason ?? ''}`
+let cmpDismissed: Record<string, CmpDismissal> = (() => {
+  try {
+    return JSON.parse(localStorage.getItem(CMP_DISMISSED_KEY) || '{}') as Record<string, CmpDismissal>
+  } catch {
+    return {} /* private mode etc. */
+  }
+})()
+
+function cmpDismissedSeen(sid: string, c: any): boolean {
+  const d = cmpDismissed[sid]
+  if (!d) return false
+  const at = Number(c.at)
+  // compare the engine's clock to the engine's clock — never to Date.now(), the
+  // browser may be minutes off the host running the bridge. A record with no
+  // usable timestamp can only be matched by its exact outcome.
+  if (Number.isFinite(at)) return at <= d.at
+  return d.sig === cmpSig(c)
+}
+
+function rememberCmpDismissal(sid: string, c: CompactionState) {
+  const at = Number(c.at)
+  cmpDismissed[sid] = {
+    at: Number.isFinite(at) ? Math.max(at, cmpDismissed[sid]?.at ?? 0) : cmpDismissed[sid]?.at ?? 0,
+    sig: cmpSig(c),
+  }
+  // bounded: newest first, and anything older than a bridge's plausible lifetime
+  // can no longer come back on a poll
+  const cutoff = Date.now() - 30 * 864e5
+  const keep = Object.fromEntries(
+    Object.entries(cmpDismissed)
+      .filter(([s, d]) => s === sid || d.at >= cutoff)
+      .sort((a, b) => b[1].at - a[1].at)
+      .slice(0, 200),
+  )
+  cmpDismissed = keep
+  try {
+    localStorage.setItem(CMP_DISMISSED_KEY, JSON.stringify(keep))
+  } catch {
+    /* private mode etc. — the in-memory map still covers this page load */
+  }
+}
+
 export function patchCompactionState(sid: string, s: CompactionState) {
   compactionStates.update((all) => ({ ...all, [sid]: s }))
 }
 export function clearCompactionState(sid: string) {
+  let cur: CompactionState | undefined
+  compactionStates.subscribe((all) => (cur = all[sid]))()
+  if (cur) rememberCmpDismissal(sid, cur)
   compactionStates.update((all) => {
     if (!all[sid]) return all
     const next = { ...all }
@@ -711,6 +774,15 @@ export function syncCompactionFromStatus(map: Record<string, any>) {
     for (const sid of openSids) {
       const c = map[sid]?.compaction
       if (c && typeof c === 'object') {
+        // the × has already seen this outcome — never display it again, and drop
+        // a stale copy the SSE path may have put there in the meantime
+        if (cmpDismissedSeen(sid, c)) {
+          if (next[sid]) {
+            delete next[sid]
+            changed = true
+          }
+          continue
+        }
         const existing = next[sid]
         if (existing && existing.state === c.state && existing.reason === c.reason && existing.at === c.at) continue
         next[sid] = c as CompactionState

@@ -12,7 +12,9 @@
 //      no .live-thinking left in the composer toolbar
 //   E. footer no longer prints the workspace/working-directory string
 //   F. /session/status reports a failed summary → .cmpbox.failed (and a running
-//      summary with NO engine telemetry shows footer dots only, never a failed box)
+//      summary with NO engine telemetry shows footer dots only, never a failed
+//      box); the × stays gone while that record is still being served, and a
+//      NEWER record alerts again
 //   G. narrow viewport: the indicator's label truncates, footer never overflows,
 //      and the centered label never runs under ctrl+p (340/390/480/620)
 //   H. per-character blink floor stays > 0 (whole word readable mid-blink)
@@ -150,6 +152,16 @@ async function pollGone(page, sel, tries = 40) {
     await sleep(300);
   }
   return false;
+}
+
+/** The opposite of pollGone: the node must be absent for the WHOLE window. */
+async function staysGone(page, sel, ms) {
+  const until = Date.now() + ms;
+  while (Date.now() < until) {
+    if ((await page.locator(sel).count()) > 0) return false;
+    await sleep(300);
+  }
+  return true;
 }
 
 const results = [];
@@ -298,6 +310,18 @@ try {
     check('F', 'failure box names the failure', /Compaction failed/.test(fTxt), `text: ${fTxt.trim()}`);
     check('F', 'failure box carries the reason', /not enough context/.test(fTxt), `text: ${fTxt.trim()}`);
     check('F', 'no footer indicator for a finished compaction', (await footer.locator('.status_indicator').count()) === 0);
+    // THE STICKY-RECORD CASE (graph #863): the status record is NOT cleared here.
+    // A failed summary leaves no transcript entry, so the engine must keep
+    // serving it and the sidebar's 10s poll re-seeds the box — clearing the map
+    // before the click (as the case used to) hid the fact that the × was undone
+    // by the very next poll, i.e. the alert was undismissable.
+    await failBox.locator('.cmpdismiss').click();
+    check('F', 'dismiss survives the sticky status record', await staysGone(page, '.tabpane[style*="flex"] .cmpbox.failed', 12000), 'gone through a full 10s poll cycle');
+    // …and the dismissal is per-record, not per-session-forever: a NEWER failure
+    // on the same poll has to alert again.
+    await ctl({ status: { [SID]: { compaction: { state: 'failed', reason: 'second attempt failed', at: Date.now() } } } });
+    await failBox.waitFor({ timeout: 15000 });
+    check('F', 'a NEWER failure alerts again', /second attempt failed/.test((await failBox.textContent()) ?? ''));
     await ctl({ status: {} });
     await failBox.locator('.cmpdismiss').click();
     check('F', 'dismiss clears the failure box', await pollGone(page, '.tabpane[style*="flex"] .cmpbox.failed'), 'dismissed');

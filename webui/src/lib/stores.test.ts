@@ -42,6 +42,9 @@ const {
   saveDrawerWidth,
   storedDrawerWidth,
   metricsFromMessages,
+  compactionStates,
+  clearCompactionState,
+  syncCompactionFromStatus,
 } = await import('./stores.ts')
 
 // The drawer and Info share the right edge (one at a time), so opening the
@@ -173,4 +176,49 @@ test('a PARTIAL page emits no updated (it can only under-report the clock)', () 
   const msgs = [{ info: { id: 'a1', role: 'assistant', time: { created: 9_000 } } }]
   assert.equal('updated' in metricsFromMessages(msgs, false), false)
   assert.equal('updated' in metricsFromMessages([], true), false)
+})
+
+// ---- a dismissed compaction alert must stay dismissed ----------------------
+// The bridge's `entry.compaction` is STICKY on purpose (pi writes no transcript
+// entry for a failed/cancelled summary, so that poll record is the only thing
+// that survives), and syncCompactionFromStatus re-derives the box from it on
+// every status poll. So the × cannot just delete the store entry — the next
+// poll is contractually obliged to put it back (pi-web
+// test/compaction-dismiss-check.mjs).
+const CMP_SID = 'ses_cmp_dismiss'
+const cmpOpen = () =>
+  tabs.open({ id: CMP_SID, title: 't', cwd: '/tmp', messages: [], parts: new Map(), live: true })
+const cmpPoll = (rec: any) => ({ [CMP_SID]: { type: 'idle', compaction: rec } })
+const cmpBox = () => get(compactionStates)[CMP_SID]
+
+test('dismissing a compaction alert survives the next status poll', () => {
+  cmpOpen()
+  const rec = { state: 'cancelled', reason: null, at: 1_700_000_000_000 }
+  syncCompactionFromStatus(cmpPoll(rec))
+  assert.equal(cmpBox()?.state, 'cancelled', 'the cancelled record seeds the box')
+  clearCompactionState(CMP_SID)
+  assert.equal(cmpBox(), undefined, 'the × clears it')
+  // the 10s watchdog tick, the sidebar poll, and catchUp() on stream re-open
+  for (let i = 0; i < 3; i++) syncCompactionFromStatus(cmpPoll(rec))
+  assert.equal(cmpBox(), undefined, 'the SAME record does not put it back')
+})
+
+test('a dismissal is per-record: a newer compaction failure alerts again', () => {
+  cmpOpen()
+  const at = 1_700_000_000_000
+  syncCompactionFromStatus(cmpPoll({ state: 'failed', reason: 'boom', at }))
+  clearCompactionState(CMP_SID)
+  syncCompactionFromStatus(cmpPoll({ state: 'failed', reason: 'boom', at: at + 60_000 }))
+  assert.equal(cmpBox()?.state, 'failed', 'a new compaction, same failure text, still alerts')
+})
+
+test('the dismissal is persisted, so a reload does not resurrect the alert', () => {
+  cmpOpen()
+  const rec = { state: 'rejected', reason: 'too small', at: 1_700_000_300_000 }
+  syncCompactionFromStatus(cmpPoll(rec))
+  clearCompactionState(CMP_SID)
+  // some localStorage entry must carry the dismissal (sid + that record's `at`),
+  // which is what a fresh page load re-reads instead of re-showing the box
+  const carried = [...mem.values()].some((v) => v.includes(CMP_SID) && v.includes('1700000300000'))
+  assert.ok(carried, 'the dismissal (session + record `at`) is written to localStorage')
 })
