@@ -1,11 +1,11 @@
 <script lang="ts">
-  import { tabs, pendingQuestions } from '../lib/stores'
+  import { tabs, pendingQuestions, sessionUnread } from '../lib/stores'
 
   export let onClose: (id: string) => void
   export let onNewChat: () => void
 
   // sessions with a pending engine question-tool request — red dot, wins over
-  // busy/dirty (same signal as the sidebar .ask dot)
+  // busy/unread (same signal as the sidebar .ask dot)
   $: askSet = new Set($pendingQuestions.map((q) => q.sessionID).filter((x): x is string => !!x))
 
   const active = tabs.active
@@ -61,7 +61,19 @@
       on:auxclick={(e) => e.button === 1 && onClose(t.id)}
       title={t.title}
     >
-      <span class="dot" class:busy={t.busy} class:dirty={t.dirty && !t.busy} class:ask={askSet.has(t.id)}></span>
+      <!-- ONE state per colour, and it must be a SESSION state, never a fetch
+           state: `tab.dirty` is stores.ts's "refetch pending" flag, so painting
+           it rendered the in-flight window of a background GET /message as a
+           status change (~353ms of green on a tab that had just finished).
+           `sessionUnread` is the real event — set when a turn ends (idle/error/
+           retry) on a tab you are NOT looking at, cleared by App.svelte when you
+           activate it — and it is already the sidebar row's green light. -->
+      <span
+        class="dot"
+        class:busy={t.busy}
+        class:unread={!t.busy && $sessionUnread.has(t.id)}
+        class:ask={askSet.has(t.id)}
+      ></span>
       <!-- pi workspace chip: basename of the session's cwd (absent on engines
            that don't send one); full path in the tooltip -->
       {#if t.cwd}
@@ -113,10 +125,10 @@
   .dot.busy {
     background: var(--warn);
   }
-  .dot.dirty {
+  .dot.unread {
     background: var(--ok);
   }
-  /* source order = precedence: ask > busy > dirty */
+  /* source order = precedence: ask > busy > unread */
   .dot.ask {
     background: var(--err);
   }
