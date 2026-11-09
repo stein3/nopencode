@@ -24,7 +24,10 @@ export interface Tab {
   // engine is generating a compaction summary (session.next.compaction.* SSE)
   // — the transcript shows an inline indicator until ended/idle clears it
   compacting?: boolean
-  dirty?: boolean // refetch pending
+  // refetch pending — INTERNAL fetch bookkeeping (applyMessages uses it to force
+  // a swap past the identical-id-set optimization). Never render it: it is set
+  // by every background GET /message, so a dot built on it flashes on idle tabs.
+  dirty?: boolean
   // turn-failure tiles (SSE session.error). Persisted server-side by
   // chatserver (sidecar webui.db) so they survive reloads; cleared on the
   // next prompt dispatch.

@@ -184,13 +184,16 @@ export function refetchNow(sessionId: string, opts?: { quiet?: boolean }) {
   // so its diff/metadata never renders). Id equality proves nothing about part
   // state; only `dirty` forces the authoritative copy in.
   //
-  // `quiet` is for the PERIODIC reconcile of a tab this client already believes
-  // is idle and clean. It still needs that authoritative copy — SSE has no
-  // replay, which is why a backgrounded/locked mobile tab re-syncs on return —
-  // but it must not light the tab-bar dot: Tabs.svelte paints `dirty && !busy`
-  // green, so a routine re-pull of a transcript we already hold rendered as a
-  // status change on a session doing nothing (the reported "green dot flashes on
-  // idle tabs"). The fetch is identical; only the flag is not set.
+  // `dirty` is INTERNAL fetch bookkeeping and MUST NOT be rendered: it is set by
+  // every non-quiet refetch caller (revert, fork, engine commands, any SSE event
+  // on an open idle tab via scheduleRefetch) and cleared when the response lands,
+  // so painting it showed a ~350ms GET /message as a session status change. The
+  // tab-bar dot reads `sessionUnread` instead.
+  //
+  // `quiet` is the PERIODIC reconcile of a tab this client already believes is
+  // idle and clean (catchUp): SSE has no replay, so it still re-pulls — but with
+  // the id-set unchanged there is no stale PART state to force past, so it takes
+  // the cheap path and does not mark the swap.
   tabs.patch(sessionId, { dirty: !opts?.quiet })
   oc.messages(sessionId, RECENT_PAGE)
     .then((msgs) => applyMessages(sessionId, msgs, msgs.length < RECENT_PAGE))
@@ -368,6 +371,11 @@ function openStream() {
       return
     }
     if (type === 'session.idle') {
+      // `session.idle` is a STATE frame, not an edge. Read the flag BEFORE the
+      // patch clears it: an idle for a session this client already believes is
+      // idle carries no information, so it must not move a status light. (The
+      // sidebar's unread is likewise a busy→idle poll-diff, not "saw an idle".)
+      const wasBusy = !!tabs.snapshot(sid)?.busy
       tabs.patch(sid, { busy: false, compacting: false })
       // The Files drawer's git badges come from ONE `git status` per turn end:
       // idle is already on the wire, so the tree re-badges with no filesystem
@@ -388,8 +396,14 @@ function openStream() {
       // on reload
       tabs.clearErrors(sid)
       hist.clearSessionErrors(sid).catch(() => {})
-      // finished while another tab is being viewed → flag done/unread
-      if (tabs.getActive() !== sid) markSessionUnread(sid)
+      // A TURN ENDING while another tab is being viewed → flag done/unread.
+      // Requiring a witnessed busy is what makes this "the turn I was watching
+      // finish": without it a bare idle (or a repeat) lights a tab whose session
+      // did nothing — the same complaint as the old fetch-window flash, just
+      // with a different source. A turn that began AND ended inside a dropped
+      // SSE window is missed, exactly as the sidebar's own diff misses it; the
+      // reconnect's catchUp un-pins/restores `busy` for anything still running.
+      if (wasBusy && tabs.getActive() !== sid) markSessionUnread(sid)
     } else if (type === 'session.error') {
       // readable text sits at error.data.message on most engine errors.
       // User aborts fire this event too (MessageAbortedError) — the TUI
