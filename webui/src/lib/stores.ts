@@ -866,8 +866,51 @@ export const renameTarget = writable<{ sid: string; title: string } | null>(null
 // (create, rename, cross-client SSE title change) to trigger an immediate
 // sidebar reload instead of waiting for the 60 s poll.
 export const sessionListDirty = writable(0)
-export function markSessionListDirty() {
+
+// The list is a SERVER SNAPSHOT (opencode.db / pi's JSONL files) and that
+// snapshot LAGS THE WIRE: measured on the bridge, a new session's file existed
+// 15 ms after its first SSE frame but /api/history/sessions could not show the
+// row for 1510 ms (its file listing is cached, and pi writes a transcript only
+// once it has content). So a reload fired ON the event re-fetches the
+// PRE-change snapshot and nothing retries — that is why bumping this counter on
+// every event looked right and still left the list lagging. Two separate
+// signals, because the two cases have opposite timing requirements:
+//
+//   markSessionListDirty()   WE changed the list and awaited the write — reload
+//                            now (a snappy local action must not wait).
+//   noteSessionListActivity() the WIRE says some session changed — reload on a
+//                            delay, throttled to one per window however many
+//                            frames arrive. Each window fires LIST_ACTIVITY_MS
+//                            after its FIRST frame and re-arms while activity
+//                            continues, so a turn refreshes as it goes AND once
+//                            more after the last frame (the settled row).
+const LIST_ACTIVITY_MS = 1200
+let listTimer: ReturnType<typeof setTimeout> | undefined
+let listPending = false
+function bumpSessionList() {
   sessionListDirty.update((n) => n + 1)
+}
+export function markSessionListDirty() {
+  bumpSessionList()
+}
+/**
+ * "Some session changed somewhere — the list needs a re-read." Call from ANY
+ * session-scoped event, including sessions with no open tab here. Safe to call
+ * per frame: it SCHEDULES, it does not fetch.
+ */
+export function noteSessionListActivity() {
+  if (listTimer) {
+    listPending = true // still moving: one more window after this one lands
+    return
+  }
+  listTimer = setTimeout(() => {
+    listTimer = undefined
+    bumpSessionList()
+    if (listPending) {
+      listPending = false
+      noteSessionListActivity()
+    }
+  }, LIST_ACTIVITY_MS)
 }
 
 // ---- full-size image viewer (read-tool thumbnails); null = closed ----

@@ -1,4 +1,4 @@
-import { tabs, sessionTodos, patchMetrics, metricsFromMessages, tokenTally, markSessionUnread, patchEngineRetry, clearEngineRetry, syncEngineRetryFromStatus, patchEngineMetrics, syncEngineMetricsFromStatus, patchCompactionState, syncCompactionFromStatus, markSessionListDirty, sessionListDirty, setSessionQueue, dropSessionQueue, bumpFsTick } from './stores'
+import { tabs, sessionTodos, patchMetrics, metricsFromMessages, tokenTally, markSessionUnread, patchEngineRetry, clearEngineRetry, syncEngineRetryFromStatus, patchEngineMetrics, syncEngineMetricsFromStatus, patchCompactionState, syncCompactionFromStatus, markSessionListDirty, noteSessionListActivity, setSessionQueue, dropSessionQueue, bumpFsTick } from './stores'
 import { oc, hist } from './api'
 import { refreshPermissions } from './permissions'
 import { refreshQuestions } from './questions'
@@ -226,6 +226,13 @@ function scheduleRefetch(sessionId: string) {
   )
 }
 
+// Session-level frames that mean "the list snapshot may have changed".
+// `session.status` is excluded: pi-web sends one per second of engine telemetry,
+// and a telemetry tick is not activity — the turn's own message/idle frames are.
+// `session.queue` is excluded too: a pending prompt is not in the list snapshot.
+const LIST_ACTIVITY_TYPES =
+  /^(session\.(updated|idle|error|compacted)|message\.(updated|created))$/
+
 // Engine part/message shapes vary slightly across versions; normalize defensively.
 export function normalizeMessages(msgs: any[]): any[] {
   return (msgs ?? []).map((m: any) => {
@@ -358,7 +365,26 @@ function openStream() {
       markSessionListDirty()
     }
 
+    // ---- the session LIST follows the wire, not just this client's tabs ----
+    // Everything below bails on `!tabs.isopen(sid)`, so a background session —
+    // another browser, the TUI, a subagent, another machine — could not move its
+    // sidebar row until the 60 s poll. The row's title, message count and
+    // activity clock all come from the list endpoint, so ANY session-level frame
+    // is worth a (coalesced, delayed — see stores.ts) reload. Deliberately
+    // BEFORE the isopen guard, and NOT for the two per-token frames: deltas and
+    // part snapshots carry nothing the snapshot has earlier than the message row.
+    if (LIST_ACTIVITY_TYPES.test(type)) noteSessionListActivity()
+
     if (!sid) return
+
+    // A delete anywhere (not just of an open tab) removes a row.
+    if (type === 'session.deleted' && p.sessionID) {
+      if (tabs.isopen(p.sessionID)) tabs.close(p.sessionID)
+      dropSessionQueue(p.sessionID)
+      markSessionListDirty()
+      return
+    }
+
     if (!tabs.isopen(sid)) return
     // pi's pending queues arrive as complete lists (never diffs) — project them
     // verbatim. Returning here matters: the fallthrough below would schedule a
@@ -502,15 +528,7 @@ function openStream() {
       const tally = tokenTally(p.info.tokens)
       if (tally !== undefined) patchMetrics(sid, { tokens: tally })
       scheduleRefetch(sid)
-    } else     if (type === 'session.deleted' && p.sessionID) {
-      // close the tab if the deleted session was open
-      if (tabs.isopen(p.sessionID)) tabs.close(p.sessionID)
-      dropSessionQueue(p.sessionID)
-      // bump dirty so sidebar reloads
-      sessionListDirty.update((n) => n + 1)
-      return
-    }
-    if (type === 'session.updated' && p.info) {
+    } else if (type === 'session.updated' && p.info) {
       // carries authoritative revert state: set by a revert, cleared when the
       // next prompt prunes the reverted messages server-side
       tabs.patch(sid, { revert: p.info.revert ?? null })
