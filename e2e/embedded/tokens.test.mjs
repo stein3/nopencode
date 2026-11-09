@@ -1,6 +1,7 @@
-// Verify token tracking: sidebar GENERATED-token badges (output+reasoning,
-// incl. subagent descendants), InfoPanel tokens/used (context view) for a
-// session whose newest assistant message carries token usage.
+// Verify token tracking: sidebar row totals (fresh input + output, incl. the
+// subagent subtree), and the InfoPanel/footer context view for a session whose
+// newest assistant message carries token usage. The sidebar must show the
+// IN+OUT total, never the one-message context estimate.
 //
 // Runs against an EMBEDDED fake engine (same pattern as question-picker.test.mjs):
 // in-process HTTP server serving webui/dist + stubbed /oc endpoints. No live
@@ -104,13 +105,14 @@ const GENLIVE_ID = 'ses_genlive';
 
 // Sessions list with pre-computed token counts (mimics chatserver load_sessions:
 // `tokens` = newest-message CONTEXT estimate, `tokens_generated` = sum of
-// output+reasoning over all assistant messages). The sidebar badge reads
-// `tokens_generated`; InfoPanel's "tokens" still reads the context estimate.
-//   probe:  800 out + 200 reasoning = 1000  -> "1K gen"  (context 7500 -> 8K)
-//   extra: 2000 out +    0 reasoning = 2000 -> "2K gen"  (context 19000 -> 19K)
-//   parent: own 5000 + child 2500 (subagent, separate row) = 7500 -> "8K gen"
-//   child:  SELF-ONLY 2500 -> "3K gen" (fmtK = Math.round(n/1000), so 2500
-//           renders 3K — and 3K on the child proves no parent rollup leaks in)
+// output+reasoning over all assistant messages, `tokens_input` = sum of
+// input+cache.write over the same messages). The sidebar shows
+// tokens_input + tokens_generated; InfoPanel's "tokens" reads the context
+// estimate. fmtK rounds to the nearest K, so each expected string is spelled out:
+//   probe:  1500 in + 1000 out = 2500 -> "3K"  (context 7500 -> "8K", must NOT show)
+//   extra:  5000 in + 2000 out = 7000 -> "7K"  (context 19000 -> "19K", must NOT show)
+//   parent: own 25000 + child 4000 = 29000 -> "29K" (subagent subtree included)
+//   child:  SELF-ONLY 4000 -> "4K" (never the parent's 29K)
 const SESSIONS = [
   {
     id: SESSION_ID,
@@ -122,6 +124,7 @@ const SESSIONS = [
     model: 'x-preview-f-free',
     tokens: 7500, // 1500+800+200+5000+0 — context view, sidebar must NOT use it
     tokens_generated: 1000, // 800+200
+    tokens_input: 1500, // 1500 input + 0 cache.write
   },
   {
     id: EXTRA_SESSION_ID,
@@ -133,6 +136,7 @@ const SESSIONS = [
     model: 'x-preview-f-free',
     tokens: 19000, // 5000+2000+0+12000+0
     tokens_generated: 2000, // 2000+0
+    tokens_input: 5000,
   },
   {
     id: ZERO_SESSION_ID,
@@ -157,6 +161,7 @@ const SESSIONS = [
     cost: 0,
     model: 'x-preview-f-free',
     tokens_generated: 5000,
+    tokens_input: 20000,
   },
   {
     id: 'ses_genchild',
@@ -169,9 +174,11 @@ const SESSIONS = [
     cost: 0,
     model: 'x-preview-f-free',
     tokens_generated: 2500,
+    tokens_input: 1500,
   },
   // live overlay probe: deliberately STALE snapshot — opening the tab must
-  // replace it with the sum of the session's own messages (900)
+  // replace it with the sum of the session's own messages (900 out + 12,000 in
+  // = 12,900 -> "13K")
   {
     id: GENLIVE_ID,
     title: 'Gen live overlay',
@@ -181,12 +188,13 @@ const SESSIONS = [
     cost: 0,
     model: 'x-preview-f-free',
     tokens_generated: 10,
+    tokens_input: 10,
   },
 ];
 
-// Message set for the live-overlay probe: a STALE snapshot below, corrected by
+// Message set for the live-overlay probe: a STALE snapshot above, corrected by
 // the message fetch the webui makes when the tab opens (output+reasoning =
-// 700+200 = 900; the user row's 5 must not count).
+// 700+200 = 900, fresh input = 12,000; the user row's 100+5 must not count).
 const GENLIVE_MESSAGES = [
   { id: 'gl_u1', role: 'user', time: { created: Date.now() - 500_000 },
     tokens: { input: 100, output: 5, reasoning: 0, cache: { read: 0, write: 0 } },
@@ -314,7 +322,12 @@ const server = http.createServer(async (req, res) => {
     if (p.startsWith('/oc/')) return json(res, []);
 
     // ---- statics (webui/dist) -----------------------------------------------
-    const rel = p === '/' ? '/index.html' : p;
+    // The shared dist is built with base /webui/, so its index.html asks for
+    // /webui/assets/*. Strip the prefix here (cheaper than a WEBUI_BASE=/ build)
+    // or every asset 404s, the app never mounts, and the symptom is a
+    // waitForSelector('.sidebar .item') timeout that reads like a UI bug.
+    let rel = p === '/' ? '/index.html' : p;
+    if (rel.startsWith('/webui/')) rel = rel.slice(6);
     const full = fs.realpathSync(path.join(DIST, rel));
     if (!full.startsWith(fs.realpathSync(DIST)) || !fs.statSync(full).isFile())
       return json(res, { error: 'missing' }, 404);
@@ -356,8 +369,8 @@ try {
     await page.addInitScript(() => localStorage.setItem('opencode.hideSubagents', '0'));
     await page.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 30000 });
 
-    // ---- 1) sidebar rows render with GENERATED badges -----------------------
-    console.log('\nCASE 1 — sidebar generated-token badges');
+    // ---- 1) sidebar rows render with IN+OUT totals -------------------------
+    console.log('\nCASE 1 — sidebar token totals (input + output)');
     await page.waitForSelector('.sidebar .item', { timeout: 15000 });
     await page.waitForTimeout(1200);
     // Shown subagents are NESTED under their parent and start collapsed
@@ -372,34 +385,40 @@ try {
       const out = {};
       for (const it of [...document.querySelectorAll('.sidebar .item')]) {
         out[it.getAttribute('title') ?? ''] =
-          it.querySelector('.smeta')?.textContent?.trim() ?? '';
+          (it.querySelector('.smeta')?.textContent ?? '').replace(/\s+/g, ' ').trim();
       }
       return out;
     });
     console.log('sidebar rows:', JSON.stringify(rowInfo));
     const metas = Object.values(rowInfo);
     check('', 'sidebar has rows', metas.length > 0, `${metas.length} rows`);
-    check('', 'at least one row shows a gen badge', metas.some((m) => /gen\b/.test(m)),
+    check('', 'at least one row shows a token total', metas.some((m) => / - \d+(\.\d+)?[KM]? - /.test(m)),
+      JSON.stringify(metas.slice(0, 3)));
+    // the label and the middot separators are gone: the number stands alone and
+    // the row reads "2 msgs - 3K - model"
+    check('', 'no row says "gen" any more', metas.every((m) => !/\bgen\b/.test(m)),
+      JSON.stringify(metas.slice(0, 3)));
+    check('', 'no row separates with a middot', metas.every((m) => !m.includes('·')),
       JSON.stringify(metas.slice(0, 3)));
 
-    // the sidebar must show generated (output+reasoning), NOT the context view
+    // the sidebar must show in+out, NOT the one-message context estimate
     const probe = rowInfo['Tokens probe session'] ?? '';
-    check('', 'probe row badge is generated (1K gen)', /1K gen/.test(probe), probe);
+    check('', 'probe row = 1500 in + 1000 out (3K)', / - 3K - /.test(probe), probe);
     check('', 'probe row does NOT show the 8K context view', !/8K/.test(probe), probe);
     const extra = rowInfo['Extra session with tokens'] ?? '';
-    check('', 'extra row badge is generated (2K gen)', /2K gen/.test(extra), extra);
+    check('', 'extra row = 5000 in + 2000 out (7K)', / - 7K - /.test(extra), extra);
     check('', 'extra row does NOT show the 19K context view', !/19K/.test(extra), extra);
 
     // engine session totals are self-only: the parent row must include the
-    // subagent's own total (5000 + 2500 = 7500 -> 8K)
+    // subagent's own total (25000 + 4000 = 29000 -> 29K)
     const parent = rowInfo['Gen rollup parent'] ?? '';
-    check('', 'parent row = own + subagent (8K gen)', /8K gen/.test(parent), parent);
+    check('', 'parent row = own + subagent (29K)', / - 29K - /.test(parent), parent);
     // strict on purpose: a missing child row must FAIL, not pass on the empty
     // string — otherwise this check is vacuous whenever subagents get hidden.
-    // 3K (self-only 2500), never the parent's 8K: engine totals are self-only.
+    // 4K (self-only 1500+2500), never the parent's 29K: engine totals are self-only.
     const child = rowInfo['Gen rollup child'] ?? '';
-    check('', 'child row shows its own number only (3K gen, no parent rollup)',
-      /3K gen/.test(child) && !/8K/.test(child), child || 'child row not rendered');
+    check('', 'child row shows its own number only (4K, no parent rollup)',
+      / - 4K - /.test(child) && !/29K/.test(child), child || 'child row not rendered');
     // ---- 2) open the Tokens probe session + verify InfoPanel -------------------
     console.log('\nCASE 2 — InfoPanel token display');
     await page.getByText('Tokens probe session', { exact: false }).first().click();
@@ -439,14 +458,14 @@ try {
     console.log('footer:', JSON.stringify(footer.slice(0, 160)));
     check('', 'footer rendered', footer.length > 0, footer.slice(0, 120));
 
-    // ---- 4) zero-tally session shows no gen badge ---------------------------
-    console.log('\nCASE 4 — zero-tally session has no gen badge');
+    // ---- 4) zero-tally session shows no token total -----------------------
+    console.log('\nCASE 4 — zero-tally session has no token badge');
     const zeroRow = page.locator('.sidebar .item', { hasText: 'Zero-tally session' });
     if (await zeroRow.count()) {
       const zeroSub = zeroRow.locator('.sub');
-      const zeroText = (await zeroSub.textContent()) ?? '';
-      check('', 'zero-tally session has no gen badge', !/gen\b/.test(zeroText),
-        zeroText.trim());
+      const zeroText = ((await zeroSub.textContent()) ?? '').replace(/\s+/g, ' ').trim();
+      check('', 'zero-tally session has no token badge', !/ - \d/.test(zeroText),
+        zeroText);
     } else {
       check('', 'zero-tally session row exists', false, 'row not found');
     }
@@ -455,8 +474,9 @@ try {
 
     // ---- 5) live value beats the stale snapshot -----------------------------
     // The history row is a snapshot; opening the tab makes the webui sum the
-    // session's own messages (output+reasoning = 900) and that must win, so an
-    // open session's badge stays current without a list refresh.
+    // session's own messages (output+reasoning = 900, fresh input = 12,000) and
+    // that must win, so an open session's number stays current without a list
+    // refresh.
     console.log('\nCASE 5 — live overlay replaces the stale snapshot');
     await page.getByText('Gen live overlay', { exact: false }).first().click();
     let liveMeta = '';
@@ -464,8 +484,8 @@ try {
       await page.waitForFunction(() => {
         for (const it of [...document.querySelectorAll('.sidebar .item')]) {
           if ((it.getAttribute('title') ?? '').startsWith('Gen live overlay')) {
-            const m = it.querySelector('.smeta')?.textContent ?? '';
-            if (/900 gen/.test(m)) return true;
+            const m = (it.querySelector('.smeta')?.textContent ?? '').replace(/\s+/g, ' ');
+            if (/ - 13K - /.test(m)) return true;
           }
         }
         return false;
@@ -474,12 +494,12 @@ try {
     liveMeta = await page.evaluate(() => {
       for (const it of [...document.querySelectorAll('.sidebar .item')]) {
         if ((it.getAttribute('title') ?? '').startsWith('Gen live overlay'))
-          return it.querySelector('.smeta')?.textContent?.trim() ?? '';
+          return (it.querySelector('.smeta')?.textContent ?? '').replace(/\s+/g, ' ').trim();
       }
       return '(row not found)';
     });
-    check('', 'open session shows the message-derived total (900 gen), not the stale 10',
-      /900 gen/.test(liveMeta), liveMeta);
+    check('', 'open session shows the message-derived total (12,000 in + 900 out = 13K), not the stale 20',
+      / - 13K - /.test(liveMeta), liveMeta);
   } finally {
     await browser.close();
   }

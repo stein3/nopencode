@@ -10,6 +10,10 @@
   import { codeCopy } from '../lib/codeCopy'
   import { outFirstLine, outLineCount, previewLine, toolOutputOf, outputPlaceholder } from '../lib/outpreview'
   import { genTally } from '../lib/gentokens'
+  import {
+    estChars, estTokens, fmtTok, toolTokTip, userTokTip,
+    TOOL_TOK_MIN, TOOL_TOK_BIG,
+  } from '../lib/intokens'
   import { retryState, cancelRetry, nextPayloadKind } from '../lib/retries'
   import ModelSelect from './ModelSelect.svelte'
   import QuestionPicker from './QuestionPicker.svelte'
@@ -911,13 +915,92 @@
     return ''
   }
 
-  // per-message generation only: output + reasoning (see lib/gentokens.ts for
-  // why input is excluded — it is the whole prompt context, which grows every
-  // turn and made tokens/t/s read as a session running total)
-  // id of the last reasoning part in a message — the thinking count is
-  // per-message, so stamp it on only one summary instead of every block
-  function lastReasoningId(m: any): string | undefined {
-    return (m.parts ?? []).filter((p: any) => p.type === 'reasoning').at(-1)?.id
+  // ---- per-BLOCK token stats ----------------------------------------------
+  // The engine measures usage per MESSAGE (one step), never per part, so a
+  // block's figure is the measured value for its OWN kind: `reasoning` tokens
+  // belong to the thinking block, `output` tokens to the reply text. When a
+  // message holds several blocks of one kind the measured total is split by
+  // character share and marked ≈. A user row has no usage at all (the engine
+  // bills whole STEPS), so its chip is the calibrated estimate of the text it
+  // adds to the next step's prompt; a tool row's chip is already its own
+  // estimate (`≈N tok` of result text, see lib/intokens.ts).
+  //
+  // The step's PROMPT total is not shown any more: it is the context that step
+  // was sent, which the footer's context meter already reports — and its
+  // colouring keyed off the PREVIOUS turn's output, which says nothing about
+  // the block it sat on.
+  interface BlkChip {
+    label: string
+    tip: string
+    /** false = chars-derived estimate, rendered dimmer and prefixed ≈ */
+    exact: boolean
+  }
+
+  const blkText = (p: any): string => p?.text ?? ''
+  const blkKind = (m: any, type: string) =>
+    (m.parts ?? []).filter((x: any) => x.type === type && blkText(x).trim())
+
+  /** The one block that carries the step's clock: the last block that produced
+   *  model text, or — for a tool-only step — its last block of any kind. */
+  function chipTarget(m: any): any {
+    const gen = (m.parts ?? []).filter(
+      (x: any) => (x.type === 'text' || x.type === 'reasoning') && blkText(x).trim(),
+    )
+    return gen.at(-1) ?? (m.parts ?? []).at(-1)
+  }
+
+  function blockChips(m: any, p: any): BlkChip[] {
+    const chars = blkText(p).length
+    if (!chars) return []
+    const isUser = (m.role ?? 'user') === 'user'
+    const reasoning = p.type === 'reasoning'
+    const out: BlkChip[] = []
+    // engine usage arrives on the message, flattened or under .info depending
+    // on the read path (history projection vs live SSE)
+    const tk = m.tokens ?? m.info?.tokens
+    // measured usage for THIS kind of block, this step
+    const meas = isUser ? 0 : Number(tk?.[reasoning ? 'reasoning' : 'output']) || 0
+    const sibs = blkKind(m, reasoning ? 'reasoning' : 'text')
+    const share = sibs.reduce((s: number, x: any) => s + blkText(x).length, 0)
+    if (meas > 0) {
+      const split = sibs.length > 1 && share > 0
+      const tok = split ? Math.round((meas * chars) / share) : meas
+      out.push({
+        label: `${split ? '≈' : ''}${fmtTok(tok)} tok`,
+        exact: !split,
+        tip: split
+          ? `${meas.toLocaleString()} ${reasoning ? 'reasoning' : 'output'} tokens measured for this step, split over its ${sibs.length} ${reasoning ? 'thinking' : 'text'} blocks by length — this one holds ${chars.toLocaleString()} of ${share.toLocaleString()} chars`
+          : `${meas.toLocaleString()} ${reasoning ? 'reasoning' : 'output'} tokens, as the engine reported them for this step`,
+      })
+    } else {
+      const tok = estChars(chars)
+      if (tok)
+        out.push({
+          label: `≈${fmtTok(tok)} tok`,
+          exact: false,
+          tip: isUser
+            ? userTokTip(chars)
+            : `~${tok.toLocaleString()} tokens estimated from ${chars.toLocaleString()} chars of ${reasoning ? 'thinking' : 'output'} — this step reported no usage, so it is a char count, not a tokenizer one`,
+        })
+    }
+    // the step's clock, stamped once on its last generating block
+    if (!isUser && p.id === chipTarget(m)?.id) {
+      const gen = genTally(tk) ?? 0
+      const { agentMs } = splitTiming(m)
+      if (gen > 0 && agentMs > 0) {
+        out.push({
+          label: `${(agentMs / 1000).toFixed(1)}s`,
+          exact: true,
+          tip: `${gen.toLocaleString()} tokens produced in this step's agent time (tool execution excluded)`,
+        })
+        out.push({
+          label: `${(gen / (agentMs / 1000)).toFixed(2)} t/s`,
+          exact: true,
+          tip: `generation rate over the step's agent time only`,
+        })
+      }
+    }
+    return out
   }
   // message duration = model generation + tool execution; the tool part's
   // state.time window sits at the tail of the message (verified against
@@ -1107,17 +1190,6 @@
           <span class="role" class:errole={m.error && m.role !== 'user' && !isAborted(m.error)}>{roleLabel(m)}</span>
         {/if}
         {#if m.modelID}<span class="model-id" title={m.providerID ? `${m.providerID}/${m.modelID}` : m.modelID}>{m.modelID}</span>{/if}
-        {#if genTally(m.tokens ?? m.info?.tokens)}
-          {@const toks = genTally(m.tokens ?? m.info?.tokens) ?? 0}
-          {@const { agentMs } = splitTiming(m)}
-          <span class="statgroup">
-            <span class="stat" title={`output ${m.tokens?.output ?? 0} + reasoning ${m.tokens?.reasoning ?? 0} tokens (turn's full context input not shown)`}>{toks} tokens</span>
-            {#if agentMs > 0}
-              <span class="stat" title="agent time (tool execution excluded)">{(agentMs/1000).toFixed(1)}s</span>
-              <span class="stat" title="tokens/s over agent time only">{(toks/(agentMs/1000)).toFixed(2)} t/s</span>
-            {/if}
-          </span>
-        {/if}
         {#if queuedIds.has(m.id)}
           <span class="qbadge" title="waiting for the current reply to finish">queued</span>
         {/if}
@@ -1157,11 +1229,26 @@
                 <div class="tnote-body">{@html html({ ...p, text: taskBody(p.text ?? '') }, tab.busy && m === lastMsg, throttleTick)}</div>
               </details>
             {:else}
-              {@html html(p, tab.busy && m === lastMsg, throttleTick, m.role !== 'user')}
+              {@const chips = blockChips(m, p)}
+              <div class="txblk">
+                {@html html(p, tab.busy && m === lastMsg, throttleTick, m.role !== 'user')}
+                {#if chips.length}
+                  <div class="blkstats">
+                    {#each chips as c (c.label)}
+                      <span class="stat" class:est={!c.exact} title={c.tip}>{c.label}</span>
+                    {/each}
+                  </div>
+                {/if}
+              </div>
             {/if}
           {:else if p.type === 'reasoning' && (p.text ?? '').trim()}
             <details class="thinking" open={$showThinking || p.id === liveReasoningId || undefined}>
-              <summary>💭 Thinking{#if lastReasoningId(m) === p.id && m.tokens?.reasoning}<span class="think-tok"> · {m.tokens.reasoning.toLocaleString()} reasoning tok</span>{/if}</summary>
+              <summary>
+                <span class="sum-text">💭 Thinking</span>
+                {#each blockChips(m, p) as c (c.label)}
+                  <span class="stat" class:est={!c.exact} title={c.tip}>{c.label}</span>
+                {/each}
+              </summary>
               {#if p.id === liveReasoningId}
                 <div class="think-body" bind:this={liveThinkEl} on:scroll={onThinkScroll}>{@html html(p, tab.busy && p.id === liveReasoningId, throttleTick)}</div>
               {:else}
@@ -1173,6 +1260,7 @@
             {@const imgPath = imageOf(p)}
             {@const scadPath = scadOf(p)}
             {@const out = toolOutputOf(p.state)}
+            {@const otok = estTokens(out)}
             {@const okey = outKeyOf(p)}
             {@const ph = outputPlaceholder(p.state?.status, !!toolError(p))}
             <div class="toolcard" class:toolerr={isToolErr(p)}>
@@ -1180,6 +1268,7 @@
                 <summary>
                   <span class="sum-text">{#if isToolErr(p)}<span class="errglyph">✗ </span>{:else}{toolStatusGlyph(p)}{/if}<span class="tname {toolColorClass(p)}">{p.tool ?? 'tool'}</span>{#if pq}<span class="tsep">·</span><span class="qwait">awaiting your answer</span>{:else if toolDetail(p)}<span class="tsep">·</span><span>{toolDetail(p)}</span>{/if}</span>
                   {#if isTruncated(p)}<span class="badge warn">truncated</span>{/if}
+                  {#if otok >= TOOL_TOK_MIN}<span class="badge tok" class:big={otok >= TOOL_TOK_BIG} title={toolTokTip(otok, out.length, isTruncated(p))}>≈{fmtTok(otok)} tok</span>{/if}
                   {#if toolDuration(p)}<span class="badge">{toolDuration(p)}</span>{/if}
                 </summary>
                 <div class="tool-body">
@@ -1757,21 +1846,26 @@
     color: var(--fg-dim);
     white-space: nowrap;
   }
-  .statgroup {
-    display: inline-flex;
-    gap: 8px;
-  }
+  /* one block's own token figure (blockChips above). `.est` marks a
+     chars-derived estimate, not an engine-reported count. */
   .stat {
     color: var(--fg-dim);
     font-family: var(--mono);
+    font-size: 11.5px;
+    white-space: nowrap;
   }
-  /* keep the stat cluster readable as one unit, pull it away from model /
-     timestamp only when there's room */
-  @media (min-width: 720px) {
-    .statgroup {
-      margin-left: 16px;
-      margin-right: 16px;
-    }
+  .stat.est {
+    opacity: 0.65;
+  }
+  /* the block's stats sit under its own prose, right-aligned, so a step reads
+     as thinking / tool / reply — each with its own number — not as a header
+     total for the whole message */
+  .blkstats {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 2px;
+    user-select: none;
   }
   .model-id {
     font-family: var(--mono);
@@ -2007,6 +2101,11 @@
   .badge.warn {
     color: var(--warn);
     box-shadow: inset 0 0 0 1px rgba(204, 167, 0, 0.35);
+  }
+  /* estimated input-token cost of a tool result (see lib/intokens.ts) */
+  .badge.tok.big {
+    color: var(--warn);
+    box-shadow: inset 0 0 0 1px rgba(204, 167, 0, 0.25);
   }
   .tool-body {
     padding: 8px 10px;
@@ -2258,10 +2357,6 @@
     flex: none;
     opacity: 0.7;
   }
-  .think-tok {
-    opacity: 0.6;
-    font-weight: normal;
-  }
   details.thinking {
     margin: 6px 0;
     border: 1px dashed var(--border);
@@ -2271,6 +2366,9 @@
   }
   details.thinking summary {
     cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 8px;
     padding: 5px 10px;
     color: var(--fg-dim);
     user-select: none;

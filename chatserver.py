@@ -111,6 +111,17 @@ GEN_SUM_SQL = (
     "+COALESCE(json_extract(data,'$.tokens.reasoning'),0)"
 )
 
+# Prompt tokens a session actually had to PROCESS, summed over every assistant
+# message: `input` (uncached) + `cache.write` (billed to create a cache entry).
+# Deliberately excludes `cache.read` — that is the same context re-sent once per
+# turn, so summing it makes the row number grow with turn count instead of with
+# work done (top session: 177.7M cache.read vs 3.7M input). Same `fresh` half
+# the transcript chips use (webui/src/lib/intokens.ts promptTally).
+IN_SUM_SQL = (
+    "COALESCE(json_extract(data,'$.tokens.input'),0)"
+    "+COALESCE(json_extract(data,'$.tokens.cache.write'),0)"
+)
+
 
 def num(v):
     """Best-effort epoch-ms coercion for time-ish columns."""
@@ -491,17 +502,19 @@ def load_sessions():
                GROUP BY s.id ORDER BY s.rowid DESC"""
         )
         # Generated tokens per session: one pass over `message` (GROUP BY uses the
-        # message_session index; ~11k messages = a few ms).
-        gen = {
-            r["sid"]: int(r["g"])
-            for r in c.execute(
-                f"""SELECT m.session_id sid, SUM({GEN_SUM_SQL}) g
-                    FROM message m
-                    WHERE json_extract(m.data,'$.role')='assistant'
-                    GROUP BY m.session_id"""
-            )
-            if (r["g"] or 0) > 0
-        }
+        # message_session index; ~11k messages = a few ms). The same pass sums the
+        # fresh prompt side, so the sidebar can show in+out without a second scan.
+        gen, tin = {}, {}
+        for r in c.execute(
+            f"""SELECT m.session_id sid, SUM({GEN_SUM_SQL}) g, SUM({IN_SUM_SQL}) i
+                FROM message m
+                WHERE json_extract(m.data,'$.role')='assistant'
+                GROUP BY m.session_id"""
+        ):
+            if (r["g"] or 0) > 0:
+                gen[r["sid"]] = int(r["g"])
+            if (r["i"] or 0) > 0:
+                tin[r["sid"]] = int(r["i"])
         for r in rows:
             model = r["model"] or ""
             model_provider = ""
@@ -536,6 +549,10 @@ def load_sessions():
                 # SELF-ONLY: subagent sessions are separate rows; the webui sums
                 # the descendant subtree (webui/src/lib/gentokens.ts).
                 entry["tokens_generated"] = gen[r["id"]]
+            if r["id"] in tin:
+                # same SELF-ONLY scope as tokens_generated — the webui rolls the
+                # descendant subtree up for both halves.
+                entry["tokens_input"] = tin[r["id"]]
             out.append(entry)
     # Merge session meta (star / tag) from the sidecar webui.db.
     # session_meta_read_all() swallows all errors — safe to call unconditionally.

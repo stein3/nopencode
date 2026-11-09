@@ -2,7 +2,7 @@
   import { onMount, tick } from 'svelte'
   import { writable } from 'svelte/store'
   import { oc, hist, type HistSession, type SearchHit } from '../lib/api'
-  import { genRollup, genTotal } from '../lib/gentokens'
+  import { genRollup, inRollup, sessTok } from '../lib/gentokens'
   import { searchQuery, sessionMetrics, permissions, pendingQuestions, tabs, sessionUnread, markSessionUnread, hideSubagents, groupByWorkspace, subExpanded, settingsOpen, sessionListDirty, sessionKidMap, sessionMeta, toggleStar, setTag, allTags, applyServerMeta, dropSessionMeta, sidebarOpen, syncEngineRetryFromStatus, syncEngineMetricsFromStatus, syncCompactionFromStatus, type SessionMeta } from '../lib/stores'
   import { groupRowsByWorkspace, hasWorkspace } from '../lib/sessionGroups'
 import { sidePanel } from '../lib/sidePanel'
@@ -288,6 +288,7 @@ import { sidePanel } from '../lib/sidePanel'
   interface Row extends HistSession {
     tokens?: number
     tokens_generated?: number
+    tokens_input?: number
   }
 
   function fmtK(n?: number): string {
@@ -297,27 +298,36 @@ import { sidePanel } from '../lib/sidePanel'
     return String(n)
   }
 
-  // ---- rolled-up GENERATED totals for parent sessions -----------------------
-  // The row stat is generated tokens (output+reasoning; see lib/gentokens.ts
-  // for why prompt context and cache reads are excluded). Engine session
-  // totals are self-only — a subagent's tokens are NOT folded into its parent —
-  // so the whole descendant subtree is summed here, from the session list the
-  // sidebar already has (no extra requests). Recursive: the old one-hop rollup
-  // lost grandchildren (subagents that spawn subagents).
+  // ---- rolled-up token totals for parent sessions --------------------------
+  // The row stat is IN + OUT: fresh prompt tokens (input + cache.write) and
+  // generated tokens (output+reasoning; see lib/gentokens.ts for why prompt-cache
+  // RE-READS are excluded from both). Engine session totals are self-only — a
+  // subagent's tokens are NOT folded into its parent — so the whole descendant
+  // subtree is summed here, from the session list the sidebar already has (no
+  // extra requests). Recursive: the old one-hop rollup lost grandchildren
+  // (subagents that spawn subagents).
   $: rolledGen = genRollup(rows, $sessionMetrics)
+  $: rolledIn = inRollup(rows, $sessionMetrics)
 
-  function effGen(s: Row): number | undefined {
-    return genTotal(s, $sessionMetrics, rolledGen)
+  function rowTok(s: Row): ReturnType<typeof sessTok> {
+    return sessTok(s, $sessionMetrics, rolledGen, rolledIn)
+  }
+
+  /** The row's number: in + out, compacted (999 / 4K / 177.7M). */
+  function rowTokK(s: Row): string {
+    const t = rowTok(s)
+    return t ? fmtK(t.total) : ''
   }
 
   function genTip(s: Row): string {
+    const t = rowTok(s)
+    if (!t) return ''
     const kids = descIds(kidsMap.get(s.id) ?? [], kidsMap).length
     return (
-      'generated tokens — model output + reasoning, summed over this session' +
-      (kids
-        ? ` and ${kids} subagent session${kids === 1 ? '' : 's'}`
-        : '') +
-      ' (prompt context and cache reads excluded)'
+      `${t.in.toLocaleString()} input + ${t.out.toLocaleString()} output tokens` +
+      ', summed over this session' +
+      (kids ? ` and ${kids} subagent session${kids === 1 ? '' : 's'}` : '') +
+      ` (total ${t.total.toLocaleString()}; prompt-cache re-reads excluded — they are the same context sent again each turn)`
     )
   }
 
@@ -969,10 +979,9 @@ import { sidePanel } from '../lib/sidePanel'
           <span class="sub"
             ><span
                 class="smeta"
-              >{#if isSub(d.s)}<span class="subagent">{subLabel(d.s)}</span> · {/if}{d.s.message_count} msgs{#if
-                  effGen(d.s)
-                }
-                · <span class="gen" title={genTip(d.s)}>{fmtK(effGen(d.s))} gen</span>{/if}{#if d.s.model} · <span
+              >{#if isSub(d.s)}<span class="subagent">{subLabel(d.s)}</span>{" - "}{/if}{d.s.message_count} msgs{#if
+                  rowTok(d.s)
+                }{" - "}<span class="stok" title={genTip(d.s)}>{rowTokK(d.s)}</span>{/if}{#if d.s.model}{" - "}<span
                     class="mmeta"
                     title={modelTip(d.s.model, d.s.model_provider, $modelProvs)}
                     >{d.s.model}</span

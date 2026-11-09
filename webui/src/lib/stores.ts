@@ -1,6 +1,6 @@
 import { get, writable } from 'svelte/store'
 import { hist, type OcMessage, type OcQueue } from './api'
-import { genTally } from './gentokens'
+import { genTally, inTally } from './gentokens'
 import { msgModel } from './util'
 
 // Engine reverts don't delete messages — they mark a revert point on the
@@ -297,6 +297,10 @@ export interface SessionMetrics {
   // the session (set only from a COMPLETE message list — a truncated page would
   // under-count and clobber a good value). This is what the sidebar row shows.
   generated?: number
+  // fresh prompt tokens: input+cache.write over every assistant message, same
+  // complete-list rule as `generated` — the sidebar adds it to `generated` for
+  // the row total (gentokens.ts sessTok)
+  prompt?: number
   cost?: number // engine-maintained session spend
   updated?: number // last activity, ms epoch
   messages?: number // message count from the live engine view
@@ -343,12 +347,15 @@ export function metricsFromMessages(msgs: any[], complete = true): SessionMetric
   // engine DB), so a complete fetch reproduces the session's own total exactly.
   if (complete) {
     let gen = 0
+    let prompt = 0
     for (const m of list) {
       const info = (m as any).info ?? m
       if ((info?.role ?? 'assistant') !== 'assistant') continue
       gen += genTally(info?.tokens) ?? 0
+      prompt += inTally(info?.tokens) ?? 0
     }
     if (gen > 0) out.generated = gen
+    if (prompt > 0) out.prompt = prompt
   }
   for (let i = list.length - 1; i >= 0; i--) {
     const info = (list[i] as any).info ?? list[i]

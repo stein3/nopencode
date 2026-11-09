@@ -227,10 +227,20 @@ const ctl = (payload) =>
 /**
  * Read the rendered text of the assistant message from the DOM.
  * The text lives in the .body div inside the .msg row (markdown-rendered <p>).
+ * The block's token chips (.blkstats — "≈35 tok 10.0s") render inside that same
+ * .body, so they are stripped: they are chrome, not message text, and an
+ * endsWith() on the streamed chunk would fail on them.
  */
 async function readAssistantText(page, pane) {
   const row = pane.locator('#m-msg_a1');
-  const text = await row.locator('.body').innerText().catch(() => '');
+  const text = await row
+    .locator('.body')
+    .evaluate((el) => {
+      const c = el.cloneNode(true);
+      c.querySelectorAll('.blkstats').forEach((n) => n.remove());
+      return (c.textContent ?? '').trim();
+    })
+    .catch(() => '');
   return text;
 }
 

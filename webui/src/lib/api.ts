@@ -304,6 +304,9 @@ export interface HistSession {
   // messages — chatserver sums message.data JSON, pi-web sums pi's per-message
   // usage. SELF-ONLY: the sidebar adds descendant sessions itself (gentokens.ts)
   tokens_generated?: number
+  // fresh prompt tokens (input + cache.write, cache RE-READS excluded) summed
+  // the same way over the same scope — the other half of the row's total
+  tokens_input?: number
   // set on subagent sessions (@explore, @general, …) — engine session parentID
   parent?: string
   agent?: string

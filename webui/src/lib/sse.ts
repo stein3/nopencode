@@ -507,8 +507,12 @@ function openStream() {
         // summing the session's whole transcript, so the row can stay current without
         // waiting for a full message refetch. Same rule as metricsFromMessages: accept
         // a positive number only, never let a zero/partial read clobber a good value.
+        // `tokens_input` is the fresh prompt half of the same server-side sum.
         ...(typeof p.info.tokens_generated === 'number' && p.info.tokens_generated > 0
           ? { generated: p.info.tokens_generated }
+          : {}),
+        ...(typeof p.info.tokens_input === 'number' && p.info.tokens_input > 0
+          ? { prompt: p.info.tokens_input }
           : {}),
       })
       // follow renames / auto-titles (e.g. "New Session" → real title)

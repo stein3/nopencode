@@ -221,4 +221,25 @@ test('the dismissal is persisted, so a reload does not resurrect the alert', () 
   // which is what a fresh page load re-reads instead of re-showing the box
   const carried = [...mem.values()].some((v) => v.includes(CMP_SID) && v.includes('1700000300000'))
   assert.ok(carried, 'the dismissal (session + record `at`) is written to localStorage')
+
+  // ---- the sidebar row's two live halves -------------------------------------
+// The row shows fresh INPUT + generated OUT (lib/gentokens.ts sessTok), so the
+// overlay must carry BOTH sums and both must stay `complete`-gated: a truncated
+// page would under-count and clobber the snapshot the row fell back to.
+test('metricsFromMessages sums generated AND fresh input over every assistant message', () => {
+  const msgs = [
+    // user-message usage never counts — the engine bills whole STEPS
+    { info: { id: 'u1', role: 'user', tokens: { input: 777, output: 999 } } },
+    { info: { id: 'a1', role: 'assistant', tokens: { input: 1000, output: 120, reasoning: 30, cache: { read: 9000, write: 11 } } } },
+    { info: { id: 'a2', role: 'assistant', tokens: { input: 500, output: 80 } } },
+  ]
+  const m = metricsFromMessages(msgs, true)
+  assert.equal(m.generated, 230, 'output + reasoning over both steps')
+  assert.equal(m.prompt, 1511, 'input + cache.write; cache.read excluded')
+})
+
+test('a PARTIAL page emits neither token sum', () => {
+  const msgs = [{ info: { id: 'a1', role: 'assistant', tokens: { input: 1000, output: 120 } } }]
+  assert.equal('generated' in metricsFromMessages(msgs, false), false)
+  assert.equal('prompt' in metricsFromMessages(msgs, false), false)
 })

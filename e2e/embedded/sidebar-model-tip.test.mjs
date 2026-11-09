@@ -223,8 +223,8 @@ try {
       JSON.stringify(rows['Mtip no model']));
     check('no-model meta reads "4 msgs"', rows['Mtip no model']?.smeta === '4 msgs',
       JSON.stringify(rows['Mtip no model']?.smeta));
-    // 6) meta line keeps the " · <id>" suffix layout
-    check('meta suffix layout preserved', /·\s*qwen3\.8-flash$/.test(rows['Mtip named']?.smeta ?? ''),
+    // 6) meta line keeps the " - <id>" suffix layout (dash separator, no middot)
+    check('meta suffix layout preserved', /-\s*qwen3\.8-flash$/.test(rows['Mtip named']?.smeta ?? ''),
       JSON.stringify(rows['Mtip named']?.smeta));
 
     // 7) hover keeps the title attribute (native tooltip is attribute-driven)
